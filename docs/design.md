@@ -3,7 +3,8 @@
 How bit-perfect-checker is built and why. The signal itself is specified in
 [bpc1.md](bpc1.md); this document gives the choices around
 it. How to use, build and release is in the [README](../README.md); the
-device's log, commands and LEDs are in the [firmware README](../firmware/README.md).
+device's log, commands and LEDs are in the [firmware README](../firmware/README.md);
+what was measured on hardware is in [measurements.md](measurements.md).
 
 Contents:
 
@@ -275,14 +276,14 @@ show:
   32-bit files, snd-usb-audio picks alt 1, alt 4 (`S24_3LE`) and alt 2
   respectively. Alt 2 and 3 are both `S32_LE` with the same packet size, and
   Linux takes the first, so it never selects alt 3; all 32 bits still arrive.
-  Linux sends about 950 silent frames more than the file in each stream. A desktop session
+  A Linux stream carries 17 to 20 ms more than the file, inside the file's extent ([measurements](measurements.md#27-frames-beyond-the-file)). A desktop session
   through a sound server may resample.
 - **iPadOS.** The iPad joins files of the same rate into one stream and sends
   about 0.2 s of zeros before each file.
 - **Packet placement.** Where a host places isochronous packets inside the
   microframe differs between hosts, and at the highest rates it decides
   whether a device with a single re-armed OUT transfer misses a packet (section
-  8).
+  8; the measurements are in [measurements.md](measurements.md#22-lost-packets-at-7056-and-768-khz)).
 
 ## 7. Hardware
 
@@ -446,3 +447,6 @@ iPad. macOS, Windows and Android are not tested.
   change while a stream stays open, which the tested hosts avoid by closing the
   stream (alt setting 0) first. The firmware ends such a stream with
   `reason=rate` and starts a new one at the new rate.
+
+The figures behind these results, with the firmware stage of each, and the
+load and receive-FIFO margins at 768 kHz are in [measurements.md](measurements.md).

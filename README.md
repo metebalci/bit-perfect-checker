@@ -39,6 +39,7 @@ rebuilding a release. The design and its reasons are in
 | `checker/` | reference software checker (Python) |
 | `docs/design.md` | [design](docs/design.md): the choices behind the project and why |
 | `docs/bpc1.md` | [BPC1 signal format](docs/bpc1.md), the specification |
+| `docs/measurements.md` | [measurements](docs/measurements.md): what was measured on hardware with Linux and an iPad |
 | `firmware/` | firmware for the hardware checker, NUCLEO-U5A5ZJ-Q first; see [firmware](firmware/README.md) |
 | `generator/` | test-file generator (Python) |
 | `generator/third_party/alac/` | Apple's ALAC codec, a git submodule |
@@ -73,7 +74,9 @@ files.
    contain full-scale bursts, and the sweep files are full-scale noise for
    their whole length: **do not play them on speakers or headphones.**
 4. **Play and read the result.** See the website above. For test automation,
-   see [Automate with bpcctl](#automate-with-bpcctl).
+   see [Automate with bpcctl](#automate-with-bpcctl). What to expect from
+   Linux and from an iPad, such as packets a PC loses at 705.6 and 768 kHz, is
+   in [measurements](docs/measurements.md).
 
 ## Build
 

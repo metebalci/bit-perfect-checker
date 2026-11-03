@@ -64,8 +64,9 @@ any rate. A miss shows as `lost`, and the file is `NOT_BIT_PERFECT`.
 Seen on Linux (snd-usb-audio, raw `hw:` playback): 16-bit files use alt 1,
 24-bit files alt 4 (`S24_3LE`), and 32-bit files alt 2. Alt 2 and 3 are both
 `S32_LE` with the same packet size, and Linux takes the first, so it never
-selects alt 3; all 32 bits still arrive. Linux sends a few hundred silent
-frames around each stream.
+selects alt 3; all 32 bits still arrive. A Linux stream carries 17 to
+20 ms more than the file, inside the file's extent (see
+[measurements](../docs/measurements.md#27-frames-beyond-the-file)).
 
 ### TinyUSB patch
 
