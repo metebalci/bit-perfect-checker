@@ -1,0 +1,78 @@
+// USB identity and the UAC2 topology: clock source -> input terminal (USB
+// streaming) -> output terminal. There is no Feature Unit, so a host that
+// wants to change the volume has to do it in software, where the checker
+// sees it.
+
+#ifndef USB_DESCRIPTORS_H
+#define USB_DESCRIPTORS_H
+
+#include <stdbool.h>
+#include <stddef.h>
+#include <stdint.h>
+
+// USB_VID and USB_PID come from the build (CMake options of the same name).
+// The default, 1209:0001, is the pid.codes test PID: it is not unique and is
+// for in-house testing only. Never use it on a device that is distributed,
+// sold or manufactured; get your own VID:PID for that.
+#ifndef USB_VID
+#define USB_VID   0x1209
+#endif
+#ifndef USB_PID
+#define USB_PID   0x0001
+#endif
+
+// Raise with every change to the descriptors, so hosts that cache them notice.
+#define USB_BCD   0x0101
+
+enum {
+  ITF_NUM_AUDIO_CONTROL = 0,
+  ITF_NUM_AUDIO_STREAMING,
+  ITF_NUM_TOTAL
+};
+
+#define EP_AUDIO_OUT  0x01
+#define EP_AUDIO_FB   0x81
+
+#define UAC2_ENTITY_INPUT_TERMINAL   0x01
+#define UAC2_ENTITY_OUTPUT_TERMINAL  0x03
+#define UAC2_ENTITY_CLOCK            0x04
+
+#define UAC2_CHANNELS     2
+#define UAC2_MAX_RATE     768000
+
+// wMaxPacketSize: one frame more than the nominal number per microframe at
+// the highest rate, as TUD_AUDIO_EP_SIZE computes it.
+#define UAC2_EP_OUT_SZ(_slot) \
+  ((((UAC2_MAX_RATE) + 7999) / 8000 + 1) * (_slot) * UAC2_CHANNELS)
+#define UAC2_EP_OUT_SZ_2BYTE  UAC2_EP_OUT_SZ(2)
+#define UAC2_EP_OUT_SZ_3BYTE  UAC2_EP_OUT_SZ(3)
+#define UAC2_EP_OUT_SZ_4BYTE  UAC2_EP_OUT_SZ(4)
+
+// A streaming format: slot size in bytes and bit resolution. The device
+// knows four: 16/2, 24/4, 32/4 and 24/3 (bits/bytes), and offers some or all
+// of them, in a chosen order, as alt settings 1 to uac2_alt_count.
+typedef struct {
+  uint8_t slot;
+  uint8_t resolution;
+} uac2_alt_t;
+
+#define UAC2_ALT_MAX 4
+#define UAC2_FORMATS_ALL "16/2,24/4,32/4,24/3"
+
+extern uac2_alt_t uac2_alts[UAC2_ALT_MAX + 1];  // index 0 is the zero-bandwidth alt
+extern uint8_t uac2_alt_count;
+
+// Formats as text, "<bits>/<bytes>" separated by commas, e.g. "24/3,16/2".
+// False for an unknown format, a repeated one, or none.
+bool usb_formats_parse(const char *text, uac2_alt_t *alts, uint8_t *count);
+
+// Offer these formats as alt settings 1 to count. Only while the device is
+// disconnected, since the host reads the descriptors at enumeration.
+void usb_formats_set(const uac2_alt_t *alts, uint8_t count);
+
+bool usb_formats_equal(const uac2_alt_t *alts, uint8_t count);
+
+// The formats offered now, as text.
+void usb_formats_text(char *buf, size_t size);
+
+#endif

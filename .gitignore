@@ -1,0 +1,37 @@
+# Build outputs
+build/
+*.elf
+*.bin
+*.hex
+*.map
+*.o
+*.d
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+*.egg-info/
+
+# Generated test audio (published as release assets, never committed)
+out/
+*.wav
+*.flac
+*.dsf
+*.dff
+
+# Release zips (published as release assets, never committed)
+dist/
+
+# Editors and OS
+.vscode/
+.idea/
+*.swp
+*~
+.DS_Store
+Thumbs.db
+
+# Private notes (hand-off, research, work in flight)
+notes/

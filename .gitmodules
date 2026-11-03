@@ -1,0 +1,18 @@
+[submodule "firmware/lib/tinyusb"]
+	path = firmware/lib/tinyusb
+	url = https://github.com/hathach/tinyusb
+[submodule "firmware/lib/cmsis_device_u5"]
+	path = firmware/lib/cmsis_device_u5
+	url = https://github.com/STMicroelectronics/cmsis_device_u5
+	shallow = true
+[submodule "firmware/lib/stm32u5xx_hal_driver"]
+	path = firmware/lib/stm32u5xx_hal_driver
+	url = https://github.com/STMicroelectronics/stm32u5xx_hal_driver
+	shallow = true
+[submodule "firmware/lib/CMSIS_5"]
+	path = firmware/lib/CMSIS_5
+	url = https://github.com/ARM-software/CMSIS_5
+	shallow = true
+[submodule "generator/third_party/alac"]
+	path = generator/third_party/alac
+	url = https://github.com/macosforge/alac
