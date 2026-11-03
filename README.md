@@ -3,7 +3,7 @@
 bit-perfect-checker proves whether an audio playback chain (player, operating
 system, USB audio stack) delivers a file bit-perfect. It consists of:
 
-- the BPC1 test signal ([signal format](docs/signal-format.md)) and a
+- the BPC1 test signal ([signal format](docs/bpc1.md)) and a
   generator for its test files: WAV, FLAC, AIFF and ALAC for PCM (16- and
   24-bit, 44.1 to 768 kHz, and 32-bit WAV on request), and DSF, DFF and DoP
   (in WAV, FLAC, AIFF and ALAC) for DSD64 to DSD256, plus a separate
@@ -38,7 +38,7 @@ rebuilding a release. The design and its reasons are in
 | `bpcctl/` | client for the hardware checker's serial log, for test automation |
 | `checker/` | reference software checker (Python) |
 | `docs/design.md` | [design](docs/design.md): the choices behind the project and why |
-| `docs/signal-format.md` | [BPC1 signal format](docs/signal-format.md), the specification |
+| `docs/bpc1.md` | [BPC1 signal format](docs/bpc1.md), the specification |
 | `firmware/` | firmware for the hardware checker, NUCLEO-U5A5ZJ-Q first; see [firmware](firmware/README.md) |
 | `generator/` | test-file generator (Python) |
 | `generator/third_party/alac/` | Apple's ALAC codec, a git submodule |
@@ -97,7 +97,7 @@ Without `flac` or the ALAC tools the generator skips those files and says so.
 
 Into `out/`: 122 files, about 1.75 GB. Twenty-four of them, in `out/negative/`,
 are deliberately faulty copies, altered or incomplete, that a checker must
-report as `NOT_BIT_PERFECT` (see the [signal format](docs/signal-format.md),
+report as `NOT_BIT_PERFECT` (see the [signal format](docs/bpc1.md),
 section 11.5):
 
 ```
@@ -114,7 +114,7 @@ not for listening: **do not play them on speakers or headphones.**
 
 The generator writes every WAV first. FLAC, AIFF and ALAC are made from the
 WAV of the same name, so all formats of a file hold the same samples. The
-formats in the [signal format](docs/signal-format.md), section 9, are written
+formats in the [signal format](docs/bpc1.md), section 9, are written
 as follows:
 
 | Format | Written by |
@@ -218,7 +218,7 @@ python3 -m generator package
 ```
 
 The code-sweep set (88 files, about 5.4 GB, a separate set: see the
-[signal format](docs/signal-format.md), sections 7.4 and 11.6) is written and
+[signal format](docs/bpc1.md), sections 7.4 and 11.6) is written and
 packaged on request. Use an output folder of its own, so that it does not
 mix with the regular files:
 
@@ -289,7 +289,7 @@ changed (informative; the verdict does not depend on it):
 | `UNKNOWN_SIGNAL` | audio that belongs to no BPC1 file, silence included: not a BPC1 test signal, or a stream in which inversion, rounding, dithering or resampling destroyed the X-syncs |
 | `DEVICE_OVERRUN` | hardware checker only: its own receive buffer overflowed and it could not judge the file; play it again |
 
-The exact rules are in section 12.6 of the [signal format](docs/signal-format.md#126-verdicts).
+The exact rules are in section 12.6 of the [signal format](docs/bpc1.md#126-verdicts).
 Only `BIT_PERFECT` is a pass. In the software checker, by default, silence
 outside a file gives `UNKNOWN_SIGNAL` too; its `--allow-silence` lets silence
 anywhere outside the files give no result, and a report states it. The
@@ -392,7 +392,7 @@ Before a release, all of these hold:
   A player that decodes ALAC with ffmpeg fails those files; the WAV and AIFF
   of the same name hold the same samples. The project's files are made and
   checked with Apple's codec (see the
-  [signal format](docs/signal-format.md#97-alac-mp4), section 9.7).
+  [signal format](docs/bpc1.md#97-alac-mp4), section 9.7).
 
 ## Built on
 
@@ -417,7 +417,7 @@ the STM32U5.
 
 The payload hash of BPC1 uses the lowbias32 constants published by Chris
 Wellons, and the channel keys are the first output of SplitMix64 (Sebastiano
-Vigna), as the [signal format](docs/signal-format.md) describes.
+Vigna), as the [signal format](docs/bpc1.md) describes.
 
 ## How it was written
 

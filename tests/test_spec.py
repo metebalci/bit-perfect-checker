@@ -1,7 +1,7 @@
 """Primitives and golden vectors, against both implementations.
 
 The generator (generator/) and the checker's model (checker/model.py) are
-independent implementations of docs/signal-format.md. These tests pin both to
+independent implementations of docs/bpc1.md. These tests pin both to
 published reference values and to the committed golden vectors.
 """
 

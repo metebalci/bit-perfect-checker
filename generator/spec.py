@@ -1,6 +1,6 @@
 """BPC1 v1: constants and primitive functions.
 
-This module mirrors the normative definitions in docs/signal-format.md. The
+This module mirrors the normative definitions in docs/bpc1.md. The
 section numbers in the comments refer to that document. Everything here is
 plain integer arithmetic; numpy is used only to evaluate it on arrays.
 """

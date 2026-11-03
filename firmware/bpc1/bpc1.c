@@ -1,4 +1,4 @@
-// BPC1 v1 primitives and expected signal, from docs/signal-format.md.
+// BPC1 v1 primitives and expected signal, from docs/bpc1.md.
 
 #include "bpc1.h"
 

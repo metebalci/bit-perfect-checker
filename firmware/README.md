@@ -23,7 +23,7 @@ NUCLEO-U5A5ZJ-Q.
 ## What it does
 
 The firmware is the USB audio function, the LEDs, the serial log and the BPC1
-checker ([section 12.6](../docs/signal-format.md#126-verdicts)). It
+checker ([section 12.6](../docs/bpc1.md#126-verdicts)). It
 enumerates as a USB Audio Class 2 output device at High-Speed, records what
 the host sends, and checks every frame against the test signal:
 
@@ -115,7 +115,7 @@ look like a 24-bit DAC with packed samples, and offering `16/2` alone like a
 
 By default (`allow_silence` `true`) silence outside every file's extent
 gives no result, wherever it is: before the first file, between files and
-after the last ([section 12.6](../docs/signal-format.md#126-verdicts)
+after the last ([section 12.6](../docs/bpc1.md#126-verdicts)
 defines silence). Hosts pad their streams with it; an iPad sends about
 0.2 s of zeros before each file. Anything else outside a file gives
 `UNKNOWN_SIGNAL`. With `allow_silence` `false`, every stretch outside a
@@ -205,7 +205,7 @@ their meaning.
 | `lost packets=<n> total=<n>` | microframes passed without a packet (a zero-length packet counts as none) |
 | `overflow packets=<n> total=<n>` | the receive FIFO was full, so data was overwritten |
 | `result seq=<n> stream=<n> file=<n> verdict=<verdict> kind=<kind> ...` | **the outcome of one file**: see [Result lines](#result-lines) |
-| `stream stop id=<n> reason=<why> dur=<s> frames=<n> pkts=<n> rate=<Hz> fpp=<min>-<max> lost=<n> missed=<n> holes=<n> maxhole=<n> doubled=<n> ovf=<n> outside=<frames> silent=<frames> results=<n> results_lost=<n>` | end of a stream, after its last `result` line: `alt` (alt setting changed), `idle` (no packet for 50 ms), `rate` (the host set another rate during the stream), `reset` or `pause`; `fpp` is frames per packet; `holes` counts the runs of microframes without a packet and `maxhole` is the longest; `outside` is the number of frames of the stream outside every file's extent ([12.6](../docs/signal-format.md#126-verdicts)), so host padding can be measured; `silent` is the number of those frames that were allowed silence, which gave no result (0 unless `allow_silence` is `true`); `results` is the number of result lines of the stream, and `results_lost` the number of results of the stream the checker dropped because its queue of finished results was full |
+| `stream stop id=<n> reason=<why> dur=<s> frames=<n> pkts=<n> rate=<Hz> fpp=<min>-<max> lost=<n> missed=<n> holes=<n> maxhole=<n> doubled=<n> ovf=<n> outside=<frames> silent=<frames> results=<n> results_lost=<n>` | end of a stream, after its last `result` line: `alt` (alt setting changed), `idle` (no packet for 50 ms), `rate` (the host set another rate during the stream), `reset` or `pause`; `fpp` is frames per packet; `holes` counts the runs of microframes without a packet and `maxhole` is the longest; `outside` is the number of frames of the stream outside every file's extent ([12.6](../docs/bpc1.md#126-verdicts)), so host padding can be measured; `silent` is the number of those frames that were allowed silence, which gave no result (0 unless `allow_silence` is `true`); `results` is the number of result lines of the stream, and `results_lost` the number of results of the stream the checker dropped because its queue of finished results was full |
 | `stall <ms>` | the [`stall` command](#commands-to-the-device) started its busy-wait of `<ms>` milliseconds |
 | `run start` | a new run begins: the user button was pressed, the `mark` command arrived, or the board reset; green and red go off ([LEDs](#leds)) |
 | `usb unsupported get/set entity=<id> ctrl=<n> req=<n>` | a class request the device does not answer |
@@ -248,7 +248,7 @@ and 0 in the file's fields. The fields:
 | `stream` | the stream it belongs to: the `id=` of `stream start`, `stat`, `stream stop` and `status` |
 | `file` | the result's place in its stream, from 1 |
 | `verdict` | `BIT_PERFECT`, `NOT_BIT_PERFECT`, `UNKNOWN_SIGNAL` or `DEVICE_OVERRUN`, below |
-| `kind` | the file's kind from its X-sync: `PCM`, `SWEEP` (the PCM code sweep, [signal format](../docs/signal-format.md#75-expected-word-pseudocode)), `DSF`, `DFF`, `DOP`, or `NONE` |
+| `kind` | the file's kind from its X-sync: `PCM`, `SWEEP` (the PCM code sweep, [signal format](../docs/bpc1.md#75-expected-word-pseudocode)), `DSF`, `DFF`, `DOP`, or `NONE` |
 | `dop` | 1 when the file came as DoP: a DSF file played as DoP gives `kind=DSF dop=1` |
 | `seed`, `nch` | the file's seed and channel count, from its X-sync |
 | `file_rate`, `depth` | the file's rate (frames per second for PCM, DSD bits per second per channel for DSD kinds) and depth (16, 24, 32; 1 for DSD) |
@@ -257,7 +257,7 @@ and 0 in the file's fields. The fields:
 | `end` | how the file ended: `LAST` (its block flagged last arrived), `NEXT` (another file followed), `BACK` (the block index went back), `STOP` (the stream stopped first) |
 | `diff` | the position in the file of the first body unit that did not arrive as expected, in seconds from the file's start as generated, 3 decimals, rounded half up (PCM: frame index / rate; DSD kinds: byte index x 8 / DSD rate): the earliest of the body's first unit, when the rate or channel count is wrong or the first body block's X-sync or the lead-in X-sync before it is missing; the first body unit that differs or did not arrive; and the first unit after the body, when the X-sync after the body is missing. Where a limit X-sync is broken or cut off, the body runs from after the last lead-in X-sync received to the first tail X-sync received. `-` for `BIT_PERFECT`, `UNKNOWN_SIGNAL` and `DEVICE_OVERRUN` (12.6) |
 | `lost`, `ovf` | packets lost and receive FIFO overflows that fall in the result's frames, by their place in the stream: a lost packet counts in the result of the first frame after it (a doubled microframe takes back the hole before it), an overflow in the result of the frame where the checker learns of it, normally the one it marks `DEVICE_OVERRUN`. Those between two results count in the later one; the stream's last result line also takes those after every result and those in frames not read before the stream stopped. A stream's result lines add up to its `stream stop` line's `lost` and `ovf`, except with `allow_silence` `true` when the stream ends in allowed silence after its last result: the losses there are on no result line, only on the `stream stop` line. The verdict follows the frames, not these counts |
-| `dur` | a received duration, unlike `diff`, which is a position in the file: the file's received frames, from its first X-sync to its end, at most to the end of its extent ([12.6](../docs/signal-format.md#126-verdicts)), divided by `rate`; seconds, 3 decimals |
+| `dur` | a received duration, unlike `diff`, which is a position in the file: the file's received frames, from its first X-sync to its end, at most to the end of its extent ([12.6](../docs/bpc1.md#126-verdicts)), divided by `rate`; seconds, 3 decimals |
 
 For example, a 24-bit 48 kHz file that overran the receive FIFO after a
 `stall 200` (time stamps left out; the `stream stop` line follows the
@@ -269,7 +269,7 @@ stream stop id=30 reason=alt dur=12.649 frames=607164 pkts=101194 rate=48000.00 
 ```
 
 The verdicts, from the BPC1 specification
-([section 12.6](../docs/signal-format.md#126-verdicts)) and the device, in
+([section 12.6](../docs/bpc1.md#126-verdicts)) and the device, in
 their order of precedence; only `BIT_PERFECT` is a pass:
 
 | Verdict | Meaning |

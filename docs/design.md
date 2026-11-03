@@ -1,7 +1,7 @@
 # Design
 
 How bit-perfect-checker is built and why. The signal itself is specified in
-[signal-format.md](signal-format.md); this document gives the choices around
+[bpc1.md](bpc1.md); this document gives the choices around
 it. How to use, build and release is in the [README](../README.md); the
 device's log, commands and LEDs are in the [firmware README](../firmware/README.md).
 
@@ -50,7 +50,7 @@ verdict depends on it.
 
 ## 3. The signal format
 
-BPC1 is specified in [signal-format.md](signal-format.md), which is
+BPC1 is specified in [bpc1.md](bpc1.md), which is
 self-contained and has golden test vectors (`vectors/`), so that other
 implementations can follow it. The main choices:
 
@@ -77,7 +77,7 @@ implementations can follow it. The main choices:
   proves the same 10 seconds of audio. A change that affects every sample is
   found within the first samples, so a longer body is not needed. Rare
   intermittent faults are found by playing the files continuously, for hours if
-  needed, or by looping one file gaplessly (signal-format.md, section 14).
+  needed, or by looping one file gaplessly (bpc1.md, section 14).
 - **A code-sweep set.** A separate set of full-scale files in which each
   channel carries every code of its depth exactly once, in a scrambled
   noise-like order, so that a pass proves every code arrived unchanged. The
@@ -100,7 +100,7 @@ signal. Only `BIT_PERFECT` is a pass.
 | `UNKNOWN_SIGNAL` | audio that belongs to no file, silence included |
 | `DEVICE_OVERRUN` | hardware checker only: its own receive buffer overflowed before any difference, so it could not judge the file; play it again |
 
-The exact rules are in signal-format.md, section 12.6. The choices behind
+The exact rules are in bpc1.md, section 12.6. The choices behind
 them:
 
 - **Prove bit-perfect; do not name the change.** The aim is to prove that a
@@ -154,7 +154,7 @@ them:
 - **Formats.** PCM (16- and 24-bit, ten rates) as WAV, FLAC, AIFF and ALAC.
   DSD64, DSD128 and DSD256 as DSF, DFF, and DoP in a 24-bit WAV; the DoP files
   also as FLAC, AIFF and ALAC. The regular set is 122 files, about 1.75 GB; the
-  code-sweep set is 88 files, about 5.4 GB (signal-format.md, sections 11.1
+  code-sweep set is 88 files, about 5.4 GB (bpc1.md, sections 11.1
   and 11.6).
 - **Every format a player plays is tested.** A player can decode each format
   through a different path, so the WAV set is where a test starts, not where it
@@ -195,7 +195,7 @@ Apple's `afconvert`.
   Apple's decoders (an iPad, `afconvert`) decode ffmpeg's files wrongly, and
   ffmpeg decodes some of Apple's files wrongly. Reported as
   [ffmpeg issue 25727](https://code.ffmpeg.org/FFmpeg/FFmpeg/issues/25727)
-  (signal-format.md, section 9.7).
+  (bpc1.md, section 9.7).
 - **Apple's own ALAC decoders refuse ALAC above 384 kHz** (measured with
   `afconvert` on macOS). The ALAC files at 705.6 and 768 kHz and DSD256 as DoP
   are therefore for players with their own ALAC decoder; the WAV and AIFF files

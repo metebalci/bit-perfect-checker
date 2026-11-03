@@ -610,7 +610,7 @@ def build():
            fileset.dsd_file(11289600, "dop")]
     return {
         "format": "BPC1", "version": 1,
-        "about": "Golden vectors for docs/signal-format.md. Samples are signed integers "
+        "about": "Golden vectors for docs/bpc1.md. Samples are signed integers "
                  "at the file depth; words, keys and bytes are hexadecimal.",
         "primitives": primitives(),
         "pcm": [pcm_vectors(f) for f in files],

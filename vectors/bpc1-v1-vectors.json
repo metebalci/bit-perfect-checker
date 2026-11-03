@@ -1,7 +1,7 @@
 {
  "format": "BPC1",
  "version": 1,
- "about": "Golden vectors for docs/signal-format.md. Samples are signed integers at the file depth; words, keys and bytes are hexadecimal.",
+ "about": "Golden vectors for docs/bpc1.md. Samples are signed integers at the file depth; words, keys and bytes are hexadecimal.",
  "primitives": {
   "lowbias32": [
    {"key": "0x00000000", "n": "0x00000000", "result": "0x00000000"},

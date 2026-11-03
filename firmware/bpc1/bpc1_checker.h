@@ -1,4 +1,4 @@
-// BPC1 v1 checker that proves a file arrived bit-perfect (docs/signal-format.md
+// BPC1 v1 checker that proves a file arrived bit-perfect (docs/bpc1.md
 // section 12.6, verdict rules a to d), fed incrementally with the received
 // frames. Portable C99, static memory only: the caller owns one
 // bpc1_checker_t (about 9 KB, in .bss).

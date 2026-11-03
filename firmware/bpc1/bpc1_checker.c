@@ -1,5 +1,5 @@
 // BPC1 v1 checker: proves that a file arrived bit-perfect, from
-// docs/signal-format.md section 12.6. The reference is checker/verify.py.
+// docs/bpc1.md section 12.6. The reference is checker/verify.py.
 
 #include <string.h>
 

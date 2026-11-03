@@ -1,4 +1,4 @@
-// BPC1 v1, the test signal of docs/signal-format.md: primitives, header
+// BPC1 v1, the test signal of docs/bpc1.md: primitives, header
 // words, and the expected signal unit by unit. Portable C99, no hardware:
 // the firmware checker builds on it, and tests compile it on the host.
 //

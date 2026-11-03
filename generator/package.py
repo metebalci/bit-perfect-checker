@@ -242,7 +242,7 @@ Negative tests: deliberately faulty files
 The files in this folder are deliberately faulty: each one must NOT check as
 bit-perfect. They test the checker itself. Each is the file of the same name
 without _altered or _incomplete, with one fault in its body, as section 11.5
-of docs/signal-format.md describes; the lead-in and tail are unchanged.
+of docs/bpc1.md describes; the lead-in and tail are unchanged.
 Body blocks are counted from 0. The fault in each, and the verdict it must
 give:
 
@@ -329,7 +329,7 @@ How to use them
 
    to check a raw recording of what a player sent.
 
-The format is specified in docs/signal-format.md of that repository.
+The format is specified in docs/bpc1.md of that repository.
 
 
 {clipping(pkg)}
@@ -385,7 +385,7 @@ recording with the software checker of the bit-perfect-checker repository:
 
   python3 -m checker FILE...
 
-The format is specified in docs/signal-format.md of that repository.
+The format is specified in docs/bpc1.md of that repository.
 
 
 {clipping(pkg)}

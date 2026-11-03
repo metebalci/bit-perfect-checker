@@ -1,4 +1,4 @@
-"""Expected-signal model of BPC1 v1, written from docs/signal-format.md.
+"""Expected-signal model of BPC1 v1, written from docs/bpc1.md.
 
 This is deliberately independent of the generator package: the round-trip
 tests compare two implementations of the same document. The logic is the one
