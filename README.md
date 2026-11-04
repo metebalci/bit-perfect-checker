@@ -453,8 +453,7 @@ channel swaps. Bit-Perfect Checker compares every sample of every test file,
 at ten rates up to 768 kHz, as PCM and DoP, in WAV, FLAC, AIFF and ALAC. It
 gives a verdict for each file, with where the first difference lies and how
 many packets were lost. Its sweep files prove that every sample value of 16
-and 24 bits arrives unchanged. Naim's DAC-V1 also had a built-in BitPerfect
-test with its own test files.
+and 24 bits arrives unchanged.
 
 **Do I need to test every format (WAV, AIFF, FLAC, ALAC)?** Yes, every
 format you play. Unless you control the whole audio chain, which is rare,
