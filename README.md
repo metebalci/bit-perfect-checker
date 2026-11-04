@@ -463,9 +463,10 @@ path for each. That is why the test files come in several formats. Start
 with WAV: it holds plain samples, so if it fails, the other formats will
 too. The files of one name hold the same samples in every format, so a pass
 as WAV and a fail as FLAC or ALAC points at that format's decoder. For
-example, ffmpeg's ALAC decoder, used by players built on ffmpeg, decodes
-some of the ALAC test files at 192 kHz and above wrongly ([issue
-25727](https://code.ffmpeg.org/FFmpeg/FFmpeg/issues/25727)).
+example, ffmpeg's ALAC decoder, used by players built on ffmpeg, decodes the
+files ffmpeg's own encoder makes correctly, but some files made by Apple's
+encoder wrongly, among them some of the ALAC test files at 192 kHz and above
+([issue 25727](https://code.ffmpeg.org/FFmpeg/FFmpeg/issues/25727)).
 
 ## Known issues
 
