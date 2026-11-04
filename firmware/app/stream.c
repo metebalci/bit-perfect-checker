@@ -145,6 +145,11 @@ static counters_t snapshot(void) {
   return c;
 }
 
+// The interrupt's segment number: one word, read without turning interrupts off
+static uint32_t isr_seq(void) {
+  return *(const volatile uint32_t *) &isr.seq;
+}
+
 //--------------------------------------------------------------------+
 // Main loop side
 //--------------------------------------------------------------------+
@@ -335,13 +340,17 @@ static void event_add(uint64_t at, bool placed, int32_t lost, uint32_t overflows
 // The interrupt's counters into s.last and its events into s.events, both
 // as they were at one moment, if the interrupt is still in this stream's
 // segment (else false). *read_at: the bytes of the segment the receive
-// FIFO has handed out so far, those an overflow skipped included.
+// FIFO has handed out so far, those an overflow skipped included. False
+// too after a bus reset, which closes the audio function and its FIFO.
 static bool take(int64_t *read_at) {
   isr_event_t e[ISR_EVENTS];
   counters_t c;
   uint32_t n = 0;
   uint16_t waiting = 0;
   const tu_fifo_t *ff = tud_audio_get_ep_out_ff();
+  if (ff == NULL) {
+    return false;
+  }
   board_irq_disable();
   bool same = isr.seq == s.seq;
   if (same) {
@@ -424,6 +433,14 @@ static void drain(bool check) {
     }
     n -= n % fb;
     if (n == 0) {
+      return;
+    }
+    // Once the interrupt has begun the next segment, the frames from its
+    // first packet on are the next stream's, which starts at the next pass.
+    // The interrupt writes a packet to the FIFO before it counts it, and the
+    // main loop runs between interrupts: while the segment is still this
+    // stream's after the FIFO's count was read, the n bytes counted are too.
+    if (check && isr_seq() != s.seq) {
       return;
     }
     n = tud_audio_read(buf, (uint16_t) n);
@@ -738,6 +755,15 @@ static void report(void) {
 }
 
 void stream_task(void) {
+  // A bus reset closes the audio function and clears its receive FIFO, but
+  // TinyUSB does not call tud_umount_cb() for it: the stream ends here.
+  if (!tud_mounted() && (s.active || status.alt != 0)) {
+    stream_reset();
+    status.usb = USB_NOT_MOUNTED;
+    status_changed();
+    log_line("usb reset");
+  }
+
   counters_t c = snapshot();
   uint32_t now = board_millis();
 

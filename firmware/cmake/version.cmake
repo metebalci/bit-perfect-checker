@@ -5,17 +5,33 @@
 # Firmware releases are tagged firmware-v<major>.<minor>.<patch>; other tags
 # (the test files') are not looked at. The version is the description without
 # the prefix: 1.0.0 at the tag, 1.0.0-3-gabc1234 after it, the commit hash
-# without a firmware tag, each with -dirty for uncommitted changes.
+# without a firmware tag, each with -dirty for uncommitted changes. Source
+# that is not its own git repository (an unpacked archive, say, even inside
+# another repository's work tree) is "unknown".
 
+set(version "unknown")
 execute_process(
-  COMMAND git describe --tags --match firmware-v* --always --dirty --abbrev=7
+  COMMAND git rev-parse --show-toplevel
   WORKING_DIRECTORY ${SRC}
-  OUTPUT_VARIABLE version
+  OUTPUT_VARIABLE top
   OUTPUT_STRIP_TRAILING_WHITESPACE
   ERROR_QUIET
   RESULT_VARIABLE result)
-if(NOT result EQUAL 0 OR version STREQUAL "")
-  set(version "unknown")
+if(result EQUAL 0 AND NOT top STREQUAL "")
+  get_filename_component(top "${top}" REALPATH)
+  get_filename_component(src "${SRC}" REALPATH)
+  if("${top}" STREQUAL "${src}")
+    execute_process(
+      COMMAND git describe --tags --match firmware-v* --always --dirty --abbrev=7
+      WORKING_DIRECTORY ${SRC}
+      OUTPUT_VARIABLE described
+      OUTPUT_STRIP_TRAILING_WHITESPACE
+      ERROR_QUIET
+      RESULT_VARIABLE result)
+    if(result EQUAL 0 AND NOT described STREQUAL "")
+      set(version "${described}")
+    endif()
+  endif()
 endif()
 string(REGEX REPLACE "^firmware-v" "" version "${version}")
 

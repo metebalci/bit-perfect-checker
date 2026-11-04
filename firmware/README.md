@@ -193,6 +193,7 @@ their meaning.
 | `formats <list>` | the formats offered, as alt settings 1 to n; at boot, and after a `formats` command, with `changed=0` or `changed=1` |
 | `usb mounted speed=high` | enumerated; `speed=full` means the High-Speed link failed |
 | `usb unmounted`, `usb suspended`, `usb resumed` | bus state |
+| `usb reset` | the host reset the bus while a stream ran or an alt setting was open: the stream stops (`reason=reset`), and the host enumerates the device again |
 | `usb disconnected`, `usb connecting` | the device leaves the bus to change its formats, and comes back |
 | `rate <Hz>` | the host set the sample rate; at boot, the rate the device reports before a host sets one (48000) |
 | `rate unsupported=<Hz>` | the host asked for a rate that is not offered (stalled) |
@@ -224,8 +225,13 @@ its line comes when the checker has read past the file's extent (one block
 after its end), the next file's first X-sync or the next result, or when the
 stream stops, whichever is first, so that the stream's last line can take
 its last `lost` and `ovf` (below). Each stretch of the stream
-outside every file's extent, silence included (also at the stream's start and end), gets one result line with
-verdict `UNKNOWN_SIGNAL`; a stream of silence only gets one too. A file that
+outside every file's extent (also at the stream's start and end) gets one
+result line with verdict `UNKNOWN_SIGNAL`, except a stretch that is silence
+only while silence is [allowed](#allowed-silence) (`allow_silence` `true`,
+the default): it gets none, and a stream of silence only then has no result
+line (`results=0`). With `allow_silence` `false`, a stretch of silence gets
+`UNKNOWN_SIGNAL` like any other, and a stream of silence only gets one
+result line. A file that
 does not arrive at all gets no result line, so a script compares the number
 of `BIT_PERFECT` results with the files played (`bpcctl run --expect`). The
 stream's `stream stop` line follows its last result line, and its
@@ -258,6 +264,29 @@ and 0 in the file's fields. The fields:
 | `diff` | the position in the file of the first body unit that did not arrive as expected, in seconds from the file's start as generated, 3 decimals, rounded half up (PCM: frame index / rate; DSD kinds: byte index x 8 / DSD rate): the earliest of the body's first unit, when the rate or channel count is wrong or the first body block's X-sync or the lead-in X-sync before it is missing; the first body unit that differs or did not arrive; and the first unit after the body, when the X-sync after the body is missing. Where a limit X-sync is broken or cut off, the body runs from after the last lead-in X-sync received to the first tail X-sync received. `-` for `BIT_PERFECT`, `UNKNOWN_SIGNAL` and `DEVICE_OVERRUN` (12.6) |
 | `lost`, `ovf` | packets lost and receive FIFO overflows that fall in the result's frames, by their place in the stream: a lost packet counts in the result of the first frame after it (a doubled microframe takes back the hole before it), an overflow in the result of the frame where the checker learns of it, normally the one it marks `DEVICE_OVERRUN`. Those between two results count in the later one; the stream's last result line also takes those after every result and those in frames not read before the stream stopped. A stream's result lines add up to its `stream stop` line's `lost` and `ovf`, except with `allow_silence` `true` when the stream ends in allowed silence after its last result: the losses there are on no result line, only on the `stream stop` line. The verdict follows the frames, not these counts |
 | `dur` | a received duration, unlike `diff`, which is a position in the file: the file's received frames, from its first X-sync to its end, at most to the end of its extent ([12.6](../docs/bpc1.md#126-verdicts)), divided by `rate`; seconds, 3 decimals |
+
+The limits of `lost`, `ovf` and the frames checked:
+
+- The device keeps 64 loss events not yet charged to a result, and its USB
+  interrupt 8 not yet taken by the main loop. When a queue is full, later
+  events merge into its newest one, so their counts can land on the result
+  line of an earlier file.
+- A doubled microframe takes back the hole before it. When that hole was
+  already charged to an earlier result line, the doubled microframe shows
+  as `lost=-1` on a later line.
+- In a long overflow, when the data written and not read would reach twice
+  the receive FIFO's depth, TinyUSB's FIFO moves its write index back so
+  that the FIFO is just full, and the packet that does this does not count
+  as an overflow: `ovf` can be one less than the packets that overflowed.
+- When the host selects another alt setting, alt 0 included, TinyUSB clears
+  the receive FIFO before the firmware hears of it
+  (`lib/tinyusb/src/class/audio/audio_device.c:1123`), so the frames still
+  queued, at most the FIFO's fill (about 0.25 ms of audio, measured at
+  768 kHz), do not reach the checker. For an intact file these are frames of
+  its tail, and the verdict is unaffected.
+
+None of these changes the totals: a stream's result lines still add up to
+its `stream stop` line, except for the allowed silence at its end (above).
 
 For example, a 24-bit 48 kHz file that overran the receive FIFO after a
 `stall 200` (time stamps left out; the `stream stop` line follows the
@@ -428,3 +457,7 @@ add `shields/<shield>/shield.cmake`, which appends the display driver to
 `-DBOARD=<board> -DSHIELD=<shield>`. The shield uses the bus and pins the
 board's Arduino header provides; the board names them in its `board.c` or a
 header next to it.
+
+## How it was written
+
+See [How it was written](../README.md#how-it-was-written) in the main README.
