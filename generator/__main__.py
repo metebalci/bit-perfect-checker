@@ -5,11 +5,12 @@
     python3 -m generator --sweep [--out out-sweep] [--no-flac] [--no-aiff] [--no-alac] ...
     python3 -m generator --gapless [--out out-gapless] [--no-flac] [--no-aiff] [--no-alac] ...
     python3 -m generator package [--sweep | --gapless | --negative] [--out out] [--dist dist]
-                                 [--out-sweep out-sweep]
+                                 [--out-sweep out-sweep] [--out-gapless out-gapless]
 
 --sweep writes the code-sweep set (kind 5) instead of the regular set;
 --gapless the gapless set (regular files cut in two, one folder per format,
-by default in out-gapless). Every
+by default in out-gapless). Every file name starts with its five-digit
+number (docs/bpc1.md, 11.2); the negative files are WAV only. Every
 16- and 24-bit PCM and DoP WAV also comes as FLAC (flac >= 1.4.0), AIFF
 (written here) and ALAC in .m4a (Apple's reference encoder, built with the
 host C++ compiler); a missing tool skips its format.
@@ -65,11 +66,7 @@ def main(argv=None):
         files = [f for f in files if any(t in f.name for t in a.only)]
     if a.list:
         for f in files:
-            if f.part:
-                print("\n".join([f.relpath] + [f.relpath_as(x) for x in f.formats]))
-                continue
-            exts = " ".join(fileset.EXT[x] for x in f.formats)
-            print(f.relpath + (f"  (+ {exts})" if exts else ""))
+            print("\n".join([f.relpath] + [f.relpath_as(x) for x in f.formats]))
         return 0
 
     want_flac = not a.no_flac

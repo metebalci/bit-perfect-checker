@@ -84,21 +84,23 @@ block count only as the R-header rule of 12.6 says. The robust layer serves diag
 
 ### 3.1 Kind
 
-| Code | Kind | Carried in |
-|---|---|---|
-| 1 | PCM | WAV, FLAC, AIFF, ALAC |
-| 2 | DSD, from a DSF file | DSF |
-| 3 | DSD, from a DFF file | DFF |
-| 4 | DSD, from a DoP file | 24-bit WAV, FLAC, AIFF or ALAC carrying DoP |
-| 5 | PCM code sweep | WAV, FLAC, AIFF, ALAC |
-| 0, 6-15 | reserved | |
+| Code | Kind | Payload | Carried in |
+|---|---|---|---|
+| 1 | PCM | low-level noise (7.4) | WAV, FLAC, AIFF, ALAC |
+| 2 | DSD | paired bits (8.4) | DSF, DFF, and DoP in a 24-bit WAV, FLAC, AIFF or ALAC |
+| 5 | PCM code sweep | every code of the depth (7.4) | WAV, FLAC, AIFF, ALAC |
+| 0, 3, 4, 6-15 | reserved | | |
 
-A PCM signal is the same in its WAV, FLAC, AIFF and ALAC files, and so is a
-DoP signal: FLAC and ALAC are lossless encodings of the WAV's samples, and
-AIFF holds them in another byte order. The three DSD kinds carry
-different bitstreams, so a receiver can tell which kind of file was played.
-A code sweep (kind 5) is a PCM signal in every respect but its payload
-(section 7.4): it needs depth 16 or 24 and a PCM rate.
+The header words (section 6) carry what a checker needs to regenerate the
+expected units: the kind, which selects the payload, the depth, rate,
+channels and seed, and each block's index and flags. They do not name the
+container. A signal is the same in every file that carries it: the WAV,
+FLAC, AIFF and ALAC files of a PCM signal hold the same samples (FLAC and
+ALAC are lossless encodings of the WAV's samples, AIFF holds them in another
+byte order), and the DSF, DFF and DoP files of a DSD signal hold the same
+DSD bits (section 9). A receiver tells the transport (PCM, DoP or native
+DSD, 12.1), not the file. A code sweep (kind 5) is a PCM signal in every
+respect but its payload (7.4): it needs depth 16 or 24 and a PCM rate.
 
 ### 3.2 Depth
 
@@ -146,8 +148,9 @@ DSD only.
 
 - The **seed** is a 32-bit file parameter that keys the payload. The
   published set (section 11) uses seed 0x42504331 (ASCII "BPC1") for every
-  file; the files still differ because the channel keys also depend on kind,
-  rate, depth and channel. Other seeds are allowed and make a different,
+  file; files of different kind, rate or depth still differ, because the
+  channel keys depend on them too, while the files of one signal in
+  different containers hold the same units (3.1). Other seeds are allowed and make a different,
   equally valid file.
 - A file has `nch` channels, 1 <= nch <= 15, numbered 0 to nch - 1 in
   container order (channel 0 is left in a stereo file). Every channel carries
@@ -328,9 +331,9 @@ r6 = crc16(r0..r5)
 
 A checker MUST reject an X-sync or R-header whose CRC fails, whose version is
 not 1, or whose kind, depth or rate code is reserved, whose kind and depth
-disagree (depth 1 if and only if kind 2 to 4), whose kind is 5 and whose
+disagree (depth 1 if and only if kind 2), whose kind is 5 and whose
 depth is not 16 or 24, whose rate code does not fit the kind (kinds 1 and
-5: codes 0 to 9; kinds 2 to 4: codes 10 to 12), whose nch is 0, or whose
+5: codes 0 to 9; kind 2: codes 10 to 12), whose nch is 0, or whose
 channel index is nch or more.
 
 ## 7. PCM signal
@@ -524,7 +527,8 @@ expected_bit(c, m):
 ## 9. Containers
 
 All containers MUST be written deterministically: no dates, times, host or
-user data, so that the same generator gives byte-identical files.
+user data, so that the same generator gives byte-identical files. Files of
+the same name, below, are files whose names agree after the number (11.2).
 
 ### 9.1 WAV (PCM)
 
@@ -597,7 +601,8 @@ length:
 
 ### 9.5 DoP in WAV, FLAC, AIFF and ALAC
 
-The DoP-WAV file of a DSD rate is a 24-bit WAV (`WAVE_FORMAT_EXTENSIBLE`) at
+The DoP-WAV file of a DSD rate carries the DSD bits of the DSF and DFF files
+of that rate in a 24-bit WAV (`WAVE_FORMAT_EXTENSIBLE`) at
 the carrier rate DSD / 16 (176.4, 352.8 or 705.6 kHz); the DoP-FLAC,
 DoP-AIFF and DoP-ALAC files are the same samples in FLAC (section 9.2), AIFF
 (9.6) and ALAC (9.7). Frame f carries DSD bits 16f to 16f + 15 of each
@@ -736,38 +741,74 @@ stronger warning (section 11.6).
 | PCM FLAC, AIFF, ALAC | the PCM WAV files as FLAC, as AIFF and as ALAC (`.m4a`) (20 files each) | as the WAV |
 | DSD | DSF, DFF and DoP-WAV for DSD64, DSD128 and DSD256 (9 files) | 10 s |
 | DoP-FLAC, DoP-AIFF, DoP-ALAC | the three DoP-WAV files as FLAC, as AIFF and as ALAC (3 files each) | 10 s |
-| Negative | deliberately faulty copies of PCM 44.1 kHz and 48 kHz 24-bit and DSD64 DoP-WAV, each altered and incomplete, as WAV, FLAC, AIFF and ALAC (24 files, section 11.5) | as the file they copy |
+| Negative | deliberately faulty copies of PCM 44.1 kHz 24-bit and DSD64 DoP-WAV, each altered and incomplete, as WAV (4 files, section 11.5) | as the file they copy |
 
-The set is 122 files, 1 749 412 783 bytes (about 1.75 GB). FLAC, AIFF and
+The set is 102 files, 1 650 670 139 bytes (about 1.65 GB). FLAC, AIFF and
 ALAC files are made for the 16- and 24-bit PCM and DoP files only, not for
-DSF, DFF or 32-bit files. The FLAC files above 655 350 Hz need libFLAC 1.4.0
+DSF, DFF, 32-bit or negative files. The FLAC files above 655 350 Hz need libFLAC 1.4.0
 or later (section 9.2), and Apple's own ALAC decoders refuse the ALAC files
 above 384 kHz (section 9.7). Depth 32 is part of the format but not of the
 set: `python3 -m generator --32bit` also writes the ten 32-bit PCM WAVs
-(about 289 MB), which are not published and not in the release archives.
+(about 289 MB, numbers 00060 to 00069), which are not published and not in
+the release archives.
 
 All files are stereo, use seed 0x42504331 and have a 2 s lead-in and a
 0.5 s tail. The code-sweep set (section 11.6) and the gapless set (section
-11.7) are separate and not part of these 122 files.
+11.7) are separate and not part of these 102 files.
 
 ### 11.2 Names
 
+Every file name starts with a five-digit number and a hyphen:
+
 ```
-bpc1_pcm_<rate>_<depth>bit.wav|.flac|.aiff|.m4a
-bpc1_<dsd>_dsf.dsf
-bpc1_<dsd>_dff.dff
-bpc1_<dsd>_dop-<carrier>_24bit.wav|.flac|.aiff|.m4a
-negative/<name>_altered|_incomplete.wav|.flac|.aiff|.m4a
+<n>-bpc1_pcm_<rate>_<depth>bit.wav|.flac|.aiff|.m4a
+<n>-bpc1_<dsd>.dsf
+<n>-bpc1_<dsd>.dff
+<n>-bpc1_<dsd>_dop-<carrier>_24bit.wav|.flac|.aiff|.m4a
+negative/<n>-<name>_altered|_incomplete.wav
 ```
 
 `<rate>` and `<carrier>` are the rate in kHz with three integer digits and
 the first decimal after a `k` when it is not zero: `044k1`, `048k`, `088k2`,
 `096k`, `176k4`, `192k`, `352k8`, `384k`, `705k6`, `768k`. `<dsd>` is
-`dsd064`, `dsd128` or `dsd256`. Examples: `bpc1_pcm_096k_24bit.wav`,
-`bpc1_pcm_044k1_24bit.flac`, `bpc1_pcm_044k1_24bit.m4a`,
-`bpc1_dsd064_dop-176k4_24bit.wav`.
+`dsd064`, `dsd128` or `dsd256`. Examples: `00033-bpc1_pcm_096k_24bit.wav`,
+`00130-bpc1_pcm_044k1_24bit.flac`, `00330-bpc1_pcm_044k1_24bit.m4a`,
+`01400-bpc1_dsd064.dsf`, `01000-bpc1_dsd064_dop-176k4_24bit.wav`.
+
+The number `<n>` is five decimal digits, T O F PP:
+
+| Digit | Meaning |
+|---|---|
+| T | type: 0 regular (11.1), 1 code sweep (11.6), 2 gapless (11.7), 9 negative (11.5 to 11.7); 3 to 8 are free |
+| O | output: 0 PCM, 1 DSD (DSF, DFF and DoP) |
+| F | file format: 0 WAV, 1 FLAC, 2 AIFF, 3 ALAC, 4 DSF, 5 DFF |
+| PP | position in the group T O F, 00 to 99 |
+
+Let r be the rate's index in ascending order (PCM: 0 for 44.1 kHz to 9 for
+768 kHz; DSD: 0 DSD64, 1 DSD128, 2 DSD256) and b the depth's base (16-bit
+0, 24-bit 30, DSD 0). PP is b + r for a regular or code-sweep file, and
+b + 2r + p - 1 for part p of a gapless pair, so the two parts of a pair have
+consecutive numbers. The negative files take fixed positions in their
+group instead, in this order: 90000 PCM 44.1 kHz 24-bit altered, 90001 its
+incomplete copy, 90002 the 44.1 kHz 16-bit code sweep altered, 90003 and
+90004 the gapless pair with a gap (part 1, part 2), 91000 DoP DSD64 altered,
+91001 its incomplete copy. For example, 00037 is the regular 24-bit 384 kHz
+WAV and 00137 its FLAC. Positions 10 to 29 and 40 to 99 hold no regular file
+and leave room for more rates or another depth; the unpublished 32-bit WAVs
+take b = 60.
+
+All numbers have five digits, so names sort by number in byte order. A
+folder that holds the files of several archives therefore plays regular
+PCM, regular DoP, DSF and DFF, the code sweep, the gapless pairs, then the
+negative files. A released number never changes; a file added later takes a
+free position in its group (a negative file the next free one in its 9 O F
+group), which need not follow these rules. Files whose numbers differ only
+in F hold the same units (3.1): in this document, files of the same name are
+files whose names agree after the number. The test vectors (13) name their
+files with the number.
+
 A negative test file is in the folder `negative` of a generated set, named
-after the file it copies, e.g. `negative/bpc1_pcm_044k1_24bit_altered.wav`;
+after the file it copies, e.g. `negative/90000-bpc1_pcm_044k1_24bit_altered.wav`;
 the release puts it in the negative archive (11.4) instead. The names carry
 no warning; the tags and the release archives do.
 
@@ -777,10 +818,16 @@ All tag text is ASCII:
 
 | Tag | Value |
 |---|---|
-| Title | `TEST - DO NOT PLAY ON SPEAKERS - BPC1 <description>`, e.g. `... - BPC1 PCM 44.1 kHz 24-bit`, `... - BPC1 DSD64 DoP 176.4 kHz 24-bit` |
+| Title | `TEST - DO NOT PLAY ON SPEAKERS - <n> BPC1 <description> <format>`, e.g. `... - 00130 BPC1 PCM 44.1 kHz 24-bit FLAC`, `... - 01400 BPC1 DSD64 DSF`, `... - 01000 BPC1 DSD64 DoP 176.4 kHz 24-bit WAV` |
 | Artist | `bit-perfect-checker` |
 | Album | `BPC1 v1 test signals` |
 | Comment | `BPC1 v1 bit-perfect test signal, low-level payload with full-scale bursts. TEST - DO NOT PLAY ON SPEAKERS OR HEADPHONES.` |
+
+The title carries the warning first, then the file's number `<n>` (11.2)
+and its format, `WAV`, `FLAC`, `AIFF`, `ALAC`, `DSF` or `DFF`, so the file
+name can be read off the title. `<description>` is `PCM <rate> <depth>-bit`
+(the rate as in `44.1 kHz`), `<dsd>` (`DSD64`, `DSD128`, `DSD256`) for DSF
+and DFF, or `<dsd> DoP <carrier> 24-bit`.
 
 AIFF and ALAC files carry the title and the comment only (sections 9.6 and
 9.7), except in the gapless set (11.7).
@@ -800,31 +847,33 @@ negative tests under their `negative/` name.
 
 The regular set and the code-sweep set (11.6) are each released as four zip
 files, one per format, which hold only files that should pass. The negative
-test files of both sets (11.5, 11.6) are released as one archive, and the
-gapless set (11.7) as one archive. In the name `bpc1-r1-<format>.zip`, BPC1
+test files of the three sets (11.5 to 11.7) are released as one archive, and
+the gapless pairs (11.7) as one archive. In the name `bpc1-r1-<format>.zip`, BPC1
 names the format and its version (an incompatible format would be BPC2), and
 r1 is the release of the file set: a fix to the files under the same format
 becomes r2.
 
 | Archive | Contents | Method | Size |
 |---|---|---|---|
-| `bpc1-r1-wav.zip` | every PCM WAV (20) and every DSD file (DSF, DFF and DoP-WAV, 9) | deflate, level 9 | 380 962 077 bytes (about 381 MB; 65.8 % of its entries' 578 995 178 bytes) |
-| `bpc1-r1-flac.zip` | every FLAC: PCM (20) and DoP (3) | stored | 286 410 677 bytes (about 286 MB) |
-| `bpc1-r1-aiff.zip` | every AIFF: PCM (20) and DoP (3) | stored | 454 213 744 bytes (about 454 MB) |
-| `bpc1-r1-alac.zip` | every ALAC (`.m4a`): PCM (20) and DoP (3) | stored | 297 385 457 bytes (about 297 MB) |
-| `bpc1-r1-sweep-wav.zip` | the sweep WAVs (20) | stored | 1 271 464 160 bytes (about 1.27 GB) |
-| `bpc1-r1-sweep-flac.zip` | the sweep FLACs (20) | stored | 1 204 255 986 bytes (about 1.20 GB) |
-| `bpc1-r1-sweep-aiff.zip` | the sweep AIFFs (20) | stored | 1 271 462 998 bytes (about 1.27 GB) |
-| `bpc1-r1-sweep-alac.zip` | the sweep ALACs (20) | stored | 1 228 868 514 bytes (about 1.23 GB) |
-| `bpc1-r1-negative.zip` | every negative test file: the regular set's (6, 11.5) and the code-sweep set's (2, 11.6), each as WAV, FLAC, AIFF and ALAC (32 files), in four folders, one per format | stored | 574 617 910 bytes (about 575 MB) |
-| `bpc1-r1-gapless.zip` | the gapless pairs (36 files) in six folders, one per format | stored | 56 856 455 bytes (about 57 MB) |
+| `bpc1-r1-wav.zip` | every PCM WAV (20) and every DSD file (DSF, DFF and DoP-WAV, 9) | deflate, level 9 | 380 959 472 bytes (about 381 MB; 65.8 % of its entries' 578 995 839 bytes) |
+| `bpc1-r1-flac.zip` | every FLAC: PCM (20) and DoP (3) | stored | 286 412 997 bytes (about 286 MB) |
+| `bpc1-r1-aiff.zip` | every AIFF: PCM (20) and DoP (3) | stored | 454 214 431 bytes (about 454 MB) |
+| `bpc1-r1-alac.zip` | every ALAC (`.m4a`): PCM (20) and DoP (3) | stored | 297 675 322 bytes (about 298 MB) |
+| `bpc1-r1-sweep-wav.zip` | the sweep WAVs (20) | stored | 1 271 464 720 bytes (about 1.27 GB) |
+| `bpc1-r1-sweep-flac.zip` | the sweep FLACs (20) | stored | 1 204 256 583 bytes (about 1.20 GB) |
+| `bpc1-r1-sweep-aiff.zip` | the sweep AIFFs (20) | stored | 1 271 463 591 bytes (about 1.27 GB) |
+| `bpc1-r1-sweep-alac.zip` | the sweep ALACs (20) | stored | 1 228 869 129 bytes (about 1.23 GB) |
+| `bpc1-r1-negative.zip` | every negative test file, as WAV: the regular set's (4, 11.5), the code-sweep set's (1, 11.6) and the gapless set's pair (2, 11.7), 7 files | stored | 37 882 144 bytes (about 38 MB) |
+| `bpc1-r1-gapless.zip` | the gapless pairs (36 files) in six folders, one per format | stored | 56 857 601 bytes (about 57 MB) |
 
 FLAC data does not compress further (deflate saves 1.0 %), so the FLAC archive
 is stored, and so are the AIFF and ALAC archives; the WAV and DSD files
 deflate to 45 to 78 %. Only the regular WAV archive holds DSF and DFF files.
 
-Each archive holds one folder named like the archive, containing, in this
-order:
+Each archive holds one folder named like the archive, containing the
+entries below, sorted by name (11.2): the warning file first, then the
+numbered audio files, then `README.txt` and `SHA256SUMS`; in the gapless
+archive, `README.txt` and `SHA256SUMS` come before the six folders.
 
 1. an empty file named
    `!!! TEST SIGNALS - DO NOT PLAY ON SPEAKERS OR HEADPHONES !!!.txt` (the
@@ -846,18 +895,20 @@ order:
    files at 705.6 and 768 kHz need libFLAC 1.4.0 or later, and the ALAC ones
    that Apple's own ALAC decoders refuse ALAC above 384 kHz, so those files
    are for players with their own ALAC decoder, and that the WAV and AIFF
-   files of the same name hold the same samples. The format archives name
-   the negative archive. The negative archive's `README.txt` has the
+   files of the same name hold the same samples. The format archives give
+   example names and say that the numbers keep the files of all archives in
+   playing order in one folder, and name the negative archive. The negative archive's `README.txt` has the
    warnings, says what the files are, that none may check as
-   `BIT_PERFECT`, and the fault in each and the verdict it gives
-   (`NOT_BIT_PERFECT`, 11.5 and 11.6), when to use them (to see a device or
+   `BIT_PERFECT`, that they are WAV only because a checker does not depend
+   on the container, and the fault in each and the verdict it gives
+   (`NOT_BIT_PERFECT`, 11.5 to 11.7), when to use them (to see a device or
    a checker reject altered and incomplete files), and has the clipping
    section and the MIT licence;
-3. `SHA256SUMS` of the audio files (the negative archive: names with their
+3. `SHA256SUMS` of the audio files (the gapless archive: names with their
    folder);
-4. the audio files (the negative archive: the folders `aiff`, `alac`,
-   `flac` and `wav`, each with the same eight files, named as in the
-   generated set but without `negative/`).
+4. the audio files (the gapless archive: in six folders, one per format;
+   the negative archive: the seven WAV files of 11.5 to 11.7, named as in
+   their generated sets but without `negative/`).
 
 Every name inside is ASCII and valid on Windows, macOS and Linux: none of
 `< > : " / \ | ? *`, no trailing space or dot.
@@ -870,34 +921,34 @@ version). `dist/SHA256SUMS` lists the archives' SHA-256.
 
 ### 11.5 Negative test files
 
-Six files of the set are deliberately faulty, to test checkers: a checker
+Four files of the set are deliberately faulty, to test checkers: a checker
 reports `NOT_BIT_PERFECT` for each of them (section 12.6). Each is a copy of
 a file of the set with one fault in its body; its lead-in and tail are
-unchanged. A port reproduces them
-exactly from the files they copy. The release holds them, with the negative
-sweep files (11.6), in `bpc1-r1-negative.zip` (11.4), not in the format
-archives.
+unchanged. A port reproduces them exactly from the files they copy. They
+are WAV only: a checker judges the units, whatever the container (3.1). With
+the negative files of the code-sweep set (11.6) and of the gapless set
+(11.7), seven files in all, they are developers' files, to see a checker
+reject a fault, and the release holds them in `bpc1-r1-negative.zip`
+(11.4), not in the format archives.
 
 With L the lead-in block count, N the body block count and F the frames per
 block (B for PCM, B / 16 DoP frames for DoP), let p = (L + 4) x F + 1024:
 frame 1024 of body block 4 (body blocks counted from 0), after the X-sync and
 the walking-bit burst, and in no R-header block (block L + 4 is block 26
-for 44.1 kHz and DSD64, block 28 for 48 kHz).
+for 44.1 kHz and DSD64).
 
 | File | Copy of | Fault | p |
 |---|---|---|---|
-| `bpc1_pcm_044k1_24bit_altered` | `bpc1_pcm_044k1_24bit` | the low 8 bits of every sample of the body (frames L x F to (L + N) x F - 1) cleared: s & ~0xFF | - |
-| `bpc1_pcm_048k_24bit_altered` | `bpc1_pcm_048k_24bit` | as above | - |
-| `bpc1_dsd064_dop-176k4_24bit_altered` | `bpc1_dsd064_dop-176k4_24bit` | DoP frames p to p + 999: the 16 DSD bits of every channel inverted (the 24-bit sample XOR 0x00FFFF), the markers unchanged | 427 008 |
-| `bpc1_pcm_044k1_24bit_incomplete` | `bpc1_pcm_044k1_24bit` | frames p to p + 999 removed | 107 520 |
-| `bpc1_pcm_048k_24bit_incomplete` | `bpc1_pcm_048k_24bit` | frames p to p + 999 removed | 115 712 |
-| `bpc1_dsd064_dop-176k4_24bit_incomplete` | `bpc1_dsd064_dop-176k4_24bit` | DoP frames p to p + 999 removed (an even number, so the markers still alternate) | 427 008 |
+| `90000-bpc1_pcm_044k1_24bit_altered.wav` | `00030-bpc1_pcm_044k1_24bit.wav` | the low 8 bits of every sample of the body (frames L x F to (L + N) x F - 1) cleared: s & ~0xFF | - |
+| `90001-bpc1_pcm_044k1_24bit_incomplete.wav` | `00030-bpc1_pcm_044k1_24bit.wav` | frames p to p + 999 removed | 107 520 |
+| `91000-bpc1_dsd064_dop-176k4_24bit_altered.wav` | `01000-bpc1_dsd064_dop-176k4_24bit.wav` | DoP frames p to p + 999: the 16 DSD bits of every channel inverted (the 24-bit sample XOR 0x00FFFF), the markers unchanged | 427 008 |
+| `91001-bpc1_dsd064_dop-176k4_24bit_incomplete.wav` | `01000-bpc1_dsd064_dop-176k4_24bit.wav` | DoP frames p to p + 999 removed (an even number, so the markers still alternate) | 427 008 |
 
 A removal makes the file 1000 frames shorter; the WAV header gives the new
 length. The containers and tags are those of the files they copy, with the
-tags of 11.3; the FLAC, AIFF and ALAC files are encodings of the WAV files.
+tags of 11.3.
 
-All six fail 12.6 (c): units of the body differ from the expected ones, or
+All four fail 12.6 (c): units of the body differ from the expected ones, or
 the body is not one run of consecutive units. The lead-in and the tail are
 unchanged, so 12.6 (b) holds.
 
@@ -925,31 +976,33 @@ writes the set only on request (`python3 -m generator --sweep`), and
 |---|---|---|
 | Sweep WAV | 16- and 24-bit at all ten PCM rates (20 files) | 16-bit: 10 s; 24-bit: 413 s at 44.1 kHz down to 23.5 s at 768 kHz (section 5.2) |
 | Sweep FLAC, AIFF, ALAC | the sweep WAV files as FLAC, as AIFF and as ALAC (20 files each) | as the WAV |
-| Negative | `bpc1_pcm_044k1_16bit_sweep_altered` and `bpc1_pcm_044k1_24bit_sweep_altered`, as WAV, FLAC, AIFF and ALAC (8 files) | as the file they copy |
+| Negative | `90002-bpc1_pcm_044k1_16bit_sweep_altered.wav` (1 file) | as the file it copies |
 
-The set is 88 files, 5 418 164 085 bytes (about 5.4 GB). The 24-bit files
+The set is 81 files, 4 978 239 923 bytes (about 5.0 GB). The 24-bit files
 last 26.0 s (768 kHz) to 415.7 s (44.1 kHz) with lead-in and tail and the
 WAV files are about 110 to 120 MB each; the 16-bit files last 12.6 s. All
 files are stereo, use seed 0x42504331 and have a 2 s lead-in and a 0.5 s
 tail. The FLAC and ALAC files at 705.6 and 768 kHz are as in the regular
 set (sections 9.2 and 9.7).
 
-**Names.** `bpc1_pcm_<rate>_<depth>bit_sweep.wav|.flac|.aiff|.m4a` with
-`<rate>` as in section 11.2, and, in the generated set,
-`negative/bpc1_pcm_044k1_<depth>bit_sweep_altered.wav|.flac|.aiff|.m4a`.
+**Names.** `<n>-bpc1_pcm_<rate>_<depth>bit_sweep.wav|.flac|.aiff|.m4a` with
+`<n>` and `<rate>` as in section 11.2 (10F00 to 10F09 for 16 bits, 10F30
+to 10F39 for 24 bits), e.g. `10130-bpc1_pcm_044k1_24bit_sweep.flac`, and,
+in the generated set, `negative/90002-bpc1_pcm_044k1_16bit_sweep_altered.wav`.
 
 **Tags.** As in section 11.3, except:
 
 | Tag | Value |
 |---|---|
-| Title | `TEST - DO NOT PLAY ON SPEAKERS - BPC1 PCM <rate> <depth>-bit code sweep, FULL-SCALE NOISE`, e.g. `... - BPC1 PCM 44.1 kHz 24-bit code sweep, FULL-SCALE NOISE` |
+| Title | `TEST - DO NOT PLAY ON SPEAKERS - <n> BPC1 PCM <rate> <depth>-bit code sweep <format>, FULL-SCALE NOISE`, e.g. `... - 10130 BPC1 PCM 44.1 kHz 24-bit code sweep FLAC, FULL-SCALE NOISE` |
 | Comment | `BPC1 v1 bit-perfect test signal, full-scale code sweep. TEST - DO NOT PLAY ON SPEAKERS OR HEADPHONES.` |
 
-**Negative sweep files.** Each is a copy of the sweep file of the same name
-and depth with one fault in its body: every body sample of channel 0 whose
-code is 2^(D-1) - 2 (32766 at 16 bits, 8388606 at 24 bits) becomes the next
-code, 2^(D-1) - 1. A checker reports `NOT_BIT_PERFECT`, with `diff` at the
-first changed sample (12.6 c). The title ends in `- NEGATIVE TEST,
+**Negative sweep file.** It is a copy of the 16-bit sweep file at 44.1 kHz,
+`10000-bpc1_pcm_044k1_16bit_sweep.wav`, as WAV, with one fault in its body:
+every body sample of channel 0 whose code is 2^(D-1) - 2 (32766 at 16 bits)
+becomes the next code, 2^(D-1) - 1, one code near full scale, a fault only a
+sweep finds. A checker reports `NOT_BIT_PERFECT`, with `diff` at the first
+changed sample (12.6 c). The title ends in `- NEGATIVE TEST,
 DELIBERATELY ALTERED`, and the comment goes on with `NEGATIVE TEST,
 deliberately altered: every body sample of channel 0 with code <c> changed to
 <c + 1>. A checker must report NOT_BIT_PERFECT.` A regular file of the same
@@ -957,8 +1010,8 @@ depth does not carry that code, so the same change leaves it
 `BIT_PERFECT` (section 13).
 
 **Archives.** The four `bpc1-r1-sweep-*` archives of section 11.4, all
-stored, hold the 20 sweep files of their format; the negative sweep files
-are in `bpc1-r1-negative.zip`. Each is organised as in 11.4, with the
+stored, hold the 20 sweep files of their format; the negative sweep file is
+in `bpc1-r1-negative.zip`. Each is organised as in 11.4, with the
 warning entry `!!! FULL-SCALE NOISE - NEVER PLAY ON SPEAKERS OR HEADPHONES
 !!!.txt`. Its `README.txt` has the full-scale warning, what the files are,
 how to use them and the clipping section of section 11.4. The regular
@@ -977,9 +1030,13 @@ formats give `BIT_PERFECT`. `python3 -m generator --gapless` writes it and
 | Group | Pairs |
 |---|---|
 | PCM | `bpc1_pcm_044k1_16bit`, `bpc1_pcm_044k1_24bit`, `bpc1_pcm_048k_16bit`, `bpc1_pcm_048k_24bit`, each as WAV, AIFF, FLAC and ALAC (16) |
-| DSD | `bpc1_dsd064_dsf`, `bpc1_dsd064_dff` (2) |
+| DSD | `bpc1_dsd064` as DSF and as DFF (2) |
+| Negative | `bpc1_pcm_044k1_16bit` with a gap before part 2, WAV (1 pair, 2 files) |
 
-The set is 36 files, 56 840 736 bytes (about 57 MB).
+The set is 38 files, 59 072 484 bytes (about 59 MB): the 36 files of the 18
+pairs and the negative pair. The DSD pairs are DSF and DFF only: DoP files
+carry the same DSD bits (3.1), and a DoP pair would test the PCM path that
+the PCM pairs already test.
 
 **The cut.** J is one unit after 7.5 s. PCM: J = 7.5 x rate + 1 frames
 (330 751 at 44.1 kHz, block 80, frame 3071; 360 001 at 48 kHz, block 87,
@@ -990,7 +1047,7 @@ frame count, is odd and not a multiple of 3, 5 or 7, so it falls on no block
 boundary, no 4096-frame FLAC or ALAC packet boundary and no DSF block
 boundary, and, counted from the file's start, on no boundary of 2^k frames
 or of a 6-frame USB packet. The units at J differ from zero and from the
-units before and after them in every channel (in the DSF pair, DSD bytes
+units before and after them in every channel (in both DSD pairs, DSD bytes
 0x95 and 0xA9), so a unit inserted, dropped or repeated at J changes the
 unit at J. Part 1 of a DSD pair holds an odd number of DoP frames, so a
 player that starts the DoP marker phase again with part 2 repeats a marker.
@@ -1006,13 +1063,16 @@ pair and joining them MUST give the units of the regular file exactly.
 
 **Names.** One folder per format, `wav`, `aiff`, `flac`, `alac`, `dsf`,
 `dff`; a part is named after its regular file with `_gapless_part1` or
-`_gapless_part2`, e.g. `flac/bpc1_pcm_044k1_24bit_gapless_part1.flac`.
+`_gapless_part2`, after its number (11.2), e.g.
+`flac/20130-bpc1_pcm_044k1_24bit_gapless_part1.flac` and
+`dsf/21400-bpc1_dsd064_gapless_part1.dsf`; the parts of a pair have
+consecutive numbers.
 
 **Tags.** As in 11.3, except:
 
 | Tag | Value |
 |---|---|
-| Title | `TEST - DO NOT PLAY ON SPEAKERS - BPC1 <description> gapless, part <p> of 2` |
+| Title | `TEST - DO NOT PLAY ON SPEAKERS - <n> BPC1 <description> <format> gapless, part <p> of 2`, e.g. `... - 20130 BPC1 PCM 44.1 kHz 24-bit FLAC gapless, part 1 of 2` |
 | Album | `BPC1 gapless <description> <format>`, one per pair, e.g. `BPC1 gapless PCM 44.1 kHz 24-bit FLAC`; `BPC1 gapless DSD64 DSF` and `BPC1 gapless DSD64 DFF` |
 | Track | `<p>` of 2 |
 | Comment | `BPC1 v1 bit-perfect test signal, gapless pair, part <p> of 2: one test file cut at 7.500 s. Play both parts gaplessly; a checker gives one result for the pair. TEST - DO NOT PLAY ON SPEAKERS OR HEADPHONES.` |
@@ -1029,7 +1089,20 @@ adds, after `\xa9cmt`, `\xa9ART` and `\xa9alb` (UTF-8, type 1), `trkn`
 warning file, `README.txt` (the warning, what the
 pairs are, when and how to play them, the results below, the clipping
 section and the MIT licence), `SHA256SUMS` (names with their folder), and
-the six folders.
+the six folders. The negative pair is in `bpc1-r1-negative.zip` instead.
+
+**Negative pair.** `90003-bpc1_pcm_044k1_16bit_gapless_part1_gap.wav` and
+`90004-bpc1_pcm_044k1_16bit_gapless_part2_gap.wav`, in the folder `negative`
+of the generated set, copy the WAV pair of `bpc1_pcm_044k1_16bit` with the
+commonest fault of a player that is not gapless built in: part 1 is
+unchanged, part 2 starts with 10 ms of digital silence (441 zero frames)
+before the units of the original part 2. Their titles end in `- NEGATIVE
+TEST, GAP INSERTED`, their album is `BPC1 gapless PCM 44.1 kHz 16-bit WAV,
+GAP INSERTED`, and their comment goes on with `NEGATIVE TEST, gap inserted:
+441 zero frames (10 ms of silence) before the first frame of part 2. Played
+gaplessly, the pair must give NOT_BIT_PERFECT.` Played gaplessly, the pair
+gives one `NOT_BIT_PERFECT` with `diff` 7.500 (12.6 c, the zeros at the
+cut); played as two streams, two `NOT_BIT_PERFECT` results, as any pair.
 
 **Results.** *Informative: they follow from 12.6.* A pair played gaplessly
 gives one `BIT_PERFECT`. Units inserted, dropped or repeated at the cut, or
@@ -1265,8 +1338,8 @@ differ is `DSD_PROCESSED`.
 
 Two findings of the robust layer (12.4) decide before all of the above:
 
-- `DSD_TO_PCM`: a DSD signal (R-header kind 2 to 4) received as PCM. The
-  report gives the source rate and kind, the received rate and the level
+- `DSD_TO_PCM`: a DSD signal (R-header kind 2) received as PCM. The
+  report gives the source rate, the received rate and the level
   (`LEVEL`, in dB re 50 % modulation).
 - `RESAMPLED`: the R-header rate differs from the received rate and the time
   base is preserved (for DSD at another DSD rate: "DSD re-modulated"). The
@@ -1438,7 +1511,7 @@ both limit X-syncs intact, do not change the verdict.
   back) or `STOP` (the stream stopped first);
 - `diff`, the position in the file of the first body unit that did not
   arrive as expected, in seconds from the file's start as generated, 3
-  decimals, rounded half up (PCM: frame index / rate; DSD kinds: byte index
+  decimals, rounded half up (PCM: frame index / rate; DSD: byte index
   x 8 / DSD rate). It is the earliest of: the body's first unit, when (a) fails or the first
   body block's X-sync or the LEAD_IN X-sync before it is missing (where the
   body's start is not known at all: the first unit of the first block whose
@@ -1510,7 +1583,10 @@ sweep units of block 30); under `primitives`, the `lbD` and `sweep_channel_key`
 entries; and, under `checking`, units of the gap search's
 masked comparison and an inverted X-sync (12.2; diagnosis only, not needed for
 a verdict), and, under `verdicts`, the verdict cases below as exact
-constructions (file, position, change, verdict, `diff`).
+constructions (file, position, change, verdict, `diff`). Each
+configuration gives its name and the file name of the published set
+(11.2), with its number; the 96 kHz 32-bit one, not published, takes the
+number its depth base gives (00063).
 `python3 -m generator.vectors --check` regenerates and compares it.
 Selected values:
 
@@ -1547,7 +1623,7 @@ R samples):
 | PCM 48 kHz 24-bit | 112 672 | (4359456, -4212737), (2453841, -5666167), (8192613, -7204575), (7865913, -408350) |
 
 DSD256 DoP-WAV, first DoP frames (both channels): 0x05B1C0, 0xFA5EED,
-0x05141C, then 0xFA0201 (channel 0) and 0xFA1201 (channel 1).
+0x05121C (h0 0x121C: kind 2, depth code 1, rate code 12), then 0xFA0201 (channel 0) and 0xFA1201 (channel 1).
 
 Masked comparison of the gap search (12.2; informative), one unit, words as
 unsigned hexadecimal:
@@ -1574,7 +1650,8 @@ tail of a few blocks), the changes made to it, the `allow_silence` setting
 and the results (verdict and `diff`). Besides these, each regular file of the
 published set played unchanged gives `BIT_PERFECT`, each negative file
 (11.5, 11.6) gives `NOT_BIT_PERFECT`, each gapless pair (11.7) joined gives
-`BIT_PERFECT`, and each of its parts alone gives `NOT_BIT_PERFECT`.
+`BIT_PERFECT`, the negative gapless pair joined gives one `NOT_BIT_PERFECT`
+with `diff` 7.500, and each part alone gives `NOT_BIT_PERFECT`.
 
 - `BIT_PERFECT`:
   - the file unchanged, PCM, DoP and code sweep; 16-bit content in a 24-bit
@@ -1653,7 +1730,8 @@ published set played unchanged gives `BIT_PERFECT`, each negative file
     `NOT_BIT_PERFECT`.
 - `UNKNOWN_SIGNAL`:
   - an inverted file, a file muted to zeros, a stream of zeros, a DoP file
-    without markers;
+    without markers; a DoP file whose X-syncs all carry the reserved kind 3,
+    or 4, with valid CRCs, also with `allow_silence` `true`;
   - zeros (3 blocks), DoP idle or a track that is not a test file between
     two files: two results `BIT_PERFECT` and one `UNKNOWN_SIGNAL`;
   - zeros before, between and after two files, or DoP idle before and after a

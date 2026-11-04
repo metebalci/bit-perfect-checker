@@ -364,7 +364,7 @@ class Dsd(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        cls.cfg = H.Config(kind=spec.KIND_DSD_DOP, rate=2822400, depth=1, **H.SHORT)
+        cls.cfg = H.Config(kind=spec.KIND_DSD, rate=2822400, depth=1, **H.SHORT)
         cls.st = dop(cls.cfg)
         cls.F = cls.cfg.block_len // 16          # DoP frames per block
 
@@ -381,7 +381,7 @@ class Dsd(unittest.TestCase):
                 r = verify.verify(self.with_data(self.st.data, slot))
                 self.assertEqual((r["verdict"], r["kind"], r["dop"], r["file_rate"], r["depth"],
                                   r["rate"], r["bits"]),
-                                 ("BIT_PERFECT", "DOP", 1, 2822400, 1, 176400, 24))
+                                 ("BIT_PERFECT", "DSD", 1, 2822400, 1, 176400, 24))
 
     def test_dsd_bits_and_markers(self):
         f = 10 * self.F + 321
@@ -415,23 +415,21 @@ class Dsd(unittest.TestCase):
         st = readers.Stream(False, 88200, 2, self.st.data, "test", 24, 24)
         self.assertEqual(verify.verify(st)["verdict"], "NOT_BIT_PERFECT")
 
-    def test_dsd_kinds_as_dop_and_native(self):
-        for kind in (spec.KIND_DSD_DSF, spec.KIND_DSD_DFF):
-            cfg = H.Config(kind=kind, rate=2822400, depth=1, **H.SHORT)
-            with self.subTest(kind=kind):
-                r = verify.verify(dop(cfg))
-                self.assertEqual((r["verdict"], r["dop"]), ("BIT_PERFECT", 1))
-                st = native(cfg)
-                r = verify.verify(st)
-                self.assertEqual((r["verdict"], r["dop"], r["bits"]), ("BIT_PERFECT", 0, 1))
-                u = 10 * cfg.block_len // 8 + 77
-                by = st.data.copy(); by[u, 1] ^= 0x10
-                r = verify.verify(native(cfg, by))
-                self.assertEqual((r["verdict"], r["diff_unit"]), ("NOT_BIT_PERFECT", u))
-                self.assertEqual(r["diff"], round(u * 8 / 2822400, 3))
+    def test_dsd_as_dop_and_native(self):
+        cfg = H.Config(kind=spec.KIND_DSD, rate=2822400, depth=1, **H.SHORT)
+        r = verify.verify(dop(cfg))
+        self.assertEqual((r["verdict"], r["dop"]), ("BIT_PERFECT", 1))
+        st = native(cfg)
+        r = verify.verify(st)
+        self.assertEqual((r["verdict"], r["kind"], r["dop"], r["bits"]), ("BIT_PERFECT", "DSD", 0, 1))
+        u = 10 * cfg.block_len // 8 + 77
+        by = st.data.copy(); by[u, 1] ^= 0x10
+        r = verify.verify(native(cfg, by))
+        self.assertEqual((r["verdict"], r["diff_unit"]), ("NOT_BIT_PERFECT", u))
+        self.assertEqual(r["diff"], round(u * 8 / 2822400, 3))
 
     def test_rhdr_count_unknown(self):
-        cfg = H.Config(kind=spec.KIND_DSD_DSF, rate=2822400, depth=1, **H.SHORT)
+        cfg = H.Config(kind=spec.KIND_DSD, rate=2822400, depth=1, **H.SHORT)
         by = native(cfg).data[:TAIL * cfg.block_len // 8 + 100]
         self.assertEqual(verify.verify(native(cfg, by))["verdict"], "BIT_PERFECT")
         a = RHDR * cfg.block_len // 8 + spec.rhdr_start(cfg.rate) // 8 \
@@ -584,9 +582,9 @@ class NoFalseFail(unittest.TestCase):
         with H.TempDir() as d:
             for container, kind, rate, depth in (("wav", spec.KIND_PCM, 44100, 16),
                                                  ("wav", spec.KIND_PCM, 96000, 32),
-                                                 ("dsf", spec.KIND_DSD_DSF, 2822400, 1),
-                                                 ("dff", spec.KIND_DSD_DFF, 2822400, 1),
-                                                 ("dop", spec.KIND_DSD_DOP, 2822400, 1)):
+                                                 ("dsf", spec.KIND_DSD, 2822400, 1),
+                                                 ("dff", spec.KIND_DSD, 2822400, 1),
+                                                 ("dop", spec.KIND_DSD, 2822400, 1)):
                 cfg = H.Config(kind=kind, rate=rate, depth=depth, **H.SHORT)
                 f = H.short_file(container, cfg)
                 path = fileset.write_file(f, d)

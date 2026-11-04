@@ -3,16 +3,17 @@
     python3 -m generator package [--out out] [--dist dist]
     python3 -m generator package --sweep [--out out-sweep] [--dist dist]
     python3 -m generator package --gapless [--out out-gapless] [--dist dist]
-    python3 -m generator package --negative [--out out] [--out-sweep out-sweep] [--dist dist]
+    python3 -m generator package --negative [--out out] [--out-sweep out-sweep]
+                                            [--out-gapless out-gapless] [--dist dist]
 
 bpc1-r1-wav.zip holds every PCM WAV and every DSD file; bpc1-r1-flac.zip,
 bpc1-r1-aiff.zip and bpc1-r1-alac.zip every FLAC, AIFF and ALAC (.m4a)
 file. With --sweep, from a set that `python3 -m generator --sweep` wrote:
 bpc1-r1-sweep-wav.zip, -sweep-flac.zip, -sweep-aiff.zip and
 -sweep-alac.zip, all stored. These eight hold only files that should pass.
-With --negative, from the regular set (--out) and the code-sweep set
-(--out-sweep): bpc1-r1-negative.zip, stored, with every negative test file
-of both sets in one folder per format (wav/, flac/, aiff/, alac/). With
+With --negative, from the regular set (--out), the code-sweep set
+(--out-sweep) and the gapless set (--out-gapless): bpc1-r1-negative.zip,
+stored, with the negative test files of the three sets, all WAV. With
 --gapless, from the set that `python3 -m generator --gapless` wrote:
 bpc1-r1-gapless.zip, stored, with one folder per format. The names carry
 the file-set release, RELEASE_NAME (bpc1-r1), which also starts each
@@ -21,8 +22,8 @@ SHA256SUMS lists every zip in it, rewritten from the zips there after every
 run, a failed one too. The 32-bit PCM WAVs that `python3 -m generator
 --32bit` adds are not in the release. Each archive has one top-level folder
 with an empty file whose name is the do-not-play warning (the negative
-archive: both warnings), a README.txt and a SHA256SUMS, then the audio
-files.
+archive: both warnings), the audio files, a README.txt and a SHA256SUMS:
+the numbers that start the audio file names sort before README.txt.
 
 Determinism: entries sorted by name, one fixed timestamp, Unix permissions
 0644 (files) and 0755 (the folder), no comments or extra fields. The WAV
@@ -88,9 +89,12 @@ WAV = Package(
 
 The PCM files and the DoP files also come as FLAC, AIFF and ALAC, in
 {RELEASE_NAME}-flac.zip, {RELEASE_NAME}-aiff.zip and {RELEASE_NAME}-alac.zip.
-File names give the format: bpc1_pcm_096k_24bit.wav is PCM at 96 kHz, 24 bits
-(044k1 is 44.1 kHz); bpc1_dsd064_dsf.dsf is DSD64 in a DSF file;
-bpc1_dsd064_dop-176k4_24bit.wav is DSD64 as DoP in a 176.4 kHz 24-bit WAV.
+File names give the format: 00033-bpc1_pcm_096k_24bit.wav is PCM at 96 kHz,
+24 bits (044k1 is 44.1 kHz); 01400-bpc1_dsd064.dsf is DSD64 in a DSF file;
+01000-bpc1_dsd064_dop-176k4_24bit.wav is DSD64 as DoP in a 176.4 kHz 24-bit
+WAV. The five-digit number that starts each name keeps the files of all
+archives in playing order when they are put in one folder; the files whose
+names agree after the number hold the same samples in every format.
 
 For long runs, to find rare faults, play the files one after another
 continuously, for hours if needed, or loop one file gaplessly so that it
@@ -107,10 +111,10 @@ FLAC = Package(
             and 705.6 kHz (3 files), 10 s body.
 
 Each FLAC file decodes to exactly the samples of the WAV file of the same
-name. The PCM files at 705.6 and 768 kHz and the DSD256 DoP file, at
-705.6 kHz, are above the rates of the FLAC subset: they need a FLAC decoder
-based on libFLAC 1.4.0 or later and may not play in older players. The WAV
-files of the same name always work. DSD as DSF and DFF is only in the WAV
+name after the number. The PCM files at 705.6 and 768 kHz and the DSD256 DoP
+file, at 705.6 kHz, are above the rates of the FLAC subset: they need a FLAC
+decoder based on libFLAC 1.4.0 or later and may not play in older players.
+The WAV files of the same name after the number always work. DSD as DSF and DFF is only in the WAV
 archive, {RELEASE_NAME}-wav.zip.
 
 For long runs, to find rare faults, play the files one after another
@@ -145,7 +149,8 @@ SWEEP_WAV = Package(f"{RELEASE_NAME}-sweep-wav", zipfile.ZIP_STORED, "wav",
 SWEEP_FLAC = Package(f"{RELEASE_NAME}-sweep-flac", zipfile.ZIP_STORED, "flac",
                      "BPC1 v1 code-sweep files: FLAC",
                      _sweep_contents(" as FLAC", "Each FLAC file decodes to exactly the samples "
-                                     "of the WAV file of the same name. The files at 705.6 and "
+                                     "of the WAV file of the same name after the number. The "
+                                     "files at 705.6 and "
                                      "768 kHz need a FLAC decoder based on libFLAC 1.4.0 or "
                                      "later."),
                      True, SWEEP_WARNING_FILE, SWEEP_WARNING_TEXT)
@@ -159,7 +164,8 @@ ALAC_NOTE = ("The files are Apple Lossless (ALAC) in MP4, encoded with Apple's r
              "encoder; the title and the comment are MP4 tags. Apple's own ALAC decoders "
              "refuse ALAC above 384 kHz (the one in macOS does, and so presumably does iOS's "
              "built-in playback), so {above} are for players with their own ALAC decoder; the "
-             "WAV and AIFF files of the same name hold the same samples. Players and tools that "
+             "WAV and AIFF files of the same name after the number hold the same samples. Players "
+             "and tools that "
              "decode ALAC with ffmpeg (8.0.1 and its current development version) decode some "
              "packets of some of these files wrongly, an ffmpeg bug (ffmpeg issue 25727): such "
              "a player fails those files while the WAV and AIFF files pass.")
@@ -178,7 +184,7 @@ def _contents(fmt, ext, note):
             and 705.6 kHz (3 files), 10 s body.
 
 {textwrap.fill(f"Each {fmt} file holds exactly the samples of the WAV file of the same "
-               f"name. {note} DSD as DSF and DFF is only in the WAV archive, "
+               f"name after the number. {note} DSD as DSF and DFF is only in the WAV archive, "
                f"{RELEASE_NAME}-wav.zip.", 76)}
 
 {LONG_RUNS}"""
@@ -191,12 +197,14 @@ ALAC = Package(f"{RELEASE_NAME}-alac", zipfile.ZIP_STORED, "alac", "BPC1 v1 test
 SWEEP_AIFF = Package(f"{RELEASE_NAME}-sweep-aiff", zipfile.ZIP_STORED, "aiff",
                      "BPC1 v1 code-sweep files: AIFF",
                      _sweep_contents(" as AIFF (.aiff)", "Each AIFF file holds exactly the "
-                                     "samples of the WAV file of the same name. " + AIFF_NOTE),
+                                     "samples of the WAV file of the same name after the number. "
+                                     + AIFF_NOTE),
                      True, SWEEP_WARNING_FILE, SWEEP_WARNING_TEXT)
 SWEEP_ALAC = Package(f"{RELEASE_NAME}-sweep-alac", zipfile.ZIP_STORED, "alac",
                      "BPC1 v1 code-sweep files: ALAC",
                      _sweep_contents(" as ALAC in MP4 (.m4a)", "Each ALAC file decodes to "
-                                     "exactly the samples of the WAV file of the same name. "
+                                     "exactly the samples of the WAV file of the same name after "
+                                     "the number. "
                                      + ALAC_NOTE.format(above=SWEEP_ABOVE)),
                      True, SWEEP_WARNING_FILE, SWEEP_WARNING_TEXT)
 
@@ -216,11 +224,15 @@ gives one BIT_PERFECT, with lost=0 on the result line, when the join was
 exact; one NOT_BIT_PERFECT with diff 7.500 or a little less when the player
 changed the join; two NOT_BIT_PERFECT (diff 7.500, then 7.523 or 7.509) when
 it closed the stream between the parts. Checked one by one, each part is
-NOT_BIT_PERFECT; that is expected.""")
+NOT_BIT_PERFECT; that is expected. A pair with a gap built in, which must
+not pass, is in the negative archive.""")
 
 NEGATIVE = Package(
     f"{RELEASE_NAME}-negative", zipfile.ZIP_STORED, "negative", "BPC1 v1 negative test files",
-    """  wav/ flac/ aiff/ alac/  the same 8 files in each format (32 files)""",
+    """  WAV  seven files, one per fault: PCM 44.1 kHz 24-bit altered and
+       incomplete, DSD64 as DoP in a 176.4 kHz WAV altered and incomplete,
+       the 44.1 kHz 16-bit code sweep altered, and a gapless pair with a
+       gap of 10 ms inserted before part 2""",
     warning_file=(SWEEP_WARNING_FILE, WARNING_FILE), warning_text=SWEEP_WARNING_TEXT)
 
 RELEASE = (WAV, FLAC, AIFF, ALAC)          # the published archives
@@ -243,17 +255,16 @@ def file_set(pkg):
     return fileset.sweep_set() if pkg.sweep else fileset.test_set()
 
 
+NEGATIVE_SETS = (("regular", fileset.test_set), ("sweep", fileset.sweep_set),
+                 ("gapless", fileset.gapless_set))
+
+
 def negative_files():
-    """(name in the negative archive, from the sweep set, path in its set) of
-    every negative test file of the regular and the code-sweep set: one
-    folder per format."""
-    out = []
-    for sweep, files in ((False, fileset.test_set()), (True, fileset.sweep_set())):
-        for f in files:
-            if f.fault:
-                out.append((f"wav/{f.filename}", sweep, f.relpath))
-                out += [(f"{x}/{f.name}{EXT[x]}", sweep, f.relpath_as(x)) for x in f.formats]
-    return sorted(out)
+    """(name in the negative archive, set, path in that set) of every
+    negative test file of the regular, the code-sweep and the gapless set,
+    at the archive's top level."""
+    return sorted((f.filename, name, f.relpath) for name, files in NEGATIVE_SETS
+                  for f in files() if f.fault)
 
 
 def members(pkg):
@@ -276,9 +287,15 @@ def negative_rows(files):
     lines = []
     for f in files:
         what, where = fileset.fault_text(f)
-        lines += [f"  {f.name}", f"      {what}"]
+        if f.fault == fileset.GAP and f.part == 1:
+            lines += [f"  {f.filename} and"]           # one entry for the pair
+            continue
+        lines += [f"  {f.filename}", f"      {what}"]
         lines += [f"      {where}"] if where else []
-        lines += [f"      -> {fileset.expected(f)}"]
+        if f.fault == fileset.GAP:
+            lines += [f"      -> one {fileset.expected(f)}, diff 7.500, for the pair played gaplessly"]
+        else:
+            lines += [f"      -> {fileset.expected(f)}"]
     return "\n".join(lines)
 
 
@@ -437,8 +454,7 @@ def negative_readme(pkg):
     file is and the verdict it must give."""
     with open(LICENSE, encoding="ascii") as f:
         licence = f.read().strip()
-    regular = [f for f in fileset.test_set() if f.fault]
-    sweep = [f for f in fileset.sweep_set() if f.fault]
+    regular, sweep, gapless = ([f for f in files() if f.fault] for _, files in NEGATIVE_SETS)
     text = f"""!!! {pkg.warning_text} !!!
 
 {pkg.title}
@@ -457,29 +473,36 @@ What they are
 -------------
 
 Test signals in the BPC1 format of the Bit-Perfect Checker project, each
-deliberately faulty: each one must NOT check as bit-perfect. Each is a copy
-of a file of the regular set or of the code-sweep set with one fault in its
-body, as sections 11.5 and 11.6 of docs/bpc1.md describe; the lead-in and
-tail are unchanged. Its name is that of the file it copies with _altered or
-_incomplete added.
+deliberately faulty: none may check as bit-perfect. Each is a copy of a
+file of the regular, the code-sweep or the gapless set with one fault, as
+sections 11.5 to 11.7 of docs/bpc1.md describe; the lead-in and tail are
+unchanged. Its name is the name of the file it copies after the number,
+with _altered, _incomplete or _gap added, and its number starts with 9.
 
 {pkg.contents}
 
-The fault in each (body blocks counted from 0), and the verdict it must
-give, in every format:
+The checker does not depend on the container, so the negative files are
+WAV only. The fault in each (body blocks counted from 0), and the verdict
+it must give:
 
-From the regular set ({RELEASE_NAME}-wav.zip and the other format archives):
+From the regular set ({RELEASE_NAME}-wav.zip):
 
 {negative_rows(regular)}
 
-From the code-sweep set ({RELEASE_NAME}-sweep-wav.zip and the others):
+From the code-sweep set ({RELEASE_NAME}-sweep-wav.zip):
 
 {negative_rows(sweep)}
 
-A checker must report NOT_BIT_PERFECT for each: a file here must not check
-as BIT_PERFECT.
+From the gapless set ({RELEASE_NAME}-gapless.zip), a pair: play both parts
+gaplessly, as the gapless pairs; played as two streams, each part gives
+NOT_BIT_PERFECT:
 
-SHA256SUMS lists the SHA-256 of every file, with its folder.
+{negative_rows(gapless)}
+
+A checker must report NOT_BIT_PERFECT for each file, and for the gapless
+pair played gaplessly: a file here must not check as BIT_PERFECT.
+
+SHA256SUMS lists the SHA-256 of every file.
 
 
 When to use them
@@ -650,24 +673,32 @@ def read_sums(out_dir):
     return sums
 
 
-def sources(pkg, out_dir, sweep_dir=None):
+GENERATE = {"regular": "python3 -m generator", "sweep": "python3 -m generator --sweep",
+            "gapless": "python3 -m generator --gapless"}
+
+
+def sources(pkg, out_dir, sweep_dir=None, gapless_dir=None):
     """(name in the package, generated set, path in that set) of every file
     of the package; the negative archive takes the sweep set's files from
-    `sweep_dir`."""
+    `sweep_dir` and the gapless set's from `gapless_dir`."""
     if pkg.files != "negative":
         return [(n, out_dir, n) for n in members(pkg)]
-    if sweep_dir is None:
-        raise RuntimeError(f"{pkg.filename} needs the code-sweep set too (--out-sweep)")
-    return [(n, sweep_dir if sweep else out_dir, rel) for n, sweep, rel in negative_files()]
+    dirs = {"regular": out_dir, "sweep": sweep_dir, "gapless": gapless_dir}
+    for name, opt in (("sweep", "--out-sweep"), ("gapless", "--out-gapless")):
+        if dirs[name] is None:
+            raise RuntimeError(f"{pkg.filename} needs the {name} set too ({opt})")
+    return [(n, dirs[s], rel) for n, s, rel in negative_files()]
 
 
-def build(pkg, out_dir, dist_dir, limit=None, sweep_dir=None):
+def build(pkg, out_dir, dist_dir, limit=None, sweep_dir=None, gapless_dir=None):
     """Check the package's files against the SHA256SUMS of their set and
     write the zip."""
-    rows = sources(pkg, out_dir, sweep_dir)
+    rows = sources(pkg, out_dir, sweep_dir, gapless_dir)
+    sets = {out_dir: "gapless" if pkg.files == "gapless" else "sweep" if pkg.sweep else "regular",
+            sweep_dir: "sweep", gapless_dir: "gapless"}
     sums = {}
     for d in dict.fromkeys(d for _, d, _ in rows):
-        gen = "python3 -m generator" + (" --sweep" if d == sweep_dir else "")
+        gen = GENERATE[sets[d]]
         if not os.path.isdir(d):
             raise RuntimeError(f"{d}: folder missing: write the set with `{gen} --out {d}` first")
         sums[d] = read_sums(d)
@@ -693,9 +724,9 @@ def build(pkg, out_dir, dist_dir, limit=None, sweep_dir=None):
 
 
 def _job(args):
-    pkg, out_dir, dist_dir, limit, sweep_dir = args
+    pkg, out_dir, dist_dir, limit, sweep_dir, gapless_dir = args
     try:
-        path = build(pkg, out_dir, dist_dir, limit, sweep_dir)
+        path = build(pkg, out_dir, dist_dir, limit, sweep_dir, gapless_dir)
         return pkg.filename, os.path.getsize(path), sha256_file(path), None
     except (OSError, RuntimeError, ValueError) as e:
         return pkg.filename, 0, None, str(e)
@@ -712,19 +743,22 @@ def main(argv=None):
     which.add_argument("--gapless", action="store_true",
                        help="build the gapless zip from a set written with --gapless")
     which.add_argument("--negative", action="store_true",
-                       help="build the negative zip from the regular set (--out) and the "
-                            "code-sweep set (--out-sweep)")
+                       help="build the negative zip from the regular set (--out), the "
+                            "code-sweep set (--out-sweep) and the gapless set (--out-gapless)")
     ap.add_argument("--out-sweep", help="with --negative: the code-sweep set (default: out-sweep)")
+    ap.add_argument("--out-gapless", help="with --negative: the gapless set (default: out-gapless)")
     a = ap.parse_args(argv)
-    if a.out_sweep and not a.negative:
-        ap.error("--out-sweep goes with --negative")
+    if (a.out_sweep or a.out_gapless) and not a.negative:
+        ap.error("--out-sweep and --out-gapless go with --negative")
     a.out = a.out or ("out-gapless" if a.gapless else "out")
     sweep_dir = (a.out_sweep or "out-sweep") if a.negative else None
+    gapless_dir = (a.out_gapless or "out-gapless") if a.negative else None
     pkgs = (SWEEP_RELEASE if a.sweep else (GAPLESS,) if a.gapless else (NEGATIVE,) if a.negative
             else RELEASE)
     with ProcessPoolExecutor(max_workers=len(pkgs)) as pool:
         # the limit goes with each job: a worker imports this module afresh
-        res = list(pool.map(_job, [(p, a.out, a.dist, ASSET_LIMIT, sweep_dir) for p in pkgs]))
+        res = list(pool.map(_job, [(p, a.out, a.dist, ASSET_LIMIT, sweep_dir, gapless_dir)
+                                   for p in pkgs]))
     ok = [r for r in res if r[3] is None]
     for name, size, _, err in res:
         print(f"{name}: error: {err}" if err else f"{size:>13,d}  {name}",

@@ -79,5 +79,3 @@ def codes(rep):
 def file_exists(path):
     return os.path.isfile(path)
 
-
-KINDS_DSD = {"dsf": spec.KIND_DSD_DSF, "dff": spec.KIND_DSD_DFF, "dop": spec.KIND_DSD_DOP}

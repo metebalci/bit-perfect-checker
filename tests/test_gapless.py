@@ -58,11 +58,20 @@ def tearDownModule():
         _gen["tmp"].cleanup()
 
 
-def pairs():
-    """{regular name: (part 1, part 2)} of the gapless set."""
+def label(f):
+    """A pair's label: its regular file's name, with the container for DSD
+    (bpc1_dsd064_dsf), whose names do not give it."""
+    base = f.name.split("_gapless_part")[0]
+    return f"{base}_{f.container}" if f.container in ("dsf", "dff") else base
+
+
+def pairs(fault=""):
+    """{label: (part 1, part 2)} of the gapless set's pairs, or of its
+    negative pairs (fault "gap")."""
     out = {}
     for f in fileset.gapless_set():
-        out.setdefault(f.name.rsplit("_gapless_part", 1)[0], []).append(f)
+        if f.fault == fault:
+            out.setdefault(label(f), []).append(f)
     return out
 
 
@@ -74,7 +83,7 @@ def path(f, fmt=None):
 def regular(name):
     """The regular file of a pair: its spec and its units (PCM words W, or
     DSD bytes, earliest bit in the MSB)."""
-    base = {f.name: f for f in fileset.test_set()}[name]
+    base = {label(f): f for f in fileset.test_set() if not f.fault}[name]
     cfg = base.cfg
     if cfg.dsd:
         return base, np.ascontiguousarray(np.packbits(dsd_blocks(cfg, 0, cfg.total_blocks), axis=1).T)
@@ -180,7 +189,8 @@ class Cut(unittest.TestCase):
     """T1: where J lies, from the code."""
 
     def test_rule(self):
-        self.assertEqual(len(fileset.gapless_set()), 12)
+        self.assertEqual(len(fileset.gapless_set()), 14)
+        self.assertEqual(len(pairs()), 6)
         for name, (p1, p2) in pairs().items():
             cfg = p1.cfg
             with self.subTest(name):
@@ -223,8 +233,7 @@ class Cut(unittest.TestCase):
                     fr = by[::2].astype(np.uint32) << 8 | by[1::2]
                     j = i // 2
                     self.assertTrue((fr[j] != fr[j - 1]).all() and (fr[j] != fr[j + 1]).all())
-                    if name == "bpc1_dsd064_dsf":
-                        self.assertEqual(by[i].tolist(), [0x95, 0xA9])
+                    self.assertEqual(by[i].tolist(), [0x95, 0xA9])     # both DSD pairs: one kind
                 else:
                     s = pcm_blocks(cfg, k, k + 1)
                     i = J - k * cfg.block_len
@@ -242,14 +251,17 @@ class Files(unittest.TestCase):
 
     def test_names(self):
         names = tree(_gen["out"])
-        self.assertEqual(len(names), 37)                  # 36 files and SHA256SUMS
+        self.assertEqual(len(names), 39)       # 36 files, the negative pair and SHA256SUMS
         self.assertIn("SHA256SUMS", names)
         for fmt in ("wav", "aiff", "flac", "alac", "dsf", "dff"):
             self.assertEqual(sum(n.startswith(fmt + "/") for n in names), 8 if fmt in FORMATS else 2, fmt)
-        self.assertIn("flac/bpc1_pcm_044k1_24bit_gapless_part1.flac", names)
-        self.assertIn("alac/bpc1_pcm_048k_16bit_gapless_part2.m4a", names)
-        self.assertIn("dsf/bpc1_dsd064_dsf_gapless_part2.dsf", names)
-        self.assertIn("dff/bpc1_dsd064_dff_gapless_part1.dff", names)
+        self.assertIn("flac/20130-bpc1_pcm_044k1_24bit_gapless_part1.flac", names)
+        self.assertIn("alac/20303-bpc1_pcm_048k_16bit_gapless_part2.m4a", names)
+        self.assertIn("dsf/21401-bpc1_dsd064_gapless_part2.dsf", names)
+        self.assertIn("dff/21500-bpc1_dsd064_gapless_part1.dff", names)
+        self.assertEqual([n for n in names if n.startswith("negative/")],
+                         ["negative/90003-bpc1_pcm_044k1_16bit_gapless_part1_gap.wav",
+                          "negative/90004-bpc1_pcm_044k1_16bit_gapless_part2_gap.wav"])
         with open(os.path.join(_gen["out"], "SHA256SUMS")) as f:
             sums = dict(reversed(line.rstrip("\n").split("  ", 1)) for line in f)
         self.assertEqual(sorted(sums), [n for n in names if n != "SHA256SUMS"])
@@ -297,46 +309,61 @@ class Files(unittest.TestCase):
                 self.assertEqual(body.shape[2] - used, 4096 - used)
 
     def test_tags(self):
-        for name, ps in pairs().items():
+        """The tags of 11.7: each title gives the file's number and format,
+        each album the format, so a pair of one format plays as an album."""
+        albums = set()
+        for name, ps in list(pairs().items()) + list(pairs(fileset.GAP).items()):
             base, _ = regular(name)
             for p in ps:
-                title = f"TEST - DO NOT PLAY ON SPEAKERS - BPC1 {base.description} gapless, part {p.part} of 2"
+                gap = " - NEGATIVE TEST, GAP INSERTED" if p.fault else ""
+
+                def title(fmt):
+                    return (f"TEST - DO NOT PLAY ON SPEAKERS - {p.number(fmt)} BPC1 {base.description} "
+                            f"{fmt.upper()} gapless, part {p.part} of 2{gap}")
+
                 comment = (f"BPC1 v1 bit-perfect test signal, gapless pair, part {p.part} of 2: one test file "
                            "cut at 7.500 s. Play both parts gaplessly; a checker gives one result for the pair. "
                            "TEST - DO NOT PLAY ON SPEAKERS OR HEADPHONES.")
+                if p.fault:
+                    comment += (" NEGATIVE TEST, gap inserted: 441 zero frames (10 ms of silence) before the "
+                                "first frame of part 2. Played gaplessly, the pair must give NOT_BIT_PERFECT.")
 
                 def album(fmt):
-                    return f"BPC1 gapless {base.description}" + ("" if base.cfg.dsd else " " + fmt.upper())
+                    return f"BPC1 gapless {base.description} {fmt.upper()}" + (", GAP INSERTED" if p.fault else "")
 
-                with self.subTest(name=name, part=p.part):
-                    self.assertEqual((p.title, p.comment, p.album("flac")), (title, comment, album("flac")))
+                with self.subTest(name=name, part=p.part, fault=p.fault):
+                    self.assertEqual((p.title(), p.comment), (title(p.format), comment))
+                    albums.add(album(p.format))
                     if base.container in ("dsf", "dff"):
                         if base.container == "dsf":
                             tag = dsf_parts(path(p))[3]
                         else:
                             ch = dff_chunks(path(p))
                             tag = ch[b"ID3 "]
-                            self.assertIn(title.encode(), ch[b"DIIN"])
-                        self.assertEqual(tags_id3(tag), {"TIT2": title, "TPE1": fileset.ARTIST,
+                            self.assertIn(title("dff").encode(), ch[b"DIIN"])
+                        self.assertEqual(tags_id3(tag), {"TIT2": title(base.container), "TPE1": fileset.ARTIST,
                                                          "TALB": album(base.container), "TRCK": f"{p.part}/2",
                                                          "COMM": comment})
                         continue
-                    self.assertEqual(tags_wav(path(p, "wav")), {"INAM": title, "IART": fileset.ARTIST,
+                    self.assertEqual(tags_wav(path(p, "wav")), {"INAM": title("wav"), "IART": fileset.ARTIST,
                                                                 "IPRD": album("wav"), "ICMT": comment,
                                                                 "ITRK": str(p.part)})
+                    if p.fault:
+                        self.assertEqual(p.formats, ())             # the negative pair: WAV only
+                        continue
                     flac = tags_flac(path(p, "flac"))[0]
                     flac.pop("WAVEFORMATEXTENSIBLE_CHANNEL_MASK", None)   # flac's own, from 24-bit WAVs
                     self.assertEqual(flac,
-                                     {"TITLE": title, "ARTIST": fileset.ARTIST, "ALBUM": album("flac"),
+                                     {"TITLE": title("flac"), "ARTIST": fileset.ARTIST, "ALBUM": album("flac"),
                                       "COMMENT": comment, "TRACKNUMBER": str(p.part), "TRACKTOTAL": "2"})
                     self.assertEqual(aiff_chunk_ids(path(p, "aiff")), [b"COMM", b"NAME", b"ANNO", b"SSND", b"ID3 "])
                     chunks = containers.read_aiff(path(p, "aiff"))[3]
-                    self.assertEqual((chunks[b"NAME"], chunks[b"ANNO"]), (title.encode(), comment.encode()))
-                    self.assertEqual(tags_id3(chunks[b"ID3 "]), {"TIT2": title, "TPE1": fileset.ARTIST,
+                    self.assertEqual((chunks[b"NAME"], chunks[b"ANNO"]), (title("aiff").encode(), comment.encode()))
+                    self.assertEqual(tags_id3(chunks[b"ID3 "]), {"TIT2": title("aiff"), "TPE1": fileset.ARTIST,
                                                                  "TALB": album("aiff"), "TRCK": f"{p.part}/2",
                                                                  "COMM": comment})
                     tr = containers.read_alac_track(path(p, "alac"))
-                    self.assertEqual(tr.tags, {b"\xa9nam": title, b"\xa9too": containers.ALAC_TOOL,
+                    self.assertEqual(tr.tags, {b"\xa9nam": title("alac"), b"\xa9too": containers.ALAC_TOOL,
                                                b"\xa9cmt": comment, b"\xa9ART": fileset.ARTIST,
                                                b"\xa9alb": album("alac")})
                     with open(path(p, "alac"), "rb") as f:
@@ -345,6 +372,9 @@ class Files(unittest.TestCase):
                             + struct.pack(">HHHH", 0, p.part, 2, 0))
                     pgap = struct.pack(">I4sI4sII", 25, b"pgap", 17, b"data", 21, 0) + b"\x01"
                     self.assertEqual((m4a.count(trkn), m4a.count(pgap)), (1, 1))
+        # the DSD albums as before the numbered names
+        self.assertLessEqual({"BPC1 gapless DSD64 DSF", "BPC1 gapless DSD64 DFF",
+                              "BPC1 gapless PCM 44.1 kHz 16-bit WAV, GAP INSERTED"}, albums)
 
 
 @unittest.skipUnless(TC.CC, "no host C compiler")
@@ -492,6 +522,24 @@ class Streams(unittest.TestCase):
                 self.native(b, cfg.rate, second)
         self.agree(cases)
 
+    def test_gap_pair(self):
+        """T9: the negative pair, 10 ms of zero frames before part 2: joined,
+        one NOT_BIT_PERFECT at the cut (7.500); as two streams, two
+        NOT_BIT_PERFECT. Its part 1 is the pair's part 1, its part 2 the
+        zeros and the pair's part 2."""
+        (g1, g2), = pairs(fileset.GAP).values()
+        name, cfg, a, b = next(x for x in self.pcm if x[0] == "bpc1_pcm_044k1_16bit")
+        x1, x2 = (readers.read_file(path(p)).data for p in (g1, g2))
+        self.assertTrue(np.array_equal(x1, a))
+        self.assertTrue(np.array_equal(x2, np.concatenate([TC.zeros(441), b])))
+        slots = self.slots(cfg)
+        self.agree([("gap pair joined", np.concatenate([x1, x2]), cfg.rate, slots,
+                     [("NOT_BIT_PERFECT", "LAST", "7.500")], len(a), None),
+                    ("gap pair, part 1", x1, cfg.rate, slots, [("NOT_BIT_PERFECT", "STOP", "7.500")], len(a),
+                     None),
+                    ("gap pair, part 2", x2, cfg.rate, slots,
+                     [("NOT_BIT_PERFECT", "LAST", SECOND_PART_DIFF[cfg.rate])], None, None)])
+
     def test_dop_markers_restarted(self):
         """T6: part 1 holds an odd number of DoP frames, so DoP markers that
         start again with part 2 repeat one: a marker fault at the cut."""
@@ -534,6 +582,7 @@ class Repeatability(unittest.TestCase):
             infos = zf.infolist()
             got = [i.filename for i in infos]
             self.assertTrue(all(i.compress_type == zipfile.ZIP_STORED for i in infos))
+            names = [n for n in names if not n.startswith("negative/")]    # in the negative archive
             want = ([top, top + P.WARNING_FILE, top + "README.txt", top + "SHA256SUMS"]
                     + [top + d + "/" for d in ("aiff", "alac", "dff", "dsf", "flac", "wav")]
                     + [top + n for n in names if n != "SHA256SUMS"])
@@ -542,7 +591,7 @@ class Repeatability(unittest.TestCase):
             self.assertFalse([n for n in got if "negative" in n])
             sums = zf.read(top + "SHA256SUMS").decode("ascii")
             with open(os.path.join(_gen["out"], "SHA256SUMS")) as f:
-                self.assertEqual(sums, f.read())
+                self.assertEqual(sums, "".join(x for x in f if "  negative/" not in x))
             readme = zf.read(top + "README.txt").decode("ascii")
         self.assertEqual(readme.encode("ascii"), P.readme(P.GAPLESS))
         self.assertNotIn("\n", readme.replace("\r\n", ""))
@@ -556,19 +605,26 @@ class Repeatability(unittest.TestCase):
 
     def test_regular_files_unchanged(self):
         """The writers the gapless set changed still write the regular files'
-        bytes (no external tool): DSF, DFF, WAV and AIFF."""
-        want = {"bpc1_dsd064_dsf.dsf": "2c7bfa6e308cf9a8dae382eecbb1600b2a938571007e4c978e509605bc2a0c43",
-                "bpc1_dsd064_dff.dff": "7c1e38a066062ba82569771990c808be2d746f611be097f979859628a660c904",
-                "bpc1_pcm_044k1_16bit.wav": "07ecb0d32bc5d54bccc122565b21a71eeaab35c96f99ed4d69b55cb2494337f8",
-                "bpc1_pcm_044k1_16bit.aiff": "c1490da884bf35e29fd87b901115e51dd53d1699fa3a35bf49811f13b5d6adf5"}
-        files = {f.name: f for f in fileset.test_set()}
+        bytes (no external tool): DSF, DFF, WAV and AIFF. The digests are
+        those of the set with numbered names and titles, whose audio data
+        equals that of the set before them (DFF: since the one DSD kind)."""
+        want = {"01400-bpc1_dsd064.dsf":
+                    "df91da9b6f6c82186ba46037a5f6281dd3cdbf78b8971027534e8e485fe527cb",
+                "01500-bpc1_dsd064.dff":
+                    "120f7487206e41e40912aff8b6f2735f1c14708652cd305d10dfa18db1b4f618",
+                "00000-bpc1_pcm_044k1_16bit.wav":
+                    "10e6f931c9ec1b570a7a0e24c86060c46f2d6bb94a9454313eb287bdd5b645f0",
+                "00200-bpc1_pcm_044k1_16bit.aiff":
+                    "e3deb89a32289a32cd23f4aff084dac2a680abed5452664a5a07721bcedcce6e"}
+        files = {label(f): f for f in fileset.test_set() if not f.fault}
         with tempfile.TemporaryDirectory(prefix="bpc1-gapless-") as d:
             got = {}
             for name in ("bpc1_dsd064_dsf", "bpc1_dsd064_dff", "bpc1_pcm_044k1_16bit"):
                 p = fileset.write_file(files[name], d)
                 got[os.path.basename(p)] = fileset.sha256(p)
                 if name.startswith("bpc1_pcm"):
-                    got[name + ".aiff"] = fileset.sha256(fileset.write_aiff(files[name], p))
+                    p = fileset.write_aiff(files[name], p)
+                    got[os.path.basename(p)] = fileset.sha256(p)
         self.assertEqual(got, want)
 
 
@@ -602,6 +658,11 @@ class Join(unittest.TestCase):
                 self.assertEqual(self.run_cli(files)[:2], (1, [("NOT_BIT_PERFECT", "STOP", "7.500"),
                                                                ("NOT_BIT_PERFECT", "LAST", second)]))
         self.assertEqual(self.run_cli(["--join"] + files[::-1])[0], 1)
+        g1, g2 = pairs(fileset.GAP)["bpc1_pcm_044k1_16bit"]
+        self.assertEqual(self.run_cli(["--join", path(g1), path(g2)])[:2],
+                         (1, [("NOT_BIT_PERFECT", "LAST", "7.500")]))
+        self.assertEqual(self.run_cli([path(g1), path(g2)])[:2],
+                         (1, [("NOT_BIT_PERFECT", "STOP", "7.500"), ("NOT_BIT_PERFECT", "LAST", "7.523")]))
 
     def test_mismatch(self):
         """Files of another rate, channel count or sample format are not joined."""

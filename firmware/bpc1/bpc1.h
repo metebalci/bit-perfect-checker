@@ -22,10 +22,8 @@
 #define BPC1_VERSION    1u
 
 #define BPC1_KIND_PCM   1u
-#define BPC1_KIND_DSF   2u
-#define BPC1_KIND_DFF   3u
-#define BPC1_KIND_DOP   4u
-#define BPC1_KIND_SWEEP 5u  // PCM code sweep: PCM but for its payload
+#define BPC1_KIND_DSD   2u  // DSD, in DSF, DFF or DoP alike
+#define BPC1_KIND_SWEEP 5u  // PCM code sweep: PCM but for its payload; 0, 3, 4, 6-15 reserved
 
 #define BPC1_F_LEAD_IN  0x01u
 #define BPC1_F_TAIL     0x02u
@@ -87,9 +85,9 @@ typedef struct {
 
 // False if f has more channels than BPC1_MAX_CH.
 bool bpc1_signal_init(bpc1_signal_t *s, const bpc1_fields_t *f);
-// A DSD kind (DSF, DFF, DoP); PCM and SWEEP are PCM.
+// The DSD kind; PCM and SWEEP are PCM.
 static inline bool bpc1_kind_dsd(uint8_t kind) {
-  return kind >= BPC1_KIND_DSF && kind <= BPC1_KIND_DOP;
+  return kind == BPC1_KIND_DSD;
 }
 
 // The code sweep (kind SWEEP): lbD, a bijection on D bits (D = 16 or 24),

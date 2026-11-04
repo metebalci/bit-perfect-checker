@@ -6,6 +6,7 @@ import os
 import shutil
 import struct
 import unittest
+from dataclasses import replace
 
 import numpy as np
 
@@ -22,11 +23,13 @@ def short_files():
                         (768000, 16), (768000, 24)):
         out.append(H.short_file("wav", H.short_config(spec.KIND_PCM, rate, depth), True))
     for rate in (2822400, 11289600):
-        out.append(H.short_file("dop", H.short_config(spec.KIND_DSD_DOP, rate, 1), True))
+        out.append(H.short_file("dop", H.short_config(spec.KIND_DSD, rate, 1), True))
     sweep = H.short_config(spec.KIND_SWEEP, 48000, 24)
     out.append(H.short_file("wav", sweep, True))
-    out.append(fileset.negative(H.short_file("wav", H.short_config(spec.KIND_PCM, 48000, 24), True),
-                                "incomplete"))
+    # an incomplete file (1000 frames cut out), as the set's negative file
+    # but short and with every encoding
+    neg = fileset.negative(H.short_file("wav", H.short_config(spec.KIND_PCM, 48000, 24), True), "incomplete")
+    out.append(replace(neg, name="bpc1_pcm_044k1_24bit_incomplete", formats=("flac", "aiff", "alac")))
     return out
 
 
@@ -77,7 +80,8 @@ class Encodings(unittest.TestCase):
         cls.tmp.__exit__(None, None, None)
 
     def path(self, d, f, ext):
-        return os.path.join(d, *f.relpath[:-4].split("/")) + ext
+        fmt = {".wav": "wav", ".aiff": "aiff", ".m4a": "alac", ".flac": "flac"}[ext]
+        return os.path.join(d, *f.relpath_as(fmt).split("/"))
 
     def alac(self, f):
         return ALAC and "alac" in f.formats
@@ -85,7 +89,9 @@ class Encodings(unittest.TestCase):
     def test_written(self):
         for f in self.files:
             names = [r[0] for r in self.res[self.dirs[0], f.name]]
-            want = [f.relpath, f.relpath[:-4] + ".aiff"] + ([f.relpath[:-4] + ".m4a"] if self.alac(f) else [])
+            want = [f.relpath, f.relpath_as("aiff")] + ([f.relpath_as("alac")] if self.alac(f) else [])
+            self.assertEqual([n.split("/")[-1][6:] for n in want],
+                             [f.name + e for e in (".wav", ".aiff", ".m4a")][:len(want)])
             self.assertEqual(names, want)
             # FLAC, AIFF and ALAC at every rate
             self.assertEqual(f.formats, ("flac", "aiff", "alac"))
@@ -98,7 +104,7 @@ class Encodings(unittest.TestCase):
                 anch, arate, abits, chunks, got = containers.read_aiff(self.path(d, f, ".aiff"))
                 self.assertEqual((anch, arate, abits), (nch, rate, bits))
                 self.assertTrue(np.array_equal(got, want))
-                self.assertEqual(chunks[b"NAME"].decode("ascii"), f.title)
+                self.assertEqual(chunks[b"NAME"].decode("ascii"), f.title("aiff"))
                 self.assertEqual(chunks[b"ANNO"].decode("ascii"), f.comment)
                 with open(self.path(d, f, ".aiff"), "rb") as fh:
                     head = fh.read(12)
@@ -121,7 +127,7 @@ class Encodings(unittest.TestCase):
                 self.assertEqual((cookie["sample_rate"], cookie["num_channels"], cookie["bit_depth"]),
                                  (rate, nch, bits))
                 self.assertEqual(cookie["max_frame_bytes"], max(s for _, s in track.packets))
-                self.assertEqual(track.tags, {b"\xa9nam": f.title, b"\xa9too": containers.ALAC_TOOL,
+                self.assertEqual(track.tags, {b"\xa9nam": f.title("alac"), b"\xa9too": containers.ALAC_TOOL,
                                               b"\xa9cmt": f.comment})
 
     @unittest.skipUnless(ALAC and shutil.which("ffprobe"), "Apple's ALAC codec or ffprobe missing")
@@ -142,7 +148,7 @@ class Encodings(unittest.TestCase):
                 self.assertEqual((st["codec_name"], int(st["sample_rate"]), int(st["bits_per_raw_sample"])),
                                  ("alac", rate, bits))
                 tags = probe["format"]["tags"]
-                self.assertEqual((tags.pop("title"), tags.pop("comment")), (f.title, f.comment))
+                self.assertEqual((tags.pop("title"), tags.pop("comment")), (f.title("alac"), f.comment))
                 # nothing else but what the MP4 muxer writes: the WAV's tags are not copied
                 self.assertEqual(set(tags), {"major_brand", "minor_version", "compatible_brands",
                                              "encoder"})
@@ -353,11 +359,12 @@ class Packages(unittest.TestCase):
                 import zipfile
                 m = P.members(pkg)
                 self.assertTrue(all(n.endswith(ext) for n in m))
-                # ALAC: the FLAC files' names; AIFF: the WAV files' names but DSF and DFF
-                base = (set(P.members(P.SWEEP_WAV if pkg.sweep else P.WAV)) if ext == ".aiff"
-                        else {n[:-5] + ".wav" for n in P.members(P.SWEEP_FLAC if pkg.sweep else P.FLAC)})
+                # after the number, ALAC: the FLAC files' names; AIFF: the WAV files' names but
+                # DSF and DFF
+                base = ({n[6:] for n in P.members(P.SWEEP_WAV if pkg.sweep else P.WAV)} if ext == ".aiff"
+                        else {n[6:-5] + ".wav" for n in P.members(P.SWEEP_FLAC if pkg.sweep else P.FLAC)})
                 base = {n for n in base if n.endswith(".wav") and "_32bit" not in n}
-                self.assertEqual({n[:-len(ext)] + ".wav" for n in m}, base)
+                self.assertEqual({n[6:-len(ext)] + ".wav" for n in m}, base)
                 self.assertEqual(pkg.method, zipfile.ZIP_STORED)
                 text = P.readme(pkg).decode("ascii")
                 self.assertIn("Clipping and level indicators", text)
@@ -365,9 +372,8 @@ class Packages(unittest.TestCase):
         self.assertEqual(len(flac), 23)
         self.assertEqual([len(P.members(p)) for p in P.RELEASE], [29, 23, 23, 23])
         self.assertEqual([len(P.members(p)) for p in P.SWEEP_RELEASE], [20, 20, 20, 20])
-        neg = P.members(P.NEGATIVE)                     # 8 per format, in its folder
-        for d, ext in (("aiff", ".aiff"), ("alac", ".m4a")):
-            self.assertEqual(sum(n.startswith(d + "/") and n.endswith(ext) for n in neg), 8)
+        neg = P.members(P.NEGATIVE)                     # WAV only
+        self.assertFalse([n for n in neg if not n.endswith(".wav")])
 
 
 if __name__ == "__main__":

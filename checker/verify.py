@@ -31,8 +31,7 @@ import numpy as np
 
 from . import exact, model, readers
 
-KIND_NAMES = {model.KIND_PCM: "PCM", model.KIND_DSF: "DSF", model.KIND_DFF: "DFF",
-              model.KIND_DOP: "DOP", model.KIND_SWEEP: "SWEEP"}
+KIND_NAMES = model.KIND_TEXT
 R56 = range(13 + 5 * 32, 13 + 7 * 32)    # chips 173-236: r5 (block count) and r6 (CRC)
 PCM_CHIP = 1 << 29                         # W of a +1 chip; -1 is its negation
 DSD_CHIP = (0xEE, 0x11)                    # bytes of a +1 and a -1 chip

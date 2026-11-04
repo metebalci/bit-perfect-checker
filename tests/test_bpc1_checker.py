@@ -126,7 +126,7 @@ def fuzz_case(rng):
     stream, its rate, slot, chunk and allow_silence, and the changes."""
     layouts = ((spec.KIND_PCM, 48000, 24, LONG), (spec.KIND_PCM, 44100, 16, SHORT),
                (spec.KIND_PCM, 96000, 32, dict(lead_blocks=3, body_blocks=9, tail_blocks=2)),
-               (spec.KIND_DSD_DOP, spec.DSD_RATES[0], 1, dict(lead_blocks=2, body_blocks=8, tail_blocks=2)))
+               (spec.KIND_DSD, spec.DSD_RATES[0], 1, dict(lead_blocks=2, body_blocks=8, tail_blocks=2)))
     kind, rate, depth, layout = rng.choice(layouts)
     cfg, w = words(kind, rate, depth, layout)
     x, ops = changed(rng, cfg, w, rng.randint(1, 2))
@@ -189,7 +189,7 @@ FAMILIES = ((48000, ((spec.KIND_PCM, 48000, 24, LONG), (spec.KIND_PCM, 48000, 16
                      (spec.KIND_PCM, 48000, 24, LEAD8), (spec.KIND_SWEEP, 48000, 16, SHORT),
                      (spec.KIND_SWEEP, 48000, 24, SHORT))),
             (176400, ((spec.KIND_PCM, 176400, 24, SHORT), (spec.KIND_SWEEP, 176400, 16, SHORT),
-                      (spec.KIND_DSD_DOP, spec.DSD_RATES[0], 1, dict(lead_blocks=2, body_blocks=8, tail_blocks=2)))))
+                      (spec.KIND_DSD, spec.DSD_RATES[0], 1, dict(lead_blocks=2, body_blocks=8, tail_blocks=2)))))
 
 
 def multi_case(rng):
@@ -205,7 +205,7 @@ def multi_case(rng):
         cfg, w = words(*f)
         if i and rng.random() < 0.5:
             n = rng.choice([1, 3, 100, 3000, frames_per_block(cfg) + 3, 3 * frames_per_block(cfg)])
-            parts.append(dop_idle(n) if prev[0] == spec.KIND_DSD_DOP else zeros(n))
+            parts.append(dop_idle(n) if prev[0] == spec.KIND_DSD else zeros(n))
             ops.append(("gap", n))
         x, o = changed(rng, cfg, w, 1) if rng.random() < 0.4 else (w, [])
         if rng.random() < 0.25:  # cut in the body, often within an X-sync, before the next file
@@ -241,7 +241,7 @@ def rhdr_case(rng, dop):
     the tail before it (the count not known) or right after a block's chip
     236. Returns the stream, its rate and slot, and the changes."""
     if dop:
-        cfg, w = words(spec.KIND_DSD_DOP, spec.DSD_RATES[0], 1, LONG)
+        cfg, w = words(spec.KIND_DSD, spec.DSD_RATES[0], 1, LONG)
         inv, zero, d = 0x00FFFF00, 0xFF0000FF, 16  # the DSD bytes; frames: 16 DSD bits
     else:
         cfg, w = words(spec.KIND_PCM, 48000, 24, LONG)
@@ -394,19 +394,14 @@ class Checker(unittest.TestCase):
     def test_clean_dop(self):
         for rate in spec.DSD_RATES:
             with self.subTest(rate=rate):
-                cfg, w = words(spec.KIND_DSD_DOP, rate, 1)
+                cfg, w = words(spec.KIND_DSD, rate, 1)
                 r, _ = self.assert_pass(w, rate // 16)
                 self.assertEqual((r["kind"], r["dop"], r["end"], r["depth"], r["bits"], r["file_rate"]),
-                                 ("DOP", "1", "LAST", "1", "24", str(rate)))
+                                 ("DSD", "1", "LAST", "1", "24", str(rate)))
                 self.assertEqual(int(r["compared"]), 8 * units_per_block(cfg))
         with self.subTest("the other marker phase first"):
-            _, w = words(spec.KIND_DSD_DOP, spec.DSD_RATES[0], 1)
+            _, w = words(spec.KIND_DSD, spec.DSD_RATES[0], 1)
             self.assert_pass((w.view(np.uint32) ^ np.uint32(0xFF000000)).view(np.int32), spec.DSD_RATES[0] // 16)
-        with self.subTest("DSF and DFF kinds as DoP"):
-            for kind in (spec.KIND_DSD_DSF, spec.KIND_DSD_DFF):
-                _, w = words(kind, spec.DSD_RATES[1], 1)
-                r, _ = self.assert_pass(w, spec.DSD_RATES[1] // 16)
-                self.assertEqual((r["kind"], r["dop"]), ({spec.KIND_DSD_DSF: "DSF"}.get(kind, "DFF"), "1"))
 
     def test_slots(self):
         """A file in a slot wider than its depth is the same word W."""
@@ -416,10 +411,10 @@ class Checker(unittest.TestCase):
             with self.subTest(slot=slot):
                 r, _ = self.assert_pass(w, 48000, slot=slot)
                 self.assertEqual(r["slot"], str(slot))
-        _, wd = words(spec.KIND_DSD_DOP, spec.DSD_RATES[0], 1)
+        _, wd = words(spec.KIND_DSD, spec.DSD_RATES[0], 1)
         self.assert_pass(wd, spec.DSD_RATES[0] // 16, slot=24)
         with self.subTest("a 3-byte slot carries no bits below 24"):
-            r, _ = self.assert_pass(flip(wd, 6 * frames_per_block(words(spec.KIND_DSD_DOP, spec.DSD_RATES[0], 1)[0])
+            r, _ = self.assert_pass(flip(wd, 6 * frames_per_block(words(spec.KIND_DSD, spec.DSD_RATES[0], 1)[0])
                                          + 7, 0, 3), spec.DSD_RATES[0] // 16, slot=24)
             self.assertEqual(r["bits"], "24")
 
@@ -435,11 +430,11 @@ class Checker(unittest.TestCase):
         self.assertEqual(st["outside"], "0")
         self.assertEqual([int(r["first_frame"]) for r in res], [0, len(a), len(a) + len(b),
                                                                len(a) + len(b) + len(c), 2 * len(a) + len(b) + len(c)])
-        _, d = words(spec.KIND_DSD_DOP, spec.DSD_RATES[0], 1)
+        _, d = words(spec.KIND_DSD, spec.DSD_RATES[0], 1)
         _, p = words(spec.KIND_PCM, spec.DSD_RATES[0] // 16, 24)
         res = self.results(np.concatenate([p, d, d, p]), spec.DSD_RATES[0] // 16)
         self.assertEqual([(r["verdict"], r["kind"]) for r in res],
-                         [("BIT_PERFECT", "PCM"), ("BIT_PERFECT", "DOP"), ("BIT_PERFECT", "DOP"), ("BIT_PERFECT", "PCM")])
+                         [("BIT_PERFECT", "PCM"), ("BIT_PERFECT", "DSD"), ("BIT_PERFECT", "DSD"), ("BIT_PERFECT", "PCM")])
 
     def test_starts_and_stops(self):
         """The stream may start before the last lead-in X-sync and stop after
@@ -508,13 +503,13 @@ class Checker(unittest.TestCase):
         self.assert_pass(w, 44100)
         r, _ = self.assert_pass(w[: 26 * B + 100], 44100)  # no LAST block: the two R-headers agree
         self.assertEqual(r["end"], "STOP")
-        _, d = words(spec.KIND_DSD_DOP, spec.DSD_RATES[0], 1, LONG)
+        _, d = words(spec.KIND_DSD, spec.DSD_RATES[0], 1, LONG)
         self.assert_pass(d[: 26 * (len(d) // 28) + 100], spec.DSD_RATES[0] // 16)
 
     def test_chunking(self):
         """Results do not depend on how the frames are split across calls."""
         cfg, w = words(spec.KIND_PCM, 44100, 24)
-        _, d = words(spec.KIND_DSD_DOP, spec.DSD_RATES[0], 1)
+        _, d = words(spec.KIND_DSD, spec.DSD_RATES[0], 1)
         B, Bd = cfg.block_len, len(d) // 11
         streams = [("clean", w, 44100), ("a drop", sim.drop(w, 6 * B + 1500), 44100),
                    ("an R-header chip", flip(w, chip_frame(cfg, 8, 200, 3), 1, 29), 44100),
@@ -592,7 +587,7 @@ class Checker(unittest.TestCase):
             self.assert_fail(x[: 26 * B + 100], 48000, chip_frame(cl, 8, CHIP_R5), "crc")
 
     def test_dop_faults(self):
-        cfg, w = words(spec.KIND_DSD_DOP, spec.DSD_RATES[0], 1)
+        cfg, w = words(spec.KIND_DSD, spec.DSD_RATES[0], 1)
         F = frames_per_block(cfg)
         f = 6 * F + 3001
         s = 2 * f  # source unit: the frame's first DSD byte
@@ -669,7 +664,7 @@ class Checker(unittest.TestCase):
         cfg, w = words(spec.KIND_PCM, 48000, 24)
         r = self.assert_fail(w, 44100, 2 * cfg.block_len, "rate")
         self.assertEqual((r["bits"], r["diff"]), ("0", "0.171"))
-        _, d = words(spec.KIND_DSD_DOP, spec.DSD_RATES[0], 1)
+        _, d = words(spec.KIND_DSD, spec.DSD_RATES[0], 1)
         self.assert_fail(d, spec.DSD_RATES[1] // 16, None, "rate")
         mono = Config(kind=spec.KIND_PCM, rate=48000, depth=24, nch=1, **SHORT)
         m = (pcm_blocks(mono, 0, mono.total_blocks).astype(np.int64) << 8).astype(np.int32)
@@ -691,7 +686,7 @@ class Checker(unittest.TestCase):
             for size in (s // 2 + 1, 1000, 3000):
                 for how in ("drop", "zero", "silence", "repeat", "noise"):
                     for blk, off in ((6, 1500), (8, 1000), (7, 4000)):
-                        cases.append((spec.KIND_DSD_DOP, rate, 1, size, how, blk, off))
+                        cases.append((spec.KIND_DSD, rate, 1, size, how, blk, off))
         self.assertEqual(len(cases), 250)
         for kind, rate, depth, *_ in cases:
             words(kind, rate, depth)  # generated before the threads
@@ -721,7 +716,7 @@ class Checker(unittest.TestCase):
         x[p + 2000, 0] ^= 1 << 12
         cases.append(("768k: 3000 dropped, a bit error 2000 frames later", x, 768000))
         cases.append(("768k: 5000 zero frames inserted", np.insert(w, p, zeros(5000), axis=0), 768000))
-        cd, wd = words(spec.KIND_DSD_DOP, spec.DSD_RATES[0], 1)
+        cd, wd = words(spec.KIND_DSD, spec.DSD_RATES[0], 1)
         pd = 6 * frames_per_block(cd) + 3000
         mk = (wd[pd:pd + 3000].view(np.uint32) >> 24) & 0xFF
         sil = ((mk.astype(np.uint32) << 24) | (0x6969 << 8)).view(np.int32)
@@ -965,7 +960,7 @@ class Checker(unittest.TestCase):
         rng = np.random.default_rng(3)
         noise = (rng.integers(-2 ** 23, 2 ** 23, (200000, 2)) << 8).astype(np.int32)
         for name, x in (("noise", noise), ("zeros", zeros(50000)), ("inverted", sim.invert(a, 24)),
-                        ("DoP without markers", (words(spec.KIND_DSD_DOP, spec.DSD_RATES[0], 1)[1].view(np.uint32)
+                        ("DoP without markers", (words(spec.KIND_DSD, spec.DSD_RATES[0], 1)[1].view(np.uint32)
                                                  & np.uint32(0x00FFFFFF)).view(np.int32))):
             with self.subTest(name):
                 res, st = self.run_c(x, 44100)
@@ -998,7 +993,7 @@ class Checker(unittest.TestCase):
     def test_allow_silence(self):
         _, a = words(spec.KIND_PCM, 48000, 24)
         _, b = words(spec.KIND_PCM, 48000, 16)
-        _, d = words(spec.KIND_DSD_DOP, spec.DSD_RATES[0], 1)
+        _, d = words(spec.KIND_DSD, spec.DSD_RATES[0], 1)
         z = zeros(30000)
         rng = np.random.default_rng(2)
         quiet = (rng.integers(-2, 3, (30000, 2)) << 8).astype(np.int32)  # not silence

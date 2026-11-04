@@ -14,12 +14,15 @@ from generator import __main__ as cli, fileset, package as P, spec
 from tests import helpers as H
 
 LICENSE = os.path.join(os.path.dirname(__file__), "..", "LICENSE")
-# the files of bpc1-r1-negative.zip, in each of its folders (sections 11.5 and 11.6)
-NEGATIVE_NAMES = ("bpc1_dsd064_dop-176k4_24bit_altered", "bpc1_dsd064_dop-176k4_24bit_incomplete",
-                  "bpc1_pcm_044k1_16bit_sweep_altered", "bpc1_pcm_044k1_24bit_altered",
-                  "bpc1_pcm_044k1_24bit_incomplete", "bpc1_pcm_044k1_24bit_sweep_altered",
-                  "bpc1_pcm_048k_24bit_altered", "bpc1_pcm_048k_24bit_incomplete")
-NEGATIVE_FOLDERS = {"wav": ".wav", "flac": ".flac", "aiff": ".aiff", "alac": ".m4a"}
+# the files of bpc1-r1-negative.zip, at its top level (sections 11.5 to 11.7)
+NEGATIVE_NAMES = ("90000-bpc1_pcm_044k1_24bit_altered.wav", "90001-bpc1_pcm_044k1_24bit_incomplete.wav",
+                  "90002-bpc1_pcm_044k1_16bit_sweep_altered.wav",
+                  "90003-bpc1_pcm_044k1_16bit_gapless_part1_gap.wav",
+                  "90004-bpc1_pcm_044k1_16bit_gapless_part2_gap.wav",
+                  "91000-bpc1_dsd064_dop-176k4_24bit_altered.wav",
+                  "91001-bpc1_dsd064_dop-176k4_24bit_incomplete.wav")
+# the set each one comes from, and its folder there
+NEGATIVE_SOURCES = {"_sweep_": "out-sweep", "_gap.": "out-gapless"}
 
 
 class Members(unittest.TestCase):
@@ -27,15 +30,15 @@ class Members(unittest.TestCase):
         files = fileset.test_set()
         wav, flac = set(P.members(P.WAV)), set(P.members(P.FLAC))
         self.assertEqual(wav, {f.relpath for f in files if not f.fault})
-        self.assertEqual(flac, {f.relpath[:-4] + ".flac" for f in files
+        self.assertEqual(flac, {f.relpath_as("flac") for f in files
                                 if "flac" in f.formats and not f.fault})
         self.assertEqual((len(wav), len(flac)), (29, 23))   # FLAC: 20 PCM, 3 DoP
         # FLAC and ALAC at every rate: 705.6 and 768 kHz PCM, DSD256 DoP
         alac = set(P.members(P.ALAC))
         for t in ("pcm_705k6_16bit", "pcm_705k6_24bit", "pcm_768k_16bit", "pcm_768k_24bit",
                   "dsd256_dop-705k6_24bit"):
-            self.assertIn(f"bpc1_{t}.flac", flac)
-            self.assertIn(f"bpc1_{t}.m4a", alac)
+            self.assertEqual(sum(n.endswith(f"-bpc1_{t}.flac") for n in flac), 1)
+            self.assertEqual(sum(n.endswith(f"-bpc1_{t}.m4a") for n in alac), 1)
         self.assertEqual(len(alac), 23)
         self.assertEqual(len(P.members(P.AIFF)), 23)        # AIFF: 20 PCM, 3 DoP
         self.assertFalse([n for n in wav | flac if "soak" in n])
@@ -126,8 +129,8 @@ class Readme(unittest.TestCase):
             text = " ".join(P.readme(pkg).decode("ascii").split())
             self.assertIn("refuse ALAC above 384 kHz", text, pkg.name)
             self.assertIn("for players with their own ALAC decoder", text, pkg.name)
-            self.assertIn("the WAV and AIFF files of the same name hold the same samples", text,
-                          pkg.name)
+            self.assertIn("the WAV and AIFF files of the same name after the number hold the same "
+                          "samples", text, pkg.name)
         self.assertIn("DSD64, DSD128 and DSD256 as DoP in 24-bit ALAC",
                       " ".join(P.readme(P.ALAC).decode("ascii").split()))
         self.assertIn("bpc1-r1-wav.zip", flac)
@@ -148,11 +151,13 @@ class Readme(unittest.TestCase):
         self.assertIn("TEST SIGNALS - DO NOT PLAY ON SPEAKERS OR HEADPHONES", flat)
         self.assertIn("deliberately faulty", flat)
         for name in NEGATIVE_NAMES:
-            self.assertIn(f"  {name}\n", text)
-        self.assertEqual(text.count("-> NOT_BIT_PERFECT"), 8)
+            self.assertIn(f"  {name}", text)
+        self.assertEqual(text.count("-> NOT_BIT_PERFECT"), 5)
+        self.assertEqual(text.count("-> one NOT_BIT_PERFECT, diff 7.500, for the pair played gaplessly"), 1)
         self.assertIn("must not check as BIT_PERFECT", flat)
-        self.assertIn("wav/ flac/ aiff/ alac/", text)
-        self.assertIn("sections 11.5 and 11.6 of docs/bpc1.md", flat)
+        self.assertIn("negative files are WAV only", flat)
+        self.assertNotIn("wav/", text)
+        self.assertIn("sections 11.5 to 11.7 of docs/bpc1.md", flat)
         self.assertIn("reject altered and incomplete files", flat)
         self.assertIn("python3 -m checker FILE", text)
         self.assertIn("Clipping and level indicators", text)
@@ -183,8 +188,8 @@ class ZipFiles(unittest.TestCase):
         src = os.path.join(cls.dir, "src")
         os.makedirs(src)
         specs = [H.short_file("wav", H.short_config(spec.KIND_PCM, 48000, 24)),
-                 H.short_file("dsf", H.short_config(spec.KIND_DSD_DSF, 2822400, 1)),
-                 H.short_file("dop", H.short_config(spec.KIND_DSD_DOP, 2822400, 1))]
+                 H.short_file("dsf", H.short_config(spec.KIND_DSD, 2822400, 1)),
+                 H.short_file("dop", H.short_config(spec.KIND_DSD, 2822400, 1))]
         cls.sources = sorted(fileset.write_file(f, src) for f in specs)
 
     @classmethod
@@ -222,6 +227,9 @@ class ZipFiles(unittest.TestCase):
             self.assertEqual(names, sorted(names))
             self.assertEqual(names[0], "bpc1-r1-test/")
             self.assertEqual(names[1], "bpc1-r1-test/" + P.WARNING_FILE)
+            # numbered audio files sort between the warning and README.txt, SHA256SUMS
+            self.assertTrue(all(n[len("bpc1-r1-test/"):][:1].isdigit() for n in names[2:-2]))
+            self.assertEqual(names[-2:], ["bpc1-r1-test/README.txt", "bpc1-r1-test/SHA256SUMS"])
             want = {"bpc1-r1-test/" + n for n in
                     [P.WARNING_FILE, "README.txt", "SHA256SUMS"] + [os.path.basename(s) for s in self.sources]}
             self.assertEqual(set(names[1:]), want)
@@ -400,17 +408,22 @@ class AssetLimit(unittest.TestCase):
 
 
 class NegativeArchive(unittest.TestCase):
-    """bpc1-r1-negative.zip: every negative test file of the regular and the
-    sweep set, one folder per format, built from both generated sets."""
+    """bpc1-r1-negative.zip: the negative test files of the regular, the
+    sweep and the gapless set, WAV only, at its top level, built from the
+    three generated sets."""
 
     @classmethod
     def setUpClass(cls):
         cls.tmp = H.TempDir()
         cls.dir = cls.tmp.__enter__()
-        # stand-ins for out/ and out-sweep/: every file of each set, a few bytes each
-        cls.out, cls.sweep = os.path.join(cls.dir, "out"), os.path.join(cls.dir, "out-sweep")
-        for top, files in ((cls.out, fileset.test_set()), (cls.sweep, fileset.sweep_set())):
-            os.makedirs(os.path.join(top, fileset.NEGATIVE_DIR))
+        # stand-ins for out/, out-sweep/, out-gapless/: every file of each set, a few bytes each
+        cls.out, cls.sweep, cls.gapless = (os.path.join(cls.dir, d) for d in ("out", "out-sweep", "out-gapless"))
+        for top, files in ((cls.out, fileset.test_set()), (cls.sweep, fileset.sweep_set()),
+                           (cls.gapless, fileset.gapless_set())):
+            for f in files:
+                os.makedirs(os.path.dirname(os.path.join(top, f.relpath)), exist_ok=True)
+                for x in f.formats:
+                    os.makedirs(os.path.dirname(os.path.join(top, f.relpath_as(x))), exist_ok=True)
             names = sorted(n for f in files for n in [f.relpath] + [f.relpath_as(x) for x in f.formats])
             with open(os.path.join(top, "SHA256SUMS"), "w") as sums:
                 for n in names:
@@ -426,16 +439,15 @@ class NegativeArchive(unittest.TestCase):
         out, err = StringIO(), StringIO()
         with mock_limit(limit or P.ASSET_LIMIT), redirect_stdout(out), redirect_stderr(err):
             code = cli.main(["package", "--negative", "--dist", os.path.join(self.dir, dist)]
-                            + list(args or ["--out", self.out, "--out-sweep", self.sweep]))
+                            + list(args or ["--out", self.out, "--out-sweep", self.sweep,
+                                            "--out-gapless", self.gapless]))
         return code, out.getvalue(), err.getvalue()
 
     def test_package(self):
         self.assertEqual(P.NEGATIVE.filename, "bpc1-r1-negative.zip")
         self.assertEqual(P.NEGATIVE.method, zipfile.ZIP_STORED)
         self.assertNotIn(P.NEGATIVE, P.RELEASE + P.SWEEP_RELEASE)
-        want = sorted(f"{d}/{n}{e}" for d, e in NEGATIVE_FOLDERS.items() for n in NEGATIVE_NAMES)
-        self.assertEqual(P.members(P.NEGATIVE), want)
-        self.assertEqual(len(want), 32)
+        self.assertEqual(P.members(P.NEGATIVE), list(NEGATIVE_NAMES))
 
     def test_zip(self):
         code, out, err = self._package("dist")
@@ -443,18 +455,14 @@ class NegativeArchive(unittest.TestCase):
         self.assertIn("bpc1-r1-negative.zip", out)
         path = os.path.join(self.dir, "dist", "bpc1-r1-negative.zip")
         top = "bpc1-r1-negative/"
-        files = sorted(f"{d}/{n}{e}" for d, e in NEGATIVE_FOLDERS.items() for n in NEGATIVE_NAMES)
+        files = list(NEGATIVE_NAMES)
         with zipfile.ZipFile(path) as zf:
             self.assertIsNone(zf.testzip())
             infos = zf.infolist()
             got = [i.filename for i in infos]
             self.assertEqual(got, sorted(got))
-            self.assertEqual(got[:6], [top, top + P.SWEEP_WARNING_FILE, top + P.WARNING_FILE,
-                                       top + "README.txt", top + "SHA256SUMS", top + "aiff/"])
-            self.assertEqual(set(got), {top, top + P.SWEEP_WARNING_FILE, top + P.WARNING_FILE,
-                                        top + "README.txt", top + "SHA256SUMS"}
-                             | {top + d + "/" for d in NEGATIVE_FOLDERS}
-                             | {top + n for n in files})
+            self.assertEqual(got, [top, top + P.SWEEP_WARNING_FILE, top + P.WARNING_FILE]
+                             + [top + n for n in files] + [top + "README.txt", top + "SHA256SUMS"])
             self.assertTrue(all(i.compress_type == zipfile.ZIP_STORED for i in infos))
             for i in infos:
                 self.assertEqual(i.date_time, P.ZIP_DATE)
@@ -467,11 +475,11 @@ class NegativeArchive(unittest.TestCase):
             for line in sums:
                 digest, name = line.split("  ", 1)
                 self.assertEqual(hashlib.sha256(zf.read(top + name)).hexdigest(), digest, name)
-            # each file is the negative file of its set, under its folder
+            # each file is the negative file of its set
             for name in files:
-                src = (self.sweep if "_sweep_" in name else self.out)
-                base = name.split("/", 1)[1]
-                with open(os.path.join(src, fileset.NEGATIVE_DIR, base), "rb") as f:
+                src = next((os.path.join(self.dir, d) for k, d in NEGATIVE_SOURCES.items() if k in name),
+                           self.out)
+                with open(os.path.join(src, fileset.NEGATIVE_DIR, name), "rb") as f:
                     self.assertEqual(zf.read(top + name), f.read(), name)
         self.assertEqual(P.read_sums(os.path.join(self.dir, "dist")),
                          {"bpc1-r1-negative.zip": P.sha256_file(path)})
@@ -489,9 +497,12 @@ class NegativeArchive(unittest.TestCase):
         """A missing input folder, or a file missing in one, fails clearly and writes no zip."""
         nowhere = os.path.join(self.dir, "nowhere")
         for i, (args, what) in enumerate((
-                (["--out", self.out, "--out-sweep", nowhere], nowhere),
-                (["--out", nowhere, "--out-sweep", self.sweep], nowhere),
-                (["--out", self.out, "--out-sweep", self.out], "sweep_altered"))):
+                (["--out", self.out, "--out-sweep", nowhere, "--out-gapless", self.gapless], nowhere),
+                (["--out", nowhere, "--out-sweep", self.sweep, "--out-gapless", self.gapless], nowhere),
+                (["--out", self.out, "--out-sweep", self.sweep, "--out-gapless", nowhere], nowhere),
+                (["--out", self.out, "--out-sweep", self.out, "--out-gapless", self.gapless],
+                 "sweep_altered"),
+                (["--out", self.out, "--out-sweep", self.sweep, "--out-gapless", self.out], "_gap.wav"))):
             with self.subTest(args=args):
                 code, _, err = self._package(f"dist-missing{i}", *args)
                 self.assertNotEqual(code, 0)
@@ -499,8 +510,9 @@ class NegativeArchive(unittest.TestCase):
                 self.assertIn(what, err)
                 self.assertFalse(os.path.exists(os.path.join(self.dir, f"dist-missing{i}",
                                                              "bpc1-r1-negative.zip")))
-        with redirect_stderr(StringIO()), self.assertRaises(SystemExit):
-            cli.main(["package", "--out-sweep", self.sweep, "--dist", os.path.join(self.dir, "x")])
+        for opt in ("--out-sweep", "--out-gapless"):
+            with redirect_stderr(StringIO()), self.assertRaises(SystemExit):
+                cli.main(["package", opt, self.sweep, "--dist", os.path.join(self.dir, "x")])
 
     def test_limit(self):
         code, _, _ = self._package("dist-size")

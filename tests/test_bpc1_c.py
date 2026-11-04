@@ -107,11 +107,22 @@ class CTool(unittest.TestCase):
                         self.assertEqual(out[i], s["hex"][c].upper(), s["what"])
                         i += 1
 
+    def test_h0_table(self):
+        """T2: every h0 (channel 0 of 2, LEAD_IN): the C engine accepts the
+        header words exactly when checker.model does, and only kinds 1, 2
+        and 5."""
+        h0s = range(1 << 16)
+        out = self.ask([f"parse {h0} 0x0201" for h0 in h0s])
+        self.assertEqual(len(out), 1 << 16)
+        py = [model.Fields.parse(h0, 0x0201, 0x4250, 0x4331, 0).valid() for h0 in h0s]
+        self.assertEqual([x == "1" for x in out], py)
+        self.assertEqual(sorted({(h0 >> 8) & 15 for h0, ok in zip(h0s, out) if ok == "1"}), [1, 2, 5])
+
     def test_whole_blocks_against_the_model(self):
         """Every unit of a lead-in, an R-header, a body and the last block, for
         each depth and a DSD kind, against checker.model."""
         cases = [(model.KIND_PCM, 2, 0), (model.KIND_PCM, 3, 3), (model.KIND_PCM, 4, 9),
-                 (model.KIND_DOP, 1, 10)]
+                 (model.KIND_DSD, 1, 10)]
         lead, body, total = 22, 3, 30
         for kind, depth_code, rate_code in cases:
             with self.subTest(kind=kind, depth_code=depth_code, rate_code=rate_code):

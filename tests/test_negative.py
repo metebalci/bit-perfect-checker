@@ -5,7 +5,7 @@ import os
 import unittest
 
 from checker import check, readers
-from generator import containers, fileset
+from generator import fileset
 
 from tests import helpers as H
 
@@ -13,10 +13,8 @@ from tests import helpers as H
 # diagnosis the reason, its bits and the body counts that are not zero.
 WANT = {
     "bpc1_pcm_044k1_24bit_altered": ("NOT_BIT_PERFECT", "TRUNCATED", 16, {}),
-    "bpc1_pcm_048k_24bit_altered": ("NOT_BIT_PERFECT", "TRUNCATED", 16, {}),
     "bpc1_dsd064_dop-176k4_24bit_altered": ("NOT_BIT_PERFECT", "BIT_ERRORS", None, {}),
     "bpc1_pcm_044k1_24bit_incomplete": ("NOT_BIT_PERFECT", None, None, {"dropped": 1000}),
-    "bpc1_pcm_048k_24bit_incomplete": ("NOT_BIT_PERFECT", None, None, {"dropped": 1000}),
     "bpc1_dsd064_dop-176k4_24bit_incomplete": ("NOT_BIT_PERFECT", None, None, {"dropped": 2000}),
 }
 
@@ -35,8 +33,8 @@ class NegativeFiles(unittest.TestCase):
         for f in neg:
             self.assertEqual(f.relpath, "negative/" + f.filename)
             self.assertTrue(f.filename.endswith(".wav"))
-            self.assertEqual(f.formats, ("flac", "aiff", "alac"))
-            self.assertIn("NEGATIVE TEST, DELIBERATELY " + f.fault.upper(), f.title)
+            self.assertEqual(f.formats, ())                # WAV only
+            self.assertTrue(f.title().endswith(" WAV - NEGATIVE TEST, DELIBERATELY " + f.fault.upper()))
             self.assertIn("NEGATIVE TEST, deliberately " + f.fault, f.comment)
             self.assertTrue(f.comment.endswith("A checker must report NOT_BIT_PERFECT."))
             self.assertIn("DO NOT PLAY ON SPEAKERS OR HEADPHONES", f.comment)
@@ -72,14 +70,18 @@ class NegativeFiles(unittest.TestCase):
                                          f.cfg.lead_blocks + fileset.FAULT_BLOCK)
                     os.remove(path)
 
-    @unittest.skipUnless(containers.flac_usable(), "flac >= 1.4.0 not installed")
-    def test_flac_same_verdicts(self):
-        with H.TempDir() as d:
-            for f in (fileset.negative_set()[1], fileset.negative_set()[4]):
-                with self.subTest(f.name):
-                    flac = fileset.write_flac(f, fileset.write_file(f, d))
-                    rep = check.check(readers.read_file(flac))
-                    self.assertEqual(result(rep), WANT[f.name])
+    def test_every_negative_file(self):
+        """The seven negative files of the three sets, WAV only, with the
+        fixed numbers of 11.2."""
+        neg = [f for f in fileset.test_set() + fileset.sweep_set() + fileset.gapless_set() if f.fault]
+        self.assertEqual(sorted(f.filename for f in neg),
+                         ["90000-bpc1_pcm_044k1_24bit_altered.wav", "90001-bpc1_pcm_044k1_24bit_incomplete.wav",
+                          "90002-bpc1_pcm_044k1_16bit_sweep_altered.wav",
+                          "90003-bpc1_pcm_044k1_16bit_gapless_part1_gap.wav",
+                          "90004-bpc1_pcm_044k1_16bit_gapless_part2_gap.wav",
+                          "91000-bpc1_dsd064_dop-176k4_24bit_altered.wav",
+                          "91001-bpc1_dsd064_dop-176k4_24bit_incomplete.wav"])
+        self.assertEqual({f.formats for f in neg}, {()})
 
 
 if __name__ == "__main__":

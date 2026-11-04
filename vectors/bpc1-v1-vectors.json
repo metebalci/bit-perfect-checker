@@ -100,7 +100,7 @@
  "pcm": [
   {
    "name": "bpc1_pcm_044k1_16bit",
-   "file": "bpc1_pcm_044k1_16bit.wav",
+   "file": "00000-bpc1_pcm_044k1_16bit.wav",
    "container": "wav",
    "kind": 1,
    "rate": 44100,
@@ -338,12 +338,12 @@
      ]
     }
    ],
-   "wav_data_offset": 310,
+   "wav_data_offset": 320,
    "wav_data_first_bytes": "C0B1C0B1ED5EED5E2011201101020112504250423143314300000000611FD522"
   },
   {
    "name": "bpc1_pcm_048k_24bit",
-   "file": "bpc1_pcm_048k_24bit.wav",
+   "file": "00031-bpc1_pcm_048k_24bit.wav",
    "container": "wav",
    "kind": 1,
    "rate": 48000,
@@ -584,12 +584,12 @@
      ]
     }
    ],
-   "wav_data_offset": 332,
+   "wav_data_offset": 342,
    "wav_data_first_bytes": "0CC0B1CEC0B124ED5E8AED5ED431116F31115101022101127B50425050420531435831439200005F000050BCA753089A"
   },
   {
    "name": "bpc1_pcm_096k_32bit",
-   "file": "bpc1_pcm_096k_32bit.wav",
+   "file": "00063-bpc1_pcm_096k_32bit.wav",
    "container": "wav",
    "kind": 1,
    "rate": 96000,
@@ -866,12 +866,12 @@
      ]
     }
    ],
-   "wav_data_offset": 332,
+   "wav_data_offset": 342,
    "wav_data_first_bytes": "2541C0B17BF8C0B1D843ED5E2DACED5E7CF7431143834311F0A301024BD10112BB4E504242185042C2933143B4023143D51200006BC20000A31300CA73ADB4F7"
   },
   {
    "name": "bpc1_pcm_768k_24bit",
-   "file": "bpc1_pcm_768k_24bit.wav",
+   "file": "00039-bpc1_pcm_768k_24bit.wav",
    "container": "wav",
    "kind": 1,
    "rate": 768000,
@@ -1652,12 +1652,12 @@
      ]
     }
    ],
-   "wav_data_offset": 334,
+   "wav_data_offset": 344,
    "wav_data_first_bytes": "69C0B1FAC0B1E4ED5E13ED5E433911DB39119A01023D0112AB50420350428331433331435C00001500003A438EEFF7B3"
   },
   {
    "name": "bpc1_pcm_044k1_16bit_sweep",
-   "file": "bpc1_pcm_044k1_16bit_sweep.wav",
+   "file": "10000-bpc1_pcm_044k1_16bit_sweep.wav",
    "container": "wav",
    "kind": 5,
    "rate": 44100,
@@ -1926,12 +1926,12 @@
      ]
     }
    ],
-   "wav_data_offset": 320,
+   "wav_data_offset": 330,
    "wav_data_first_bytes": "C0B1C0B1ED5EED5E201520150102011250425042314331430000000054B2E08F"
   },
   {
    "name": "bpc1_pcm_048k_24bit_sweep",
-   "file": "bpc1_pcm_048k_24bit_sweep.wav",
+   "file": "10031-bpc1_pcm_048k_24bit_sweep.wav",
    "container": "wav",
    "kind": 5,
    "rate": 48000,
@@ -2203,14 +2203,14 @@
      ]
     }
    ],
-   "wav_data_offset": 342,
+   "wav_data_offset": 352,
    "wav_data_first_bytes": "CEC0B102C0B137ED5EA0ED5E2A3115843115160102AD0112555042415042483143653143180000F3000061890AD83D37"
   }
  ],
  "dsd": [
   {
-   "name": "bpc1_dsd064_dsf",
-   "file": "bpc1_dsd064_dsf.dsf",
+   "name": "bpc1_dsd064",
+   "file": "01400-bpc1_dsd064.dsf",
    "container": "dsf",
    "kind": 2,
    "rate": 2822400,
@@ -2281,10 +2281,10 @@
    "dsf_note": "channel 0's first 16 bytes; channel 1's block follows 4096 bytes later"
   },
   {
-   "name": "bpc1_dsd128_dff",
-   "file": "bpc1_dsd128_dff.dff",
+   "name": "bpc1_dsd128",
+   "file": "01501-bpc1_dsd128.dff",
    "container": "dff",
-   "kind": 3,
+   "kind": 2,
    "rate": 5644800,
    "rate_code": 11,
    "depth": 1,
@@ -2298,32 +2298,32 @@
    "block_length": 524288,
    "chip_length": 1408,
    "rhdr_start": 65536,
-   "channel_keys": ["0x8BA3E9C4", "0x39187C7E"],
+   "channel_keys": ["0x9E00AD83", "0xBD7C4207"],
    "blocks": {
     "0": {
      "flags": "0x01",
      "sync_words": [
-      ["0xB1C0", "0x5EED", "0x131B", "0x0201", "0x4250", "0x4331", "0x0000", "0x3152"],
-      ["0xB1C0", "0x5EED", "0x131B", "0x1201", "0x4250", "0x4331", "0x0000", "0x0CE6"]
+      ["0xB1C0", "0x5EED", "0x121B", "0x0201", "0x4250", "0x4331", "0x0000", "0x5E17"],
+      ["0xB1C0", "0x5EED", "0x121B", "0x1201", "0x4250", "0x4331", "0x0000", "0x63A3"]
      ]
     },
     "8": {
      "flags": "0x01",
      "sync_words": [
-      ["0xB1C0", "0x5EED", "0x131B", "0x0201", "0x4250", "0x4331", "0x0008", "0xB05A"],
-      ["0xB1C0", "0x5EED", "0x131B", "0x1201", "0x4250", "0x4331", "0x0008", "0x8DEE"]
+      ["0xB1C0", "0x5EED", "0x121B", "0x0201", "0x4250", "0x4331", "0x0008", "0xDF1F"],
+      ["0xB1C0", "0x5EED", "0x121B", "0x1201", "0x4250", "0x4331", "0x0008", "0xE2AB"]
      ],
      "rhdr_words": [
-      ["0x131B", "0x0201", "0x4250", "0x4331", "0x0008", "0x0088", "0x2459"],
-      ["0x131B", "0x1201", "0x4250", "0x4331", "0x0008", "0x0088", "0xB0CF"]
+      ["0x121B", "0x0201", "0x4250", "0x4331", "0x0008", "0x0088", "0x272C"],
+      ["0x121B", "0x1201", "0x4250", "0x4331", "0x0008", "0x0088", "0xB3BA"]
      ],
-     "rhdr_first_chips": [1, 1, 1, 1, 1, -1, -1, 1, 1, -1, 1, -1, 1, -1, 1, -1, 1, -1, 1, 1, -1, -1, 1, -1, 1, 1, -1, 1, -1, -1, 1, -1, 1, -1, 1, 1, -1, 1, -1, -1, 1, 1, -1, 1, -1]
+     "rhdr_first_chips": [1, 1, 1, 1, 1, -1, -1, 1, 1, -1, 1, -1, 1, -1, 1, -1, 1, -1, 1, 1, -1, -1, 1, -1, 1, 1, -1, -1, 1, -1, 1, -1, 1, -1, 1, 1, -1, 1, -1, -1, 1, 1, -1, 1, -1]
     },
     "135": {
      "flags": "0x06",
      "sync_words": [
-      ["0xB1C0", "0x5EED", "0x131B", "0x0206", "0x4250", "0x4331", "0x0087", "0xC979"],
-      ["0xB1C0", "0x5EED", "0x131B", "0x1206", "0x4250", "0x4331", "0x0087", "0xF4CD"]
+      ["0xB1C0", "0x5EED", "0x121B", "0x0206", "0x4250", "0x4331", "0x0087", "0xA63C"],
+      ["0xB1C0", "0x5EED", "0x121B", "0x1206", "0x4250", "0x4331", "0x0087", "0x9B88"]
      ]
     }
    },
@@ -2331,7 +2331,7 @@
     {
      "what": "block 0: X-sync and payload",
      "first_bit": 0,
-     "hex": ["B1C05EED131B02014250433100003152AA696996969656696A9A6A5969959596", "B1C05EED131B12014250433100000CE6555A655A65569969596A5A9A66996599"]
+     "hex": ["B1C05EED121B02014250433100005E17569AAA5599599559A5A6A9A59A699A9A", "B1C05EED121B120142504331000063A3A5AAA69A6955656699A5A59665A6AA59"]
     },
     {
      "what": "block 8: guard after the X-sync",
@@ -2346,16 +2346,16 @@
     {
      "what": "block 30: payload",
      "first_bit": 15732736,
-     "hex": ["65995566559969956A9A65AA59599A69", "A66A69A6A9956A59955A966569A595AA"]
+     "hex": ["665AA65955A9A996565A66A695996A5A", "9595A659559A6A9669A96665565A9A99"]
     }
    ],
-   "dff_data_first_bytes": "B1B1C0C05E5EEDED13131B1B02120101424250504343313100000000310C52E6"
+   "dff_data_first_bytes": "B1B1C0C05E5EEDED12121B1B021201014242505043433131000000005E6317A3"
   },
   {
    "name": "bpc1_dsd256_dop-705k6_24bit",
-   "file": "bpc1_dsd256_dop-705k6_24bit.wav",
+   "file": "01002-bpc1_dsd256_dop-705k6_24bit.wav",
    "container": "dop",
-   "kind": 4,
+   "kind": 2,
    "rate": 11289600,
    "rate_code": 12,
    "depth": 1,
@@ -2369,32 +2369,32 @@
    "block_length": 1048576,
    "chip_length": 2816,
    "rhdr_start": 131072,
-   "channel_keys": ["0xDF197CC7", "0xA65E4391"],
+   "channel_keys": ["0x9748B388", "0xDCEAFAB5"],
    "blocks": {
     "0": {
      "flags": "0x01",
      "sync_words": [
-      ["0xB1C0", "0x5EED", "0x141C", "0x0201", "0x4250", "0x4331", "0x0000", "0x9C03"],
-      ["0xB1C0", "0x5EED", "0x141C", "0x1201", "0x4250", "0x4331", "0x0000", "0xA1B7"]
+      ["0xB1C0", "0x5EED", "0x121C", "0x0201", "0x4250", "0x4331", "0x0000", "0xEFBC"],
+      ["0xB1C0", "0x5EED", "0x121C", "0x1201", "0x4250", "0x4331", "0x0000", "0xD208"]
      ]
     },
     "8": {
      "flags": "0x01",
      "sync_words": [
-      ["0xB1C0", "0x5EED", "0x141C", "0x0201", "0x4250", "0x4331", "0x0008", "0x1D0B"],
-      ["0xB1C0", "0x5EED", "0x141C", "0x1201", "0x4250", "0x4331", "0x0008", "0x20BF"]
+      ["0xB1C0", "0x5EED", "0x121C", "0x0201", "0x4250", "0x4331", "0x0008", "0x6EB4"],
+      ["0xB1C0", "0x5EED", "0x121C", "0x1201", "0x4250", "0x4331", "0x0008", "0x5300"]
      ],
      "rhdr_words": [
-      ["0x141C", "0x0201", "0x4250", "0x4331", "0x0008", "0x0088", "0x05AF"],
-      ["0x141C", "0x1201", "0x4250", "0x4331", "0x0008", "0x0088", "0x9139"]
+      ["0x121C", "0x0201", "0x4250", "0x4331", "0x0008", "0x0088", "0x0E91"],
+      ["0x121C", "0x1201", "0x4250", "0x4331", "0x0008", "0x0088", "0x9A07"]
      ],
-     "rhdr_first_chips": [1, 1, 1, 1, 1, -1, -1, 1, 1, -1, 1, -1, 1, -1, 1, -1, 1, -1, 1, 1, -1, -1, 1, 1, -1, -1, 1, -1, 1, -1, 1, -1, 1, -1, 1, 1, -1, 1, -1, 1, -1, -1, 1, -1, 1]
+     "rhdr_first_chips": [1, 1, 1, 1, 1, -1, -1, 1, 1, -1, 1, -1, 1, -1, 1, -1, 1, -1, 1, 1, -1, -1, 1, -1, 1, 1, -1, -1, 1, -1, 1, -1, 1, -1, 1, 1, -1, 1, -1, 1, -1, -1, 1, -1, 1]
     },
     "135": {
      "flags": "0x06",
      "sync_words": [
-      ["0xB1C0", "0x5EED", "0x141C", "0x0206", "0x4250", "0x4331", "0x0087", "0x6428"],
-      ["0xB1C0", "0x5EED", "0x141C", "0x1206", "0x4250", "0x4331", "0x0087", "0x599C"]
+      ["0xB1C0", "0x5EED", "0x121C", "0x0206", "0x4250", "0x4331", "0x0087", "0x1797"],
+      ["0xB1C0", "0x5EED", "0x121C", "0x1206", "0x4250", "0x4331", "0x0087", "0x2A23"]
      ]
     }
    },
@@ -2402,7 +2402,7 @@
     {
      "what": "block 0: X-sync and payload",
      "first_bit": 0,
-     "hex": ["B1C05EED141C02014250433100009C03A55A5999A69966595669AA6AA9A65956", "B1C05EED141C1201425043310000A1B7A599556A9596AAAAAAA65A6AA6959599"]
+     "hex": ["B1C05EED121C0201425043310000EFBCAA95969A69596A59965665656A559A65", "B1C05EED121C1201425043310000D208A5A995A5AA659A65695569AA9A999A59"]
     },
     {
      "what": "block 8: guard after the X-sync",
@@ -2417,18 +2417,18 @@
     {
      "what": "block 30: payload",
      "first_bit": 31461376,
-     "hex": ["5AA5969A56695656A699559569A9AA6A", "AA599A6A666AAA6A5A59A9559A5A6A96"]
+     "hex": ["5995A9A5A5955A9959A9A9AAAA695555", "9A5A5965956AAA99665AAA5966A595A6"]
     }
    ],
    "dop_first_frames": [
     ["0x05B1C0", "0x05B1C0"],
     ["0xFA5EED", "0xFA5EED"],
-    ["0x05141C", "0x05141C"],
+    ["0x05121C", "0x05121C"],
     ["0xFA0201", "0xFA1201"],
     ["0x054250", "0x054250"],
     ["0xFA4331", "0xFA4331"],
     ["0x050000", "0x050000"],
-    ["0xFA9C03", "0xFAA1B7"]
+    ["0xFAEFBC", "0xFAD208"]
    ]
   }
  ],
@@ -2542,7 +2542,7 @@
     "channels": 2
    },
    "dop64": {
-    "kind": 4,
+    "kind": 2,
     "rate": 2822400,
     "depth": 1,
     "lead_blocks": 2,
@@ -2602,7 +2602,7 @@
     "channels": 2
    },
    "dop64_long": {
-    "kind": 4,
+    "kind": 2,
     "rate": 2822400,
     "depth": 1,
     "lead_blocks": 2,
@@ -3266,6 +3266,78 @@
     ],
     "change": [
      {"op": "and", "frame": 0, "count": 196608, "value": "0x00FFFFFF"}
+    ],
+    "results": [
+     {"verdict": "UNKNOWN_SIGNAL", "end": "STOP", "diff": "-"}
+    ]
+   },
+   {
+    "case": "DoP, every X-sync of reserved kind 3",
+    "allow_silence": false,
+    "stream": [
+     {"file": "dop64"}
+    ],
+    "change": [
+     {"op": "xor", "frame": 2, "value": "0x00010000"},
+     {"op": "xor", "frame": 7, "value": "0x006F4500"},
+     {"op": "xor", "frame": 16386, "value": "0x00010000"},
+     {"op": "xor", "frame": 16391, "value": "0x006F4500"},
+     {"op": "xor", "frame": 32770, "value": "0x00010000"},
+     {"op": "xor", "frame": 32775, "value": "0x006F4500"},
+     {"op": "xor", "frame": 49154, "value": "0x00010000"},
+     {"op": "xor", "frame": 49159, "value": "0x006F4500"},
+     {"op": "xor", "frame": 65538, "value": "0x00010000"},
+     {"op": "xor", "frame": 65543, "value": "0x006F4500"},
+     {"op": "xor", "frame": 81922, "value": "0x00010000"},
+     {"op": "xor", "frame": 81927, "value": "0x006F4500"},
+     {"op": "xor", "frame": 98306, "value": "0x00010000"},
+     {"op": "xor", "frame": 98311, "value": "0x006F4500"},
+     {"op": "xor", "frame": 114690, "value": "0x00010000"},
+     {"op": "xor", "frame": 114695, "value": "0x006F4500"},
+     {"op": "xor", "frame": 131074, "value": "0x00010000"},
+     {"op": "xor", "frame": 131079, "value": "0x006F4500"},
+     {"op": "xor", "frame": 147458, "value": "0x00010000"},
+     {"op": "xor", "frame": 147463, "value": "0x006F4500"},
+     {"op": "xor", "frame": 163842, "value": "0x00010000"},
+     {"op": "xor", "frame": 163847, "value": "0x006F4500"},
+     {"op": "xor", "frame": 180226, "value": "0x00010000"},
+     {"op": "xor", "frame": 180231, "value": "0x006F4500"}
+    ],
+    "results": [
+     {"verdict": "UNKNOWN_SIGNAL", "end": "STOP", "diff": "-"}
+    ]
+   },
+   {
+    "case": "DoP, every X-sync of reserved kind 4",
+    "allow_silence": false,
+    "stream": [
+     {"file": "dop64"}
+    ],
+    "change": [
+     {"op": "xor", "frame": 2, "value": "0x00060000"},
+     {"op": "xor", "frame": 7, "value": "0x0073BF00"},
+     {"op": "xor", "frame": 16386, "value": "0x00060000"},
+     {"op": "xor", "frame": 16391, "value": "0x0073BF00"},
+     {"op": "xor", "frame": 32770, "value": "0x00060000"},
+     {"op": "xor", "frame": 32775, "value": "0x0073BF00"},
+     {"op": "xor", "frame": 49154, "value": "0x00060000"},
+     {"op": "xor", "frame": 49159, "value": "0x0073BF00"},
+     {"op": "xor", "frame": 65538, "value": "0x00060000"},
+     {"op": "xor", "frame": 65543, "value": "0x0073BF00"},
+     {"op": "xor", "frame": 81922, "value": "0x00060000"},
+     {"op": "xor", "frame": 81927, "value": "0x0073BF00"},
+     {"op": "xor", "frame": 98306, "value": "0x00060000"},
+     {"op": "xor", "frame": 98311, "value": "0x0073BF00"},
+     {"op": "xor", "frame": 114690, "value": "0x00060000"},
+     {"op": "xor", "frame": 114695, "value": "0x0073BF00"},
+     {"op": "xor", "frame": 131074, "value": "0x00060000"},
+     {"op": "xor", "frame": 131079, "value": "0x0073BF00"},
+     {"op": "xor", "frame": 147458, "value": "0x00060000"},
+     {"op": "xor", "frame": 147463, "value": "0x0073BF00"},
+     {"op": "xor", "frame": 163842, "value": "0x00060000"},
+     {"op": "xor", "frame": 163847, "value": "0x0073BF00"},
+     {"op": "xor", "frame": 180226, "value": "0x00060000"},
+     {"op": "xor", "frame": 180231, "value": "0x0073BF00"}
     ],
     "results": [
      {"verdict": "UNKNOWN_SIGNAL", "end": "STOP", "diff": "-"}
@@ -4411,6 +4483,78 @@
       "channels": [0],
       "value": "0x00000001"
      }
+    ],
+    "results": [
+     {"verdict": "UNKNOWN_SIGNAL", "end": "STOP", "diff": "-"}
+    ]
+   },
+   {
+    "case": "silence allowed: a DoP file whose X-syncs all carry reserved kind 3",
+    "allow_silence": true,
+    "stream": [
+     {"file": "dop64"}
+    ],
+    "change": [
+     {"op": "xor", "frame": 2, "value": "0x00010000"},
+     {"op": "xor", "frame": 7, "value": "0x006F4500"},
+     {"op": "xor", "frame": 16386, "value": "0x00010000"},
+     {"op": "xor", "frame": 16391, "value": "0x006F4500"},
+     {"op": "xor", "frame": 32770, "value": "0x00010000"},
+     {"op": "xor", "frame": 32775, "value": "0x006F4500"},
+     {"op": "xor", "frame": 49154, "value": "0x00010000"},
+     {"op": "xor", "frame": 49159, "value": "0x006F4500"},
+     {"op": "xor", "frame": 65538, "value": "0x00010000"},
+     {"op": "xor", "frame": 65543, "value": "0x006F4500"},
+     {"op": "xor", "frame": 81922, "value": "0x00010000"},
+     {"op": "xor", "frame": 81927, "value": "0x006F4500"},
+     {"op": "xor", "frame": 98306, "value": "0x00010000"},
+     {"op": "xor", "frame": 98311, "value": "0x006F4500"},
+     {"op": "xor", "frame": 114690, "value": "0x00010000"},
+     {"op": "xor", "frame": 114695, "value": "0x006F4500"},
+     {"op": "xor", "frame": 131074, "value": "0x00010000"},
+     {"op": "xor", "frame": 131079, "value": "0x006F4500"},
+     {"op": "xor", "frame": 147458, "value": "0x00010000"},
+     {"op": "xor", "frame": 147463, "value": "0x006F4500"},
+     {"op": "xor", "frame": 163842, "value": "0x00010000"},
+     {"op": "xor", "frame": 163847, "value": "0x006F4500"},
+     {"op": "xor", "frame": 180226, "value": "0x00010000"},
+     {"op": "xor", "frame": 180231, "value": "0x006F4500"}
+    ],
+    "results": [
+     {"verdict": "UNKNOWN_SIGNAL", "end": "STOP", "diff": "-"}
+    ]
+   },
+   {
+    "case": "silence allowed: a DoP file whose X-syncs all carry reserved kind 4",
+    "allow_silence": true,
+    "stream": [
+     {"file": "dop64"}
+    ],
+    "change": [
+     {"op": "xor", "frame": 2, "value": "0x00060000"},
+     {"op": "xor", "frame": 7, "value": "0x0073BF00"},
+     {"op": "xor", "frame": 16386, "value": "0x00060000"},
+     {"op": "xor", "frame": 16391, "value": "0x0073BF00"},
+     {"op": "xor", "frame": 32770, "value": "0x00060000"},
+     {"op": "xor", "frame": 32775, "value": "0x0073BF00"},
+     {"op": "xor", "frame": 49154, "value": "0x00060000"},
+     {"op": "xor", "frame": 49159, "value": "0x0073BF00"},
+     {"op": "xor", "frame": 65538, "value": "0x00060000"},
+     {"op": "xor", "frame": 65543, "value": "0x0073BF00"},
+     {"op": "xor", "frame": 81922, "value": "0x00060000"},
+     {"op": "xor", "frame": 81927, "value": "0x0073BF00"},
+     {"op": "xor", "frame": 98306, "value": "0x00060000"},
+     {"op": "xor", "frame": 98311, "value": "0x0073BF00"},
+     {"op": "xor", "frame": 114690, "value": "0x00060000"},
+     {"op": "xor", "frame": 114695, "value": "0x0073BF00"},
+     {"op": "xor", "frame": 131074, "value": "0x00060000"},
+     {"op": "xor", "frame": 131079, "value": "0x0073BF00"},
+     {"op": "xor", "frame": 147458, "value": "0x00060000"},
+     {"op": "xor", "frame": 147463, "value": "0x0073BF00"},
+     {"op": "xor", "frame": 163842, "value": "0x00060000"},
+     {"op": "xor", "frame": 163847, "value": "0x0073BF00"},
+     {"op": "xor", "frame": 180226, "value": "0x00060000"},
+     {"op": "xor", "frame": 180231, "value": "0x0073BF00"}
     ],
     "results": [
      {"verdict": "UNKNOWN_SIGNAL", "end": "STOP", "diff": "-"}

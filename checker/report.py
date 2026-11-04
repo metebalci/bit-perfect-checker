@@ -48,8 +48,8 @@ def render_diagnosis(rep, several=False):
     sig = rep.get("signal")
     if sig:
         depth = "1-bit" if sig["depth"] == 1 else f"{sig['depth']}-bit"
-        what = (f"PCM {rate_text(sig['rate'])} {depth}" if sig["kind"] == "PCM"
-                else f"{rate_text(sig['rate'])} from {sig['kind']}")
+        what = (rate_text(sig["rate"]) if sig["kind"] == "DSD"
+                else f"PCM {rate_text(sig['rate'])} {depth}" + (" code sweep" if sig["kind"] == "SWEEP" else ""))
         out.append(f"  Signal    BPC1 v1 {what}, {sig['channels']} ch, seed {sig['seed']}")
         b = sig["blocks"]
         if b["total"] is not None:

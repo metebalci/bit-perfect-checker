@@ -200,7 +200,7 @@ their meaning.
 | `alt <n> slot=<bytes> res=<bits>` | the host selected a streaming alt setting; `alt 0` closes it |
 | `stream start id=<n> rate=<Hz> alt=<n> slot=<bytes> res=<bits> allow_silence=<true/false>` | the first packet of stream `<n>`, counted from 1 since boot, with the allowed silence in effect |
 | `stat id=<n> rate=<Hz> frames=<n> pkts=<n> bits=<n> dop=<0/1> lost=<n> ovf=<n> <load>` | every second while streaming: average rate so far, frames this second, packets so far, bits in use this second, DoP, losses so far, and the [load figures](#load-figures) of this second |
-| `lock kind=<PCM/SWEEP/DSF/DFF/DOP> dop=<0/1> rate=<Hz> depth=<bits> seed=0x<hex> block=<n> frame=<n>` | the checker found a file: its kind and identity from the first X-sync it read, whether it came as DoP, (`rate` is the file's, the DSD bit rate for DSD kinds; `depth` is 1 for DSD), that X-sync's block, and the received frame it starts at |
+| `lock kind=<PCM/SWEEP/DSD> dop=<0/1> rate=<Hz> depth=<bits> seed=0x<hex> block=<n> frame=<n>` | the checker found a file: its kind and identity from the first X-sync it read, whether it came as DoP, (`rate` is the file's, the DSD bit rate for DSD; `depth` is 1 for DSD), that X-sync's block, and the received frame it starts at |
 | `depth bits=<n>` | the bits in use changed |
 | `dop on`, `dop off` | more or fewer than half of the frames carry DoP markers |
 | `lost packets=<n> total=<n>` | microframes passed without a packet (a zero-length packet counts as none) |
@@ -254,14 +254,14 @@ and 0 in the file's fields. The fields:
 | `stream` | the stream it belongs to: the `id=` of `stream start`, `stat`, `stream stop` and `status` |
 | `file` | the result's place in its stream, from 1 |
 | `verdict` | `BIT_PERFECT`, `NOT_BIT_PERFECT`, `UNKNOWN_SIGNAL` or `DEVICE_OVERRUN`, below |
-| `kind` | the file's kind from its X-sync: `PCM`, `SWEEP` (the PCM code sweep, [signal format](../docs/bpc1.md#75-expected-word-pseudocode)), `DSF`, `DFF`, `DOP`, or `NONE` |
-| `dop` | 1 when the file came as DoP: a DSF file played as DoP gives `kind=DSF dop=1` |
+| `kind` | the file's kind from its X-sync: `PCM`, `SWEEP` (the PCM code sweep, [signal format](../docs/bpc1.md#75-expected-word-pseudocode)), `DSD` (from a DSF, DFF or DoP file alike), or `NONE` |
+| `dop` | 1 when the file came as DoP: a DSD file, DSF, DFF or DoP, played as DoP gives `kind=DSD dop=1` |
 | `seed`, `nch` | the file's seed and channel count, from its X-sync |
-| `file_rate`, `depth` | the file's rate (frames per second for PCM, DSD bits per second per channel for DSD kinds) and depth (16, 24, 32; 1 for DSD) |
+| `file_rate`, `depth` | the file's rate (frames per second for PCM, DSD bits per second per channel for DSD) and depth (16, 24, 32; 1 for DSD) |
 | `rate`, `alt`, `slot`, `res` | what the host chose: the frame rate, alt setting, slot bytes, resolution |
 | `bits` | the bits in use of the received words over the file's body, for PCM and DoP alike (DoP in 3- or 4-byte slots: 24 when the padding below it is zero) |
 | `end` | how the file ended: `LAST` (its block flagged last arrived), `NEXT` (another file followed), `BACK` (the block index went back), `STOP` (the stream stopped first) |
-| `diff` | the position in the file of the first body unit that did not arrive as expected, in seconds from the file's start as generated, 3 decimals, rounded half up (PCM: frame index / rate; DSD kinds: byte index x 8 / DSD rate): the earliest of the body's first unit, when the rate or channel count is wrong or the first body block's X-sync or the lead-in X-sync before it is missing; the first body unit that differs or did not arrive (in the R-header chips of r5 and r6, as the R-header rule of [12.6](../docs/bpc1.md#126-verdicts) places it); and the first unit after the body, when the X-sync after the body is missing. Where a limit X-sync is broken or cut off, the body runs from after the last lead-in X-sync received to the first tail X-sync received. `-` for `BIT_PERFECT`, `UNKNOWN_SIGNAL` and `DEVICE_OVERRUN` (12.6) |
+| `diff` | the position in the file of the first body unit that did not arrive as expected, in seconds from the file's start as generated, 3 decimals, rounded half up (PCM: frame index / rate; DSD: byte index x 8 / DSD rate): the earliest of the body's first unit, when the rate or channel count is wrong or the first body block's X-sync or the lead-in X-sync before it is missing; the first body unit that differs or did not arrive (in the R-header chips of r5 and r6, as the R-header rule of [12.6](../docs/bpc1.md#126-verdicts) places it); and the first unit after the body, when the X-sync after the body is missing. Where a limit X-sync is broken or cut off, the body runs from after the last lead-in X-sync received to the first tail X-sync received. `-` for `BIT_PERFECT`, `UNKNOWN_SIGNAL` and `DEVICE_OVERRUN` (12.6) |
 | `lost`, `ovf` | packets lost and receive FIFO overflows that fall in the result's frames, by their place in the stream: a lost packet counts in the result of the first frame after it (a doubled microframe takes back the hole before it), an overflow in the result of the frame where the checker learns of it, normally the one it marks `DEVICE_OVERRUN`. Those between two results count in the later one; the stream's last result line also takes those after every result and those in frames not read before the stream stopped. A stream's result lines add up to its `stream stop` line's `lost` and `ovf`, except with `allow_silence` `true` when the stream ends in allowed silence after its last result: the losses there are on no result line, only on the `stream stop` line. The verdict follows the frames, not these counts |
 | `dur` | a received duration, unlike `diff`, which is a position in the file: the file's received frames, from its first X-sync to its end, at most to the end of its extent ([12.6](../docs/bpc1.md#126-verdicts)), divided by `rate`; seconds, 3 decimals |
 
@@ -365,7 +365,7 @@ line may hold noise from a reset.
 and macOS, and with pyserial on Windows:
 
 ```
-python3 -m bpcctl run -- aplay -D hw:CARD=Checker out/bpc1_pcm_096k_24bit.wav
+python3 -m bpcctl run -- aplay -D hw:CARD=Checker out/00033-bpc1_pcm_096k_24bit.wav
 ```
 
 `python3 -m bpcctl allow-silence true|false` sets the allowed silence the

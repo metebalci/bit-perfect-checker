@@ -379,8 +379,6 @@ def _report_exact(rep, stream, work, ex, rh, findings, end):
     elif altered:
         n = sum(e.count for e in altered)
         findings.append(classify.finding("BIT_ERRORS", f"{n} DSD bytes differ", bytes=n))
-    if work.dsd and rep["stream"]["transport"] == "DoP" and sig.kind != model.KIND_DOP:
-        rep["notes"].append(f"DSD from a {model.KIND_TEXT[sig.kind]} file, sent as DoP")
     findings = classify.in_order(findings)
     rep["reasons"] = findings
     if findings:
@@ -421,8 +419,7 @@ def _report_robust(rep, stream, work, hs, rh, transport):
     ratio = rh["ratio"]
     if model.is_dsd_kind(f.kind) and transport == "PCM":
         findings.append(classify.finding(
-            "DSD_TO_PCM", f"DSD converted to PCM: {rate_text(src)} "
-            f"({model.KIND_TEXT[f.kind]}) -> PCM {rate_text(rx_rate)}",
+            "DSD_TO_PCM", f"DSD converted to PCM: {rate_text(src)} -> PCM {rate_text(rx_rate)}",
             file_rate=src, rate=rx_rate))
         findings.append(classify.finding("LEVEL", f"level {level:+.2f} dB re 50% DSD modulation",
                                          level_db=level))

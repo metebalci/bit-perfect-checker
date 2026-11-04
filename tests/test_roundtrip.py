@@ -61,21 +61,23 @@ class PcmRoundTrip(unittest.TestCase):
         files = fileset.test_set(pcm32=True) + fileset.sweep_set()
         all3 = ("flac", "aiff", "alac")
         for f in files:
-            if f.container == "wav":
+            if f.fault:
+                want = ()                          # the negative files: WAV only
+            elif f.container == "wav":
                 want = () if f.cfg.depth > 24 else all3
             else:
                 want = all3 if f.container == "dop" else ()
             self.assertEqual(f.formats, want, f.name)
-        self.assertEqual(sum("flac" in f.formats for f in fileset.test_set()), 29)
-        self.assertEqual(sum("alac" in f.formats for f in fileset.test_set()), 29)
-        self.assertEqual(sum("aiff" in f.formats for f in fileset.test_set()), 29)
+        self.assertEqual(sum("flac" in f.formats for f in fileset.test_set()), 23)
+        self.assertEqual(sum("alac" in f.formats for f in fileset.test_set()), 23)
+        self.assertEqual(sum("aiff" in f.formats for f in fileset.test_set()), 23)
 
     @unittest.skipUnless(HAVE_FLAC, "flac >= 1.4.0 not installed")
     def test_dop_flac_every_rate(self):
         """DoP-FLAC up to DSD256 (705.6 kHz, outside the FLAC subset)."""
         with H.TempDir() as d:
             for rate in spec.DSD_RATES:
-                cfg = H.short_config(spec.KIND_DSD_DOP, rate, 1)
+                cfg = H.short_config(spec.KIND_DSD, rate, 1)
                 self.assertIn("flac", fileset.formats("dop", cfg))
                 with self.subTest(rate=rate):
                     fsp = H.short_file("dop", cfg, encoded=True)
@@ -87,23 +89,22 @@ class PcmRoundTrip(unittest.TestCase):
                     self.assertEqual(rep["verdict"], "BIT_PERFECT")
                     self.assertEqual(rep["diagnosis"]["stream"]["transport"], "DoP")
                     self.assertEqual(rep["diagnosis"]["stream"]["rate"], rate // 16)
-                    self.assertEqual((rep["diagnosis"]["signal"]["kind"], rep["diagnosis"]["signal"]["rate"]), ("DoP", rate))
+                    self.assertEqual((rep["diagnosis"]["signal"]["kind"], rep["diagnosis"]["signal"]["rate"]), ("DSD", rate))
 
 
 class DsdRoundTrip(unittest.TestCase):
     def test_every_dsd_configuration(self):
         with H.TempDir() as d:
             for rate in spec.DSD_RATES:
-                for cont, kind in H.KINDS_DSD.items():
+                for cont in ("dsf", "dff", "dop"):
                     with self.subTest(rate=rate, container=cont):
-                        cfg = H.short_config(kind, rate, 1)
+                        cfg = H.short_config(spec.KIND_DSD, rate, 1)
                         fsp = H.short_file(cont, cfg)
                         rep, = H.write_and_check(fsp, d)
                         self.assertEqual(rep["verdict"], "BIT_PERFECT", rep.get("verdict_text"))
                         self.assertEqual(rep["diagnosis"]["stream"]["transport"],
                                          "DoP" if cont == "dop" else "DSD")
-                        self.assertEqual(rep["diagnosis"]["signal"]["kind"],
-                                         {"dsf": "DSF", "dff": "DFF", "dop": "DoP"}[cont])
+                        self.assertEqual(rep["diagnosis"]["signal"]["kind"], "DSD")
                         self.assertEqual(rep["diagnosis"]["signal"]["rate"], rate)
                         self.assertEqual(rep["diagnosis"]["sync"]["r_headers"], 4)
                         os.remove(os.path.join(d, fsp.filename))
@@ -147,7 +148,7 @@ class StandardLength(unittest.TestCase):
             want = 10
             self.assertTrue(want <= secs < want + 4096 / base, f.name)
             self.assertNotIn("TEST", f.filename)
-            self.assertTrue(f.title.startswith("TEST - DO NOT PLAY ON SPEAKERS - BPC1 "))
+            self.assertTrue(f.title().startswith(f"TEST - DO NOT PLAY ON SPEAKERS - {f.number()} BPC1 "))
             self.assertIn("TEST - DO NOT PLAY ON SPEAKERS OR HEADPHONES.", f.comment)
 
 
@@ -155,7 +156,7 @@ class StandardLength(unittest.TestCase):
         """A 10 s body at every rate: 108 blocks in the 44.1 kHz family and
         DSD, 118 in the 48 kHz family."""
         files = fileset.test_set(pcm32=True)
-        self.assertEqual(len(files), 3 * len(spec.PCM_RATES) + 3 * len(spec.DSD_RATES) + 6)
+        self.assertEqual(len(files), 3 * len(spec.PCM_RATES) + 3 * len(spec.DSD_RATES) + 4)
         for f in files:
             with self.subTest(f.name):
                 want = 108 if spec.family(f.cfg.rate)[0] == 44100 else 118
@@ -190,7 +191,7 @@ class SlotsAndCaptures(unittest.TestCase):
             self.assertEqual(rep["verdict"], "BIT_PERFECT")
 
     def test_raw_native_dsd_u32_be(self):
-        cfg = H.short_config(spec.KIND_DSD_DSF, 2822400, 1)
+        cfg = H.short_config(spec.KIND_DSD, 2822400, 1)
         bits = H.dsd_bits(cfg)                       # (nch, nbits)
         by = np.packbits(bits, axis=1)               # (nch, bytes), MSB first
         words = by.reshape(2, -1, 4).transpose(1, 0, 2)   # (words, nch, 4) big-endian

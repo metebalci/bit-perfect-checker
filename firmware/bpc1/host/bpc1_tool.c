@@ -11,6 +11,8 @@
 //   sync <k>                        -> one line per channel, 8 hex words
 //   pcm <first frame> <count>       -> one line per frame: samples at the file depth
 //   dsd <first bit> <bytes>         -> one line per channel: hex bytes
+//   parse <h0> <h1>                 -> 1 if header words h0, h1 (seed and
+//                                      block 0) are valid, else 0
 //
 // Numbers may be decimal or 0x-hex. Flags and the total block count follow
 // the file layout of the sig line, as a generator writes them.
@@ -85,6 +87,10 @@ int main(void) {
       body = (uint32_t) num(argv[7]);
       total = (uint32_t) num(argv[8]);
       printf(bpc1_signal_init(&sig, &f) ? "ok\n" : "error\n");
+    } else if (strcmp(cmd, "parse") == 0 && argc == 3) {
+      const uint16_t h[5] = {(uint16_t) num(argv[1]), (uint16_t) num(argv[2]), 0x4250u, 0x4331u, 0u};
+      bpc1_fields_t f;
+      printf("%d\n", bpc1_fields_parse(h, &f) ? 1 : 0);
     } else if (strcmp(cmd, "key") == 0 && argc == 2) {
       printf("0x%08" PRIX32 "\n", sig.keys[num(argv[1])]);
     } else if (strcmp(cmd, "sync") == 0 && argc == 2) {

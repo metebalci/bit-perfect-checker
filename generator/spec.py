@@ -16,19 +16,14 @@ VERSION = 1
 MAGIC = (0xB1C0, 0x5EED)
 
 KIND_PCM = 1
-KIND_DSD_DSF = 2
-KIND_DSD_DFF = 3
-KIND_DSD_DOP = 4
+KIND_DSD = 2              # DSD, in DSF, DFF or DoP alike (3.1)
 KIND_SWEEP = 5            # PCM code sweep: PCM in every respect but its payload
-KIND_NAMES = {KIND_PCM: "PCM", KIND_DSD_DSF: "DSD from DSF",
-              KIND_DSD_DFF: "DSD from DFF", KIND_DSD_DOP: "DSD from DoP (WAV or FLAC)",
-              KIND_SWEEP: "PCM code sweep"}
-DSD_KINDS = (KIND_DSD_DSF, KIND_DSD_DFF, KIND_DSD_DOP)
+KIND_NAMES = {KIND_PCM: "PCM", KIND_DSD: "DSD", KIND_SWEEP: "PCM code sweep"}
 
 
 def is_dsd_kind(kind):
-    """DSD kinds; PCM and the PCM code sweep are not."""
-    return kind in DSD_KINDS
+    """The DSD kind; PCM and the PCM code sweep are not."""
+    return kind == KIND_DSD
 
 DEPTH_CODES = {1: 1, 16: 2, 24: 3, 32: 4}
 DEPTH_FROM_CODE = {v: k for k, v in DEPTH_CODES.items()}

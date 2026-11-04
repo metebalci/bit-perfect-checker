@@ -122,7 +122,7 @@ class GoldenVectors(unittest.TestCase):
                 m = sig.ref(0, 10 * cfg.block_len).astype(np.int64)
                 self.assertTrue(np.array_equal(g.astype(np.int32), m.astype(np.int32)),
                                 (rate, depth))
-        for kind in (2, 3, 4):
+        for kind in (spec.KIND_DSD,):
             for rate in spec.DSD_RATES:
                 cfg = Config(kind, rate, 1, 1, 8, 1)
                 sig = self._signal({"kind": kind, "depth_code": 1,

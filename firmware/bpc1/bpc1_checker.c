@@ -1547,7 +1547,7 @@ const char *bpc1_verdict_name(uint8_t verdict) {
 }
 
 const char *bpc1_kind_name(uint8_t kind) {
-  static const char *const names[] = {"NONE", "PCM", "DSF", "DFF", "DOP", "SWEEP"};
+  static const char *const names[] = {"NONE", "PCM", "DSD", "?", "?", "SWEEP"};
   return NAME_OF(names, kind);
 }
 

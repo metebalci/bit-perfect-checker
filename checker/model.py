@@ -13,13 +13,14 @@ import numpy as np
 MAGIC0, MAGIC1 = 0xB1C0, 0x5EED
 VERSION = 1
 
-KIND_PCM, KIND_DSF, KIND_DFF, KIND_DOP, KIND_SWEEP = 1, 2, 3, 4, 5
-KIND_TEXT = {1: "PCM", 2: "DSF", 3: "DFF", 4: "DoP", 5: "SWEEP"}
+KIND_PCM, KIND_DSD, KIND_SWEEP = 1, 2, 5       # 0, 3, 4 and 6 to 15 are reserved
+KIND_TEXT = {1: "PCM", 2: "DSD", 5: "SWEEP"}
 
 
 def is_dsd_kind(kind):
-    """DSD kinds; PCM and the PCM code sweep (kind 5) are PCM."""
-    return kind in (KIND_DSF, KIND_DFF, KIND_DOP)
+    """The DSD kind; PCM and the PCM code sweep (kind 5) are PCM."""
+    return kind == KIND_DSD
+
 DEPTHS = {1: 1, 2: 16, 3: 24, 4: 32}
 RATES = (44100, 48000, 88200, 96000, 176400, 192000, 352800, 384000,
          705600, 768000, 2822400, 5644800, 11289600)

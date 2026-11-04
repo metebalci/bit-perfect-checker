@@ -82,8 +82,11 @@ files.
    gapless pairs in
    `bpc1-r1-gapless.zip` (about 57 MB; play them only after the regular
    files pass), and the negative tests, deliberately faulty files that must
-   not check as bit-perfect, in `bpc1-r1-negative.zip` (about 575 MB; they
-   show that a device or checker rejects altered and incomplete files).
+   not check as bit-perfect, in `bpc1-r1-negative.zip` (about 38 MB, seven
+   WAV files; they show that a device or checker rejects altered and
+   incomplete files). Every file name starts with a five-digit number, so
+   the files of all zips put in one folder play in a fixed order: regular
+   PCM, regular DSD, code sweep, gapless pairs, negative files.
    Or generate them
    ([Generate the test files](#generate-the-test-files)). The FLAC and ALAC
    files at 705.6 and 768 kHz, and the DSD256 DoP files, need a decoder that
@@ -116,10 +119,13 @@ Without `flac` or the ALAC tools the generator skips those files and says so.
 
 ### Generate the test files
 
-Into `out/`: 122 files, about 1.75 GB. Twenty-four of them, in `out/negative/`,
-are deliberately faulty copies, altered or incomplete, that a checker must
-report as `NOT_BIT_PERFECT` (see the [signal format](docs/bpc1.md),
-section 11.5); the release puts them in `bpc1-r1-negative.zip`:
+Into `out/`: 102 files, about 1.65 GB. Four of them, in `out/negative/`,
+are deliberately faulty copies, altered or incomplete, as WAV, that a
+checker must report as `NOT_BIT_PERFECT` (see the
+[signal format](docs/bpc1.md), section 11.5); the release puts them in
+`bpc1-r1-negative.zip`. Every file name starts with its number (section
+11.2), for example `00033-bpc1_pcm_096k_24bit.wav` and
+`00133-bpc1_pcm_096k_24bit.flac`:
 
 ```
 python3 -m generator                 # the full set, with SHA256SUMS
@@ -134,7 +140,9 @@ not for listening: **do not play them on speakers or headphones.**
 ### How the test files are made
 
 The generator writes every WAV first. FLAC, AIFF and ALAC are made from the
-WAV of the same name, so all formats of a file hold the same samples. The
+WAV of the same name (after the number), so all formats of a file hold the
+same samples; the DSF, DFF and DoP files of a DSD rate hold the same DSD
+bits. The
 formats in the [signal format](docs/bpc1.md), section 9, are written
 as follows:
 
@@ -182,8 +190,8 @@ bytes. The decode and compare still checks the samples.
 Apple's own ALAC decoders refuse ALAC above 384 kHz (the one in macOS does,
 and so presumably does iOS's built-in playback), so the ALAC files at 705.6
 and 768 kHz and the DSD256 DoP file are for players with their own ALAC
-decoder. The WAV and AIFF files of the same name hold the same samples and
-play everywhere.
+decoder. The WAV and AIFF files of the same name (after the number) hold the
+same samples and play everywhere.
 
 **ffmpeg is not used.** Neither the generator nor the checker runs it. Its
 ALAC encoder and decoder differ from Apple's (see Known issues), so ALAC is
@@ -234,7 +242,7 @@ the sweep set.
 From `out/` into `dist/`: `bpc1-r1-wav.zip` (PCM WAV and DSD; about
 381 MB), `bpc1-r1-flac.zip` (PCM and DoP FLAC; about 286 MB),
 `bpc1-r1-aiff.zip` (AIFF; about 454 MB) and `bpc1-r1-alac.zip` (ALAC in
-`.m4a`; about 297 MB). Each holds an empty file whose name is the warning,
+`.m4a`; about 298 MB). Each holds an empty file whose name is the warning,
 a README.txt, a SHA256SUMS of its files and the files that should pass; the
 negative tests go into a zip of their own (below). Packaging first checks
 every file against `out/SHA256SUMS`. It stops with an error, and does not write the zip, when
@@ -246,7 +254,7 @@ every run, a failed one too, it rewrites `dist/SHA256SUMS` from the zips in
 python3 -m generator package
 ```
 
-The code-sweep set (88 files, about 5.4 GB, a separate set: see the
+The code-sweep set (81 files, about 5.0 GB, a separate set: see the
 [signal format](docs/bpc1.md), sections 7.4 and 11.6) is written and
 packaged on request. Use an output folder of its own, so that it does not
 mix with the regular files:
@@ -256,25 +264,26 @@ python3 -m generator --sweep --out out-sweep
 python3 -m generator package --sweep --out out-sweep   # the four bpc1-r1-sweep-*.zip, all stored
 ```
 
-The negative tests of both sets, the 24 of `out/negative/` and the 8 of
-`out-sweep/negative/`, go into one stored zip, `bpc1-r1-negative.zip`
-(about 575 MB), with one folder per format (`wav/`, `flac/`, `aiff/`,
-`alac/`), a README.txt that says what each file must give, and a
-SHA256SUMS whose names carry their folder. It needs both sets, and stops
-with an error when either folder or one of its files is missing:
+The negative tests of the three sets, the 4 of `out/negative/`, the 1 of
+`out-sweep/negative/` and the pair of `out-gapless/negative/`, all WAV, go
+into one stored zip, `bpc1-r1-negative.zip` (about 38 MB), with a
+README.txt that says what each file must give, and a SHA256SUMS. It needs
+the three sets, and stops with an error when a folder or one of its files is
+missing:
 
 ```
-python3 -m generator package --negative --out out --out-sweep out-sweep
+python3 -m generator package --negative --out out --out-sweep out-sweep --out-gapless out-gapless
 ```
 
-The gapless set (36 files, about 57 MB, a separate set: see the
+The gapless set (38 files, about 59 MB, a separate set: see the
 [signal format](docs/bpc1.md), section 11.7) tests whether a player joins
 two tracks without a gap. Each pair is a regular file cut in two inside its
 body, at 7.5 s: PCM 44.1 and 48 kHz, 16 and 24 bits, as WAV, AIFF, FLAC
-and ALAC, and DSD64 as DSF and DFF, one folder per format. It is written
-into `out-gapless/` by default and packaged into one stored zip,
-`bpc1-r1-gapless.zip` (about 57 MB), with its README.txt and a SHA256SUMS
-whose names carry their folder:
+and ALAC, and DSD64 as DSF and DFF, one folder per format, and a negative
+pair with 10 ms of silence before part 2 in `negative/`. It is written into
+`out-gapless/` by default, and its 36 pairs' files are packaged into one
+stored zip, `bpc1-r1-gapless.zip` (about 57 MB), with its README.txt and a
+SHA256SUMS whose names carry their folder:
 
 ```
 python3 -m generator --gapless                         # into out-gapless/
@@ -302,13 +311,14 @@ byte-identical to the release's.
    python3 -m generator --gapless --out out-gapless
    ```
 
-3. Package all three, and the negative tests of the regular and the sweep
-   set, into one empty dist folder:
+3. Package all three, and the negative tests of the three sets, into one
+   empty dist folder:
 
    ```
    python3 -m generator package --out out --dist dist
    python3 -m generator package --sweep --out out-sweep --dist dist
-   python3 -m generator package --negative --out out --out-sweep out-sweep --dist dist
+   python3 -m generator package --negative --out out --out-sweep out-sweep \
+       --out-gapless out-gapless --dist dist
    python3 -m generator package --gapless --out out-gapless --dist dist
    ```
 
@@ -321,7 +331,7 @@ byte-identical to the release's.
 If the lines of some zips differ, look at each zip's own `SHA256SUMS`,
 the checksums of its audio files, to find the files that differ. With a
 `flac` version other than the release's, the FLAC files and the zips that
-hold them (the two FLAC zips and the negative zip) differ in their bytes but
+hold them (the two FLAC zips) differ in their bytes but
 not in the decoded samples: the generator decodes every FLAC file and
 compares it with its WAV, so the samples are those of the WAV, and the
 checker gives the file the WAV's verdict.
@@ -329,8 +339,8 @@ With another zlib version only the WAV zip differs, but not the checksums of
 the files inside it.
 
 For the ALAC files, build the ALAC helper with GCC 15.2, as the release did,
-or compare `dist/SHA256SUMS` to see whether the two ALAC zips and the
-negative zip came out the same. Another compiler or other flags may change the ALAC bytes, because
+or compare `dist/SHA256SUMS` to see whether the two ALAC zips came out the
+same. Another compiler or other flags may change the ALAC bytes, because
 Apple's encoder has undefined behaviour (see ALAC above). The decoded
 samples must still equal the WAV's, and the generator checks that for every
 ALAC file it writes.
@@ -338,11 +348,11 @@ ALAC file it writes.
 ### Check a file or a capture
 
 ```
-python3 -m checker out/bpc1_pcm_096k_24bit.wav
+python3 -m checker out/00033-bpc1_pcm_096k_24bit.wav
 python3 -m checker --json out/*.dsf
 python3 -m checker --raw s32le --rate 96000 --channels 2 capture.raw
-python3 -m checker --join out-gapless/flac/bpc1_pcm_044k1_24bit_gapless_part1.flac \
-                          out-gapless/flac/bpc1_pcm_044k1_24bit_gapless_part2.flac
+python3 -m checker --join out-gapless/flac/20130-bpc1_pcm_044k1_24bit_gapless_part1.flac \
+                          out-gapless/flac/20131-bpc1_pcm_044k1_24bit_gapless_part2.flac
 ```
 
 It reads WAV, FLAC, AIFF, ALAC (`.m4a`, decoded with Apple's ALAC decoder),
@@ -385,7 +395,7 @@ virtual COM port (115200 8N1); the port is `$BPC_PORT`, default
 bpcctl run` plays a file and reads the results. For example, on Linux:
 
 ```
-python3 -m bpcctl run -- aplay -D hw:CARD=Checker bpc1_pcm_096k_24bit.wav
+python3 -m bpcctl run -- aplay -D hw:CARD=Checker 00033-bpc1_pcm_096k_24bit.wav
 ```
 
 Its exit status is the first of these that holds:
@@ -461,7 +471,8 @@ you cannot be sure which parts a player uses for every format and which only
 for one: each format has its own decoder, and players often take a different
 path for each. That is why the test files come in several formats. Start
 with WAV: it holds plain samples, so if it fails, the other formats will
-too. The files of one name hold the same samples in every format, so a pass
+too. The files of one name (after the number) hold the same samples in
+every format, so a pass
 as WAV and a fail as FLAC or ALAC points at that format's decoder. For
 example, ffmpeg's ALAC decoder, used by players built on ffmpeg, decodes the
 files ffmpeg's own encoder makes correctly, but some files made by Apple's
@@ -475,7 +486,8 @@ channels in order and switches the output to the DoP rate. A player that
 passes every PCM file can still get one of these steps wrong, or convert DSD
 to PCM, which many players do by default. The DoP files, DSD already packed
 as DoP inside WAV, FLAC, AIFF or ALAC, check that the path carries DoP
-untouched.
+untouched. The DSF, DFF and DoP files of a DSD rate hold the same DSD bits,
+so the checker gives them the same result when the path is bit-perfect.
 
 **Why is there no DSD sweep?** On the way to the device, DSD travels as DoP:
 24-bit words at 176.4, 352.8 or 705.6 kHz. The 24-bit PCM sweep files at
@@ -516,7 +528,7 @@ files find them.
   sweep files at 192 kHz 24-bit, 352.8 kHz 24-bit, 384, 705.6 and 768 kHz.
   It is an ffmpeg bug, reported as [ffmpeg issue 25727](https://code.ffmpeg.org/FFmpeg/FFmpeg/issues/25727).
   A player that decodes ALAC with ffmpeg fails those files; the WAV and AIFF
-  of the same name hold the same samples. The project's files are made and
+  of the same name (after the number) hold the same samples. The project's files are made and
   checked with Apple's codec (see the
   [signal format](docs/bpc1.md#97-alac-mp4), section 9.7).
 

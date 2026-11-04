@@ -451,7 +451,7 @@ class Float32Path(unittest.TestCase):
 class DsdAlterations(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.cfg = H.short_config(spec.KIND_DSD_DSF, 2822400, 1)
+        cls.cfg = H.short_config(spec.KIND_DSD, 2822400, 1)
         cls.bits = H.dsd_bits(cls.cfg)
 
     def test_dsd_to_pcm_decimation(self):
@@ -460,24 +460,24 @@ class DsdAlterations(unittest.TestCase):
                 pcm = sim.dsd_to_pcm(self.bits, factor)
                 rep = H.check_words(pcm, rate, 24)
                 self.assertEqual((rep["verdict"], H.codes(rep)), ("UNKNOWN_SIGNAL", ["DSD_TO_PCM", "LEVEL"]))
-                self.assertEqual(rep["diagnosis"]["signal"]["kind"], "DSF")
+                self.assertEqual(rep["diagnosis"]["signal"]["kind"], "DSD")
                 self.assertEqual(rep["diagnosis"]["robust"]["source_rate"], 2822400)
                 self.assertIn(f"PCM {rate / 1000:g} kHz", rep["diagnosis"]["verdict_text"])
                 self.assertAlmostEqual(rep["diagnosis"]["robust"]["level_db"], -6.0, delta=0.3)
 
     def test_dsd256_to_pcm_352k8(self):
-        cfg = H.short_config(spec.KIND_DSD_DFF, 11289600, 1)
+        cfg = H.short_config(spec.KIND_DSD, 11289600, 1)
         rep = H.check_words(sim.dsd_to_pcm(H.dsd_bits(cfg), 32), 352800, 24)
         self.assertEqual(rep["diagnosis"]["verdict_text"],
-                         "ALTERED: DSD converted to PCM: DSD256 (DFF) -> PCM 352.8 kHz")
+                         "ALTERED: DSD converted to PCM: DSD256 -> PCM 352.8 kHz")
 
-    def _dop_stream(self, bits, kind=spec.KIND_DSD_DOP):
+    def _dop_stream(self, bits):
         from generator.signal import dop_frames
         f = dop_frames(bits, 0).astype(np.int64) << 8
         return readers.Stream(False, 176400, 2, f.astype(np.int32), "test", 24, 24)
 
     def test_dop_dropped_frame(self):
-        cfg = H.short_config(spec.KIND_DSD_DOP, 2822400, 1)
+        cfg = H.short_config(spec.KIND_DSD, 2822400, 1)
         st = self._dop_stream(H.dsd_bits(cfg))
         p = 12 * cfg.block_len // 16 + 3000
         st.data = np.delete(st.data, p, axis=0)

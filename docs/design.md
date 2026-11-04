@@ -68,6 +68,12 @@ implementations can follow it. The main choices:
   a 32-bit microcontroller.
 - **Header fields in the top 16 bits** of each word keep the X-sync intact in
   16-bit files and through truncation to 16 bits.
+- **The header holds only what a checker needs to rebuild the reference:**
+  the kind (PCM, DSD or the PCM code sweep), rate, depth, channels and seed.
+  A signal is the same in every container: the WAV, FLAC, AIFF and ALAC
+  files of a PCM signal hold the same samples, and the DSF, DFF and DoP
+  files of a DSD rate the same DSD bits. The container and the set are in
+  the numbered file names, not in the signal.
 - **A low-level payload with full-scale bursts.** The payload is at about
   -48 dBFS (-36 dBFS for 16-bit) and still exercises every bit of the file
   depth. The X-sync and the walking-bit burst are full scale and exercise the
@@ -156,23 +162,36 @@ them:
   `python3 -m generator`.
 - **Formats.** PCM (16- and 24-bit, ten rates) as WAV, FLAC, AIFF and ALAC.
   DSD64, DSD128 and DSD256 as DSF, DFF, and DoP in a 24-bit WAV; the DoP files
-  also as FLAC, AIFF and ALAC. The regular set is 122 files, about 1.75 GB; the
-  code-sweep set is 88 files, about 5.4 GB; the gapless set is 36 files,
-  about 57 MB (bpc1.md, sections 11.1, 11.6 and 11.7).
+  also as FLAC, AIFF and ALAC. The regular set is 102 files, about 1.65 GB;
+  the code-sweep set is 81 files, about 5.0 GB; the gapless set is 38 files,
+  about 59 MB (bpc1.md, sections 11.1, 11.6 and 11.7), the negative files
+  included.
 - **Every format a player plays is tested.** A player can decode each format
   through a different path, so the WAV set is where a test starts, not where it
   ends. FLAC, AIFF and ALAC are made from the WAV of the same name and hold
   the same samples.
-- **Negative files.** In a zip of their own, `bpc1-r1-negative.zip`, one
-  folder per format, deliberately faulty copies show that a checker catches
-  faults. Most tests play only the files that should pass and look for
-  green; the format zips hold only those, so a whole folder played as a
-  playlist must give only `BIT_PERFECT`. In the
-  regular set: PCM at 44.1 and 48 kHz 24-bit and DSD64 as DoP, each altered
-  and each with frames cut from the middle of the body, and each must give
-  `NOT_BIT_PERFECT`. Their names end in `_altered` and `_incomplete`, which
-  name the fault built into the file. In the sweep set, one code near full
-  scale is changed, a fault only a sweep finds.
+- **Numbered names.** Every file name starts with a five-digit number,
+  type, output, format and position (bpc1.md, section 11.2), for example
+  `00033-bpc1_pcm_096k_24bit.wav` and `00133-bpc1_pcm_096k_24bit.flac`. The
+  files of every archive merged into one folder play in a fixed order:
+  regular PCM, regular DSD, code sweep, gapless pairs, negative files. The
+  rest of the name is the same in every format, so files of the same name
+  are files whose names agree after the number. A released number never
+  changes. The title tag carries the number and the format too, so a player
+  that shows only titles still shows which file plays.
+- **Negative files.** In a zip of their own, `bpc1-r1-negative.zip`,
+  deliberately faulty copies show that a checker catches faults. They are
+  for developers, to see a negative fail, not for testing a player. Most
+  tests play only the files that should pass and look for green; the format
+  zips hold only those, so a whole folder played as a playlist must give
+  only `BIT_PERFECT`. The checker does not depend on the container, so the
+  negatives are WAV only, one per fault, seven files: PCM 44.1 kHz 24-bit
+  and DSD64 as DoP, each altered and each with frames cut from the middle
+  of the body; the 44.1 kHz 16-bit sweep with one code near full scale
+  changed, a fault only a sweep finds; and a gapless pair with 10 ms of
+  silence before part 2. Each must give `NOT_BIT_PERFECT` (the pair: played
+  gaplessly). Their names end in `_altered`, `_incomplete` or `_gap`, which
+  name the fault built into the file, and their numbers start with 9.
 - **Warnings.** Every file carries `TEST - DO NOT PLAY ON SPEAKERS` in its
   title and comment tags. Each zip holds an empty file whose name is the
   warning, repeated in its `README.txt`. The audio file names carry no
@@ -205,7 +224,7 @@ Apple's `afconvert`.
 - **Apple's own ALAC decoders refuse ALAC above 384 kHz** (measured with
   `afconvert` on macOS). The ALAC files at 705.6 and 768 kHz and DSD256 as DoP
   are therefore for players with their own ALAC decoder; the WAV and AIFF files
-  of the same name hold the same samples.
+  of the same name (after the number) hold the same samples.
 - The bytes of an ALAC file depend on the pinned codec and on how the helper
   was built. Build the ALAC helper with GCC 15.2, as the release did, or
   compare `dist/SHA256SUMS` with the release's. Another compiler or other
@@ -235,8 +254,14 @@ gives one result.
   4096-byte block, zero-padded as Sony's specification asks: a player that
   plays whole blocks inserts the padding. DFF has no blocks. WAV and AIFF
   are the plain case. The pairs are 44.1 and 48 kHz at 16 and 24 bits, the
-  rates and depths of most albums played gaplessly, and DSD64; one zip of
-  about 57 MB holds them all.
+  rates and depths of most albums played gaplessly, and DSD64 as DSF and
+  DFF; one zip of about 57 MB holds them all. DoP has no pair: its DSD
+  bits are those of the DSF and DFF files, and as PCM it takes the path the
+  PCM pairs test.
+- **A negative pair.** The 44.1 kHz 16-bit WAV pair with 10 ms of silence
+  before part 2, the commonest fault of a player that is not gapless, is in
+  the negative zip: played gaplessly it gives one `NOT_BIT_PERFECT` with
+  `diff` 7.500, so a checker is seen to catch a gap.
 - **The cut, one unit after 7.5 s.** It lies in the body, away from both
   ends, in the payload of a block without an R-header, and at the same time
   at every rate, so a change at the join gives `diff` 7.500 for every format.
@@ -273,7 +298,8 @@ deflated WAV zip on the zlib version.
 - **Names.** The test files are named after the format with the file-set
   release: `bpc1-r1-wav.zip`, `-flac.zip`, `-aiff.zip` and `-alac.zip`,
   `bpc1-r1-sweep-*.zip` for the sweep set, `bpc1-r1-negative.zip` for the
-  negative files of both and `bpc1-r1-gapless.zip` for the gapless set. BPC1
+  negative files of all three and `bpc1-r1-gapless.zip` for the gapless
+  pairs. BPC1
   names the format and its version (an incompatible format would be BPC2);
   r1 is the first release of the files, and changed files become r2. The
   tag is `bpc1-r1`. Changed files are a new release, not new assets on an

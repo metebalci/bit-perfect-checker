@@ -67,7 +67,8 @@ bool bpc1_fields_parse(const uint16_t h[5], bpc1_fields_t *f) {
   f->block = h[4];
 
   bool pcm = !bpc1_kind_dsd(f->kind);
-  return f->version == BPC1_VERSION && f->kind >= 1 && f->kind <= BPC1_KIND_SWEEP && f->depth_code >= 1
+  bool kind = f->kind == BPC1_KIND_PCM || f->kind == BPC1_KIND_DSD || f->kind == BPC1_KIND_SWEEP;
+  return f->version == BPC1_VERSION && kind && f->depth_code >= 1
          && f->depth_code <= 4 && f->rate_code < N_RATES && f->nch >= 1 && f->channel < f->nch
          && pcm == (f->depth_code != 1) && pcm == (f->rate_code < 10)
          && (f->kind != BPC1_KIND_SWEEP || f->depth_code == 2 || f->depth_code == 3);  // SWEEP: 16 or 24 bits

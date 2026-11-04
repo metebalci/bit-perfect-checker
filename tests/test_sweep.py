@@ -145,13 +145,13 @@ class Files(unittest.TestCase):
         main = [f for f in files if not f.fault]
         neg = [f for f in files if f.fault]
         self.assertEqual(len(main), 20)          # each as WAV, FLAC, AIFF and ALAC
-        self.assertEqual(sorted(f.name for f in neg),
-                         ["bpc1_pcm_044k1_16bit_sweep_altered", "bpc1_pcm_044k1_24bit_sweep_altered"])
+        self.assertEqual([f.name for f in neg], ["bpc1_pcm_044k1_16bit_sweep_altered"])
         for f in files:
             self.assertTrue(f.name.endswith(("_sweep", "_sweep_altered")), f.name)
             self.assertEqual(f.cfg.kind, spec.KIND_SWEEP)
-            self.assertEqual(f.formats, ("flac", "aiff", "alac"), f.name)
-            self.assertIn("code sweep, FULL-SCALE NOISE", f.title)
+            self.assertEqual(f.formats, () if f.fault else ("flac", "aiff", "alac"), f.name)
+            for x in (f.format,) + f.formats:
+                self.assertIn(f"code sweep {fileset.FORMAT_NAMES[x]}, FULL-SCALE NOISE", f.title(x))
             self.assertIn("full-scale code sweep", f.comment)
             self.assertIn("DO NOT PLAY ON SPEAKERS OR HEADPHONES", f.comment)
         for f in neg:
@@ -225,7 +225,7 @@ class Verify(unittest.TestCase):
             self.assertIsNotNone(first)
 
     def test_negative_sweep_24_in_memory(self):
-        f = [f for f in fileset.sweep_set() if f.fault and f.cfg.depth == 24][0]
+        f = fileset.negative(fileset.sweep_file(44100, 24), "altered")     # the fault at 24 bits
         cfg = f.cfg
         chunks = ((a, signal.pcm_blocks(cfg, a, b))
                   for a, b in fileset._chunk_ranges(cfg.total_blocks, cfg.block_len))
@@ -262,12 +262,9 @@ class Packages(unittest.TestCase):
                               'and any "prevent clipping" option.', flat)
                 self.assertNotIn("negative/", text)
                 self.assertIn("bpc1-r1-negative.zip", flat)
-        # the negative sweep files: in bpc1-r1-negative.zip, one per depth and format
+        # the negative sweep file: in bpc1-r1-negative.zip, 16-bit, WAV only
         neg = [n for n in P.members(P.NEGATIVE) if "_sweep_" in n]
-        self.assertEqual(len(neg), 8)
-        for d in ("wav", "flac", "aiff", "alac"):
-            self.assertEqual(sorted(n.split("/")[1].split(".")[0] for n in neg if n.startswith(d + "/")),
-                             ["bpc1_pcm_044k1_16bit_sweep_altered", "bpc1_pcm_044k1_24bit_sweep_altered"])
+        self.assertEqual(neg, ["90002-bpc1_pcm_044k1_16bit_sweep_altered.wav"])
 
     def test_write_with_the_sweep_warning(self):
         import zipfile

@@ -31,7 +31,7 @@ def primitives():
           (0xDEADBEEF, 0xFFFFFFFF), (0x9E3779B9, 123456789)]
     sm = [0, 1, 0x4250433101010300]
     keys = [(spec.DEFAULT_SEED, spec.KIND_PCM, 0, 2, 0), (spec.DEFAULT_SEED, spec.KIND_PCM, 0, 2, 1),
-            (spec.DEFAULT_SEED, spec.KIND_DSD_DSF, 10, 1, 0)]
+            (spec.DEFAULT_SEED, spec.KIND_DSD, 10, 1, 0)]
     crc = [b"123456789", spec.words_to_bytes([0xB1C0, 0x5EED, 0x1032, 0x0201, 0x4250, 0x4331, 0x0000])]
     lbd = [(16, 0, 0), (16, 0, 1), (16, 0x8788, 0), (16, 0x8788, 12345), (16, 0xFFFF, 0xFFFF),
            (24, 0, 0), (24, 0, 1), (24, 0xE5BFCF, 0), (24, 0xE5BFCF, 1234567), (24, 0xFFFFFF, 0xFFFFFF)]
@@ -204,7 +204,7 @@ VERDICT_FILES = {
                      tail_blocks=2),
     "pcm48_24_lead12": dict(kind=spec.KIND_PCM, rate=48000, depth=24, lead_blocks=12,
                             body_blocks=14, tail_blocks=2),
-    "dop64": dict(kind=spec.KIND_DSD_DOP, rate=2822400, depth=1, lead_blocks=2, body_blocks=8,
+    "dop64": dict(kind=spec.KIND_DSD, rate=2822400, depth=1, lead_blocks=2, body_blocks=8,
                   tail_blocks=2),
     "pcm176_24": dict(kind=spec.KIND_PCM, rate=176400, depth=24, lead_blocks=2, body_blocks=8,
                       tail_blocks=2),
@@ -216,7 +216,7 @@ VERDICT_FILES = {
                           tail_blocks=2),
     "pcm48_24_lead24": dict(kind=spec.KIND_PCM, rate=48000, depth=24, lead_blocks=24, body_blocks=4,
                             tail_blocks=2),
-    "dop64_long": dict(kind=spec.KIND_DSD_DOP, rate=2822400, depth=1, lead_blocks=2, body_blocks=20,
+    "dop64_long": dict(kind=spec.KIND_DSD, rate=2822400, depth=1, lead_blocks=2, body_blocks=20,
                        tail_blocks=2),
     "pcm48_24_10_1_10": dict(kind=spec.KIND_PCM, rate=48000, depth=24, lead_blocks=10, body_blocks=1,
                              tail_blocks=10),
@@ -311,7 +311,7 @@ _result.index = {}
 
 def _first_code():
     """The first body frame of the sweep48_16 file whose channel 0 sample is
-    32766 (2^15 - 2), the code the negative sweep files change."""
+    32766 (2^15 - 2), the code the negative sweep file changes."""
     from .signal import Config
     cfg = Config(**VERDICT_FILES["sweep48_16"])
     x = pcm_blocks(cfg, cfg.lead_blocks, cfg.lead_blocks + cfg.body_blocks)[:, 0]
@@ -342,6 +342,18 @@ def _xsync_flags(k, channel, mask):
     crc = spec.crc16(spec.words_to_bytes(d)) ^ spec.crc16(spec.words_to_bytes([0] * 7))
     return [{"op": "xor", "frame": k * B + 3, "channels": [channel], "value": hx(mask << 16, 8)},
             {"op": "xor", "frame": k * B + 7, "channels": [channel], "value": hx(crc << 16, 8)}]
+
+
+def _dop_kind(kind, blocks):
+    """xor changes that give every X-sync of a DSD64 DoP file of `blocks`
+    blocks the kind `kind` instead of the DSD kind and keep their CRCs
+    valid: DoP frame i of a block carries X-sync word i (h0 is word 2, the
+    CRC word 7)."""
+    F = spec.block_len(2822400) // 16
+    d = [0, 0, (kind ^ spec.KIND_DSD) << 8, 0, 0, 0, 0]
+    crc = spec.crc16(spec.words_to_bytes(d)) ^ spec.crc16(spec.words_to_bytes([0] * 7))
+    return [{"op": "xor", "frame": k * F + i, "value": hx(v << 8, 8)}
+            for k in range(blocks) for i, v in ((2, d[2]), (7, crc))]
 
 
 def verdict_cases():
@@ -472,6 +484,10 @@ def verdict_cases():
          [(nbp, _diff(5 * F + 77, DOP))]),
         ("DoP without markers", d1, [{"op": "and", "frame": 0, "count": 12 * F, "value": "0x00FFFFFF"}],
          [(unk, None)]),
+        # Kinds 3 and 4 are reserved (3.1): a DoP file whose X-syncs all carry
+        # one, with valid CRCs, is not a test signal
+        ("DoP, every X-sync of reserved kind 3", d1, _dop_kind(3, 12), [(unk, None)]),
+        ("DoP, every X-sync of reserved kind 4", d1, _dop_kind(4, 12), [(unk, None)]),
         ("DoP idle between two DoP files", [{"file": "dop64"}, {"dop_idle": 3 * F}, {"file": "dop64"}],
          [], [(bp, None), (unk, None), (bp, None)]),
         ("diff half-way between two milliseconds rounds up", one,
@@ -666,6 +682,10 @@ def verdict_cases():
          [(bp, None), (unk, None), (bp, None)]),
         ("silence allowed: DoP idle with a padding bit set", [{"dop_idle": 3 * F, "slot": 32}],
          [{"op": "xor", "frame": F, "channels": [0], "value": "0x00000001"}], [(unk, None)]),
+        ("silence allowed: a DoP file whose X-syncs all carry reserved kind 3", d1, _dop_kind(3, 12),
+         [(unk, None)]),
+        ("silence allowed: a DoP file whose X-syncs all carry reserved kind 4", d1, _dop_kind(4, 12),
+         [(unk, None)]),
         ("silence allowed: a file muted to zeros", one,
          [{"op": "and", "frame": 0, "count": 28 * B, "value": "0x00000000"}], []),
     ]

@@ -18,9 +18,8 @@ from generator import containers
 from tests import helpers as H
 
 ROOT = os.path.join(os.path.dirname(__file__), "..")
-SUBSET = ["044k1_16bit", "096k_32bit", "768k_24bit", "dsd064_dsf",
-          "dsd128_dff", "dsd256_dop", "352k8_24bit", "044k1_24bit_altered",
-          "dop-176k4_24bit_incomplete"]
+SUBSET = ["044k1_16bit", "096k_32bit", "768k_24bit", "bpc1_dsd128", "dsd256_dop",
+          "352k8_24bit", "044k1_24bit_altered", "dop-176k4_24bit_incomplete"]
 
 
 def tree(top):
@@ -51,19 +50,24 @@ class Repeatability(unittest.TestCase):
         names = self._twice(args)
         exts = {os.path.splitext(n)[1] for n in names}
         self.assertTrue({".wav", ".dsf", ".dff"} <= exts)
-        self.assertIn("negative/bpc1_pcm_044k1_24bit_altered.wav", names)
+        self.assertIn("negative/90000-bpc1_pcm_044k1_24bit_altered.wav", names)
+        self.assertIn("negative/91001-bpc1_dsd064_dop-176k4_24bit_incomplete.wav", names)
+        self.assertIn("01401-bpc1_dsd128.dsf", names)
+        self.assertIn("01501-bpc1_dsd128.dff", names)
+        self.assertIn("00063-bpc1_pcm_096k_32bit.wav", names)
         self.assertIn(".aiff", exts)
         if containers.flac_usable():
             self.assertIn(".flac", exts)
         if containers.alac_usable():
             self.assertIn(".m4a", exts)
         # FLAC, AIFF and ALAC at every rate
-        for base in ("bpc1_pcm_768k_24bit", "bpc1_dsd256_dop-705k6_24bit"):
-            self.assertIn(base + ".aiff", names)
+        for n, base in (("39", "bpc1_pcm_768k_24bit"), ("02", "bpc1_dsd256_dop-705k6_24bit")):
+            o = "1" if "dsd" in base else "0"
+            self.assertIn(f"0{o}2{n}-{base}.aiff", names)
             if containers.flac_usable():
-                self.assertIn(base + ".flac", names)
+                self.assertIn(f"0{o}1{n}-{base}.flac", names)
             if containers.alac_usable():
-                self.assertIn(base + ".m4a", names)
+                self.assertIn(f"0{o}3{n}-{base}.m4a", names)
 
     @unittest.skipUnless(os.environ.get("BPC1_FULL_SET"), "set BPC1_FULL_SET=1 for the full set")
     def test_full_set_twice(self):
