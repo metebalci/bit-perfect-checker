@@ -223,13 +223,13 @@ static uint64_t chip_at(const bpc1_checker_t *ck, uint32_t k, uint32_t q) {
 }
 
 // Where the recorded r5 differs from the count T: the first r5 chip, as a
-// source unit; UINT64_MAX if it does not, or r5 is not complete.
+// source unit; UINT64_MAX if it does not, or its words were not judged.
 static uint64_t rec_differs(const bpc1_checker_t *ck, const bpc1_rrec_t *r, uint16_t T) {
-  if (r->n < 16) {
+  if (!r->ok) {
     return UINT64_MAX;
   }
   for (uint32_t c = 0; c < BPC1_MAX_CH; c++) {
-    if ((r->w[c] >> (r->n - 16u)) != T) {
+    if ((uint16_t) (r->w[c] >> 16) != T) {
       return chip_at(ck, r->k, CHIP_R5);
     }
   }
@@ -460,8 +460,11 @@ static uint32_t compare(const bpc1_checker_t *ck, uint8_t seg, uint32_t i, uint3
   return 2u * fr;
 }
 
-// The r5 and r6 of the chips the R-header block spelled pass the CRC with
-// r0 to r4 of the block (section 6)
+// The words of the chips the R-header block spelled, every chip whole and
+// without a difference: r6 passes the CRC with r0 to r4 of the block and r5
+// (section 6), and r5 is the same in every channel and as in the first
+// R-header of the body whose CRC passed; the count of the LAST block settles
+// it later (settle). A failure is at the block's first r5 unit.
 static bool rhdr_crc(bpc1_checker_t *ck) {
   bpc1_rrec_t *r = &ck->rec_cur;
   r->crc_done = true;
@@ -477,12 +480,26 @@ static bool rhdr_crc(bpc1_checker_t *ck) {
       return false;
     }
   }
+  r->ok = true;
+  if (ck->rec_is_first) {
+    ck->rec_first = *r;
+  }
+  for (uint32_t c = 0; c < BPC1_MAX_CH; c++) {
+    uint16_t r5 = (uint16_t) (r->w[c] >> 16);
+    if (!ck->r5_known) {
+      ck->r5_known = true;
+      ck->r5 = r5;
+    }
+    if (r5 != ck->r5) {
+      fail(ck, chip_at(ck, r->k, CHIP_R5), BPC1_WHY_COUNT);
+      return false;
+    }
+  }
   return true;
 }
 
 // At the start of the first chip of an r5 or r6 bit: its value in each
-// channel, one of the two, gives the bit. With r5 complete, it must agree
-// with the body's other R-headers.
+// channel, one of the two, gives the bit.
 static bool chip_decide(bpc1_checker_t *ck) {
   bpc1_rrec_t *r = &ck->rec_cur;
   uint64_t s = ck->p + (uint64_t) ck->base;
@@ -501,20 +518,6 @@ static bool chip_decide(bpc1_checker_t *ck) {
   r->n++;
   if (ck->rec_is_first) {
     ck->rec_first = *r;
-  }
-  if (r->n == 16) {
-    bool ok;
-    if (!ck->r5_known) {
-      ok = r->w[1] == r->w[0];
-      ck->r5_known = ok;
-      ck->r5 = (uint16_t) r->w[0];
-    } else {
-      ok = r->w[0] == ck->r5 && r->w[1] == ck->r5;
-    }
-    if (!ok) {
-      fail(ck, chip_at(ck, r->k, CHIP_R5), BPC1_WHY_COUNT);
-      return false;
-    }
   }
   return true;
 }
@@ -924,6 +927,10 @@ static void fill_report(const bpc1_checker_t *ck, uint8_t end, bpc1_report_t *r)
 static void finish_file(bpc1_checker_t *ck, uint8_t end, uint64_t stop) {
   if (ck->state == ST_BODY && ck->E_known && ck->p + (uint64_t) ck->base >= (uint64_t) (ck->E + 1u) * ck->U) {
     body_complete(ck);
+  }
+  if (!ck->failed && ck->state == ST_BODY && ck->blk_valid && bpc1_is_rhdr(ck->blk.k) && ck->rec_cur.n == 32 &&
+      !ck->rec_cur.crc_done && ck->p + (uint64_t) ck->base >= chip_at(ck, ck->blk.k, BPC1_N_CHIPS)) {
+    (void) rhdr_crc(ck);  // the stream stopped right after the chips, which arrived whole
   }
   if (!ck->failed) {
     switch (ck->state) {

@@ -264,6 +264,12 @@ ENDS = {
     "the stream stops in the body": ["STOP"],
     "the stream stops at the body's end": ["STOP"],
     "an r5 chip unit changed, the stream stops 50 chips later": ["STOP"],
+    "an r6 bit's two chips inverted in channel 0, the stream stops in the tail before LAST": ["STOP"],
+    "an r6 bit's two chips inverted in channel 0, the stream stops right after chip 236": ["STOP"],
+    "block 8's R-header spells count 29, the stream stops in the tail before LAST": ["STOP"],
+    "block 24's R-header spells count 29, the stream stops in the tail before LAST": ["STOP"],
+    "block 8's R-header spells count 29, a payload bit of block 10, the stream stops in the tail "
+    "before LAST": ["STOP"],
     "the stream stops right after the first tail X-sync": ["STOP"],
     "a block that is not tail after the first tail block (a splice of two lengths)": ["BACK", "LAST"],
     "rounded to 16 bits": ["STOP"],
@@ -344,8 +350,17 @@ def verdict_cases():
     DOP = 176400                     # DoP frame rate: a DoP frame is 2 DSD bytes
     chip, r0 = spec.chip_len(48000), spec.rhdr_start(48000)
     r5 = lambda k, j=0, t=0: k * B + r0 + (13 + 5 * 32 + j) * chip + t
+    # both chips of r5/r6 bit b (0 to 31) of block k inverted: a valid pair of the other value
+    pair = lambda k, b, ch: {"op": "xor", "frame": r5(k, 2 * b), "count": 2 * chip, "channels": ch,
+                             "value": "0xC0000000"}
+    no_last = {"op": "stop", "frame": 26 * B + 100}   # pcm48_24: after the first tail X-sync
+    dchip = spec.chip_len(2822400) // 16              # DoP frames per chip
+    d173 = 8 * F + spec.rhdr_start(2822400) // 16 + (13 + 5 * 32) * dchip
+    dpair = {"op": "xor", "frame": d173 + 62 * dchip, "count": 2 * dchip, "channels": [0],
+             "value": "0x00FFFF00"}                   # r6 bit 15 of block 8, its DSD bytes inverted
     bp, nbp, unk = "BIT_PERFECT", "NOT_BIT_PERFECT", "UNKNOWN_SIGNAL"
     one = [{"file": "pcm48_24"}]
+    long = [{"file": "pcm48_24_long"}]
     d1 = [{"file": "dop64"}]
     cases = [
         ("clean", one, [], [(bp, None)]),
@@ -488,6 +503,54 @@ def verdict_cases():
          [{"op": "xor", "frame": r5(8, 3), "count": chip, "channels": [0], "value": "0xC0000000"},
           {"op": "and", "frame": r5(8, 27), "count": chip, "channels": [0], "value": "0x00000000"}],
          [(nbp, _diff(r5(8, 3), R))]),
+        # The R-header rule's words: with chips 173 to 236 whole and without a
+        # chip difference in every channel, a CRC or count that fails is a
+        # difference at the block's chip 173, also where the count is known
+        # only later or not at all; a chip difference in them comes first, and
+        # the words are not judged
+        ("an r6 bit's two chips inverted in channel 0: the CRC fails", one, [pair(8, 31, [0])],
+         [(nbp, _diff(r5(8), R))]),
+        ("an r6 bit's two chips inverted in channel 0, the stream stops in the tail before LAST", one,
+         [pair(8, 31, [0]), no_last], [(nbp, _diff(r5(8), R))]),
+        ("an r6 bit's two chips inverted in channel 0, the stream stops right after chip 236", one,
+         [pair(8, 31, [0]), {"op": "stop", "frame": r5(8, 64)}], [(nbp, _diff(r5(8), R))]),
+        ("block 8's R-header spells count 29 with a valid CRC", one, _rhdr_bits(8, {5: 28 ^ 29}),
+         [(nbp, _diff(r5(8), R))]),
+        ("block 8's R-header spells count 29, the stream stops in the tail before LAST", one,
+         _rhdr_bits(8, {5: 28 ^ 29}) + [no_last], [(nbp, _diff(r5(24), R))]),
+        ("block 24's R-header spells count 29 with a valid CRC", one, _rhdr_bits(24, {5: 28 ^ 29}),
+         [(nbp, _diff(r5(24), R))]),
+        ("block 24's R-header spells count 29, the stream stops in the tail before LAST", one,
+         _rhdr_bits(24, {5: 28 ^ 29}) + [no_last], [(nbp, _diff(r5(24), R))]),
+        ("block 8's CRC fails (an r6 bit's chips inverted in channel 1), block 24 spells count 29", one,
+         [pair(8, 20, [1])] + _rhdr_bits(24, {5: 28 ^ 29}), [(nbp, _diff(r5(8), R))]),
+        ("an r5 bit's two chips inverted in channel 0, chip 223 zeroed in channel 0", long,
+         [pair(8, 1, [0]), {"op": "and", "frame": r5(8, 50), "count": chip, "channels": [0],
+                            "value": "0x00000000"}], [(nbp, _diff(r5(8, 50), R))]),
+        ("chip 183 zeroed in channel 0, an r5 bit's two chips inverted in channel 1", long,
+         [{"op": "and", "frame": r5(8, 10), "count": chip, "channels": [0], "value": "0x00000000"},
+          pair(8, 1, [1])], [(nbp, _diff(r5(8, 10), R))]),
+        ("an r5 bit's two chips inverted in channel 0, chip 192's first unit changed in channel 1", long,
+         [pair(8, 13, [0]), {"op": "xor", "frame": r5(8, 19), "channels": [1], "value": "0x00000100"}],
+         [(nbp, _diff(r5(8, 19), R))]),
+        ("block 8's R-header spells count 29, a unit of chip 230 changed in channel 0", one,
+         _rhdr_bits(8, {5: 28 ^ 29}) + [{"op": "xor", "frame": r5(8, 57, 3), "channels": [0],
+                                         "value": "0x00000100"}], [(nbp, _diff(r5(8, 57, 3), R))]),
+        ("block 8's R-header spells count 29, a payload bit of block 10", one,
+         _rhdr_bits(8, {5: 28 ^ 29}) + [{"op": "xor", "frame": 10 * B + 3000, "channels": [0],
+                                         "value": "0x00000100"}], [(nbp, _diff(r5(8), R))]),
+        ("block 8's R-header spells count 29, a payload bit of block 10, the stream stops in the tail "
+         "before LAST", one,
+         _rhdr_bits(8, {5: 28 ^ 29}) + [{"op": "xor", "frame": 10 * B + 3000, "channels": [0],
+                                         "value": "0x00000100"}, no_last],
+         [(nbp, _diff(10 * B + 3000, R))]),
+        ("DoP, an r6 bit's two chips inverted in channel 0, a marker zeroed in chip 193", d1,
+         [dpair, {"op": "and", "frame": d173 + 20 * dchip + 3, "value": "0x00FFFFFF"}],
+         [(nbp, _diff(d173 + 20 * dchip + 3, DOP))]),
+        ("DoP, an r6 bit's two chips inverted in channel 0, a padding bit set in chip 193",
+         [{"file": "dop64", "slot": 32}],
+         [dpair, {"op": "xor", "frame": d173 + 20 * dchip + 3, "channels": [1], "value": "0x00000001"}],
+         [(nbp, _diff(d173 + 20 * dchip + 3, DOP))]),
         ("the stream starts at the last lead-in block", one, [{"op": "start", "frame": B}],
          [(bp, None)]),
         ("the stream stops right after the first tail X-sync", one,

@@ -71,7 +71,7 @@ typedef enum {
   BPC1_WHY_MARKER,  // a DoP body frame's marker or padding differs (d)
   BPC1_WHY_CHIP,    // an r5 or r6 chip is neither of its two values
   BPC1_WHY_CRC,     // the r5 and r6 the chips spell fail the CRC
-  BPC1_WHY_COUNT,   // r5 disagrees across R-headers or with the LAST block
+  BPC1_WHY_COUNT,   // r5 differs across channels or R-headers, or from the LAST block
   BPC1_WHY_LEFT,    // the stream left the body before its end
   BPC1_WHY_END,     // no intact tail X-sync after the body, and no LAST (b)
   BPC1_N_WHY,
@@ -121,6 +121,7 @@ typedef struct {
   uint8_t flags;
   uint8_t n;       // bits recorded
   bool crc_done;
+  bool ok;         // the words judged and passed: the CRC, r5 the same throughout
   uint32_t w[BPC1_MAX_CH];
 } bpc1_rrec_t;
 

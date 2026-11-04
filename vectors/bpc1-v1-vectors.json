@@ -3450,6 +3450,343 @@
     ]
    },
    {
+    "case": "an r6 bit's two chips inverted in channel 0: the CRC fails",
+    "allow_silence": false,
+    "stream": [
+     {"file": "pcm48_24"}
+    ],
+    "change": [
+     {
+      "op": "xor",
+      "frame": 36100,
+      "count": 24,
+      "channels": [0],
+      "value": "0xC0000000"
+     }
+    ],
+    "results": [
+     {"verdict": "NOT_BIT_PERFECT", "end": "LAST", "diff": "0.737"}
+    ]
+   },
+   {
+    "case": "an r6 bit's two chips inverted in channel 0, the stream stops in the tail before LAST",
+    "allow_silence": false,
+    "stream": [
+     {"file": "pcm48_24"}
+    ],
+    "change": [
+     {
+      "op": "xor",
+      "frame": 36100,
+      "count": 24,
+      "channels": [0],
+      "value": "0xC0000000"
+     },
+     {"op": "stop", "frame": 106596}
+    ],
+    "results": [
+     {"verdict": "NOT_BIT_PERFECT", "end": "STOP", "diff": "0.737"}
+    ]
+   },
+   {
+    "case": "an r6 bit's two chips inverted in channel 0, the stream stops right after chip 236",
+    "allow_silence": false,
+    "stream": [
+     {"file": "pcm48_24"}
+    ],
+    "change": [
+     {
+      "op": "xor",
+      "frame": 36100,
+      "count": 24,
+      "channels": [0],
+      "value": "0xC0000000"
+     },
+     {"op": "stop", "frame": 36124}
+    ],
+    "results": [
+     {"verdict": "NOT_BIT_PERFECT", "end": "STOP", "diff": "0.737"}
+    ]
+   },
+   {
+    "case": "block 8's R-header spells count 29 with a valid CRC",
+    "allow_silence": false,
+    "stream": [
+     {"file": "pcm48_24"}
+    ],
+    "change": [
+     {"op": "xor", "frame": 35716, "count": 24, "value": "0xC0000000"},
+     {"op": "xor", "frame": 35812, "count": 24, "value": "0xC0000000"},
+     {"op": "xor", "frame": 35980, "count": 24, "value": "0xC0000000"},
+     {"op": "xor", "frame": 36100, "count": 24, "value": "0xC0000000"}
+    ],
+    "results": [
+     {"verdict": "NOT_BIT_PERFECT", "end": "LAST", "diff": "0.737"}
+    ]
+   },
+   {
+    "case": "block 8's R-header spells count 29, the stream stops in the tail before LAST",
+    "allow_silence": false,
+    "stream": [
+     {"file": "pcm48_24"}
+    ],
+    "change": [
+     {"op": "xor", "frame": 35716, "count": 24, "value": "0xC0000000"},
+     {"op": "xor", "frame": 35812, "count": 24, "value": "0xC0000000"},
+     {"op": "xor", "frame": 35980, "count": 24, "value": "0xC0000000"},
+     {"op": "xor", "frame": 36100, "count": 24, "value": "0xC0000000"},
+     {"op": "stop", "frame": 106596}
+    ],
+    "results": [
+     {"verdict": "NOT_BIT_PERFECT", "end": "STOP", "diff": "2.102"}
+    ]
+   },
+   {
+    "case": "block 24's R-header spells count 29 with a valid CRC",
+    "allow_silence": false,
+    "stream": [
+     {"file": "pcm48_24"}
+    ],
+    "change": [
+     {"op": "xor", "frame": 101252, "count": 24, "value": "0xC0000000"},
+     {"op": "xor", "frame": 101348, "count": 24, "value": "0xC0000000"},
+     {"op": "xor", "frame": 101516, "count": 24, "value": "0xC0000000"},
+     {"op": "xor", "frame": 101636, "count": 24, "value": "0xC0000000"}
+    ],
+    "results": [
+     {"verdict": "NOT_BIT_PERFECT", "end": "LAST", "diff": "2.102"}
+    ]
+   },
+   {
+    "case": "block 24's R-header spells count 29, the stream stops in the tail before LAST",
+    "allow_silence": false,
+    "stream": [
+     {"file": "pcm48_24"}
+    ],
+    "change": [
+     {"op": "xor", "frame": 101252, "count": 24, "value": "0xC0000000"},
+     {"op": "xor", "frame": 101348, "count": 24, "value": "0xC0000000"},
+     {"op": "xor", "frame": 101516, "count": 24, "value": "0xC0000000"},
+     {"op": "xor", "frame": 101636, "count": 24, "value": "0xC0000000"},
+     {"op": "stop", "frame": 106596}
+    ],
+    "results": [
+     {"verdict": "NOT_BIT_PERFECT", "end": "STOP", "diff": "2.102"}
+    ]
+   },
+   {
+    "case": "block 8's CRC fails (an r6 bit's chips inverted in channel 1), block 24 spells count 29",
+    "allow_silence": false,
+    "stream": [
+     {"file": "pcm48_24"}
+    ],
+    "change": [
+     {
+      "op": "xor",
+      "frame": 35836,
+      "count": 24,
+      "channels": [1],
+      "value": "0xC0000000"
+     },
+     {"op": "xor", "frame": 101252, "count": 24, "value": "0xC0000000"},
+     {"op": "xor", "frame": 101348, "count": 24, "value": "0xC0000000"},
+     {"op": "xor", "frame": 101516, "count": 24, "value": "0xC0000000"},
+     {"op": "xor", "frame": 101636, "count": 24, "value": "0xC0000000"}
+    ],
+    "results": [
+     {"verdict": "NOT_BIT_PERFECT", "end": "LAST", "diff": "0.737"}
+    ]
+   },
+   {
+    "case": "an r5 bit's two chips inverted in channel 0, chip 223 zeroed in channel 0",
+    "allow_silence": false,
+    "stream": [
+     {"file": "pcm48_24_long"}
+    ],
+    "change": [
+     {
+      "op": "xor",
+      "frame": 35380,
+      "count": 24,
+      "channels": [0],
+      "value": "0xC0000000"
+     },
+     {
+      "op": "and",
+      "frame": 35956,
+      "count": 12,
+      "channels": [0],
+      "value": "0x00000000"
+     }
+    ],
+    "results": [
+     {"verdict": "NOT_BIT_PERFECT", "end": "LAST", "diff": "0.749"}
+    ]
+   },
+   {
+    "case": "chip 183 zeroed in channel 0, an r5 bit's two chips inverted in channel 1",
+    "allow_silence": false,
+    "stream": [
+     {"file": "pcm48_24_long"}
+    ],
+    "change": [
+     {
+      "op": "and",
+      "frame": 35476,
+      "count": 12,
+      "channels": [0],
+      "value": "0x00000000"
+     },
+     {
+      "op": "xor",
+      "frame": 35380,
+      "count": 24,
+      "channels": [1],
+      "value": "0xC0000000"
+     }
+    ],
+    "results": [
+     {"verdict": "NOT_BIT_PERFECT", "end": "LAST", "diff": "0.739"}
+    ]
+   },
+   {
+    "case": "an r5 bit's two chips inverted in channel 0, chip 192's first unit changed in channel 1",
+    "allow_silence": false,
+    "stream": [
+     {"file": "pcm48_24_long"}
+    ],
+    "change": [
+     {
+      "op": "xor",
+      "frame": 35668,
+      "count": 24,
+      "channels": [0],
+      "value": "0xC0000000"
+     },
+     {
+      "op": "xor",
+      "frame": 35584,
+      "channels": [1],
+      "value": "0x00000100"
+     }
+    ],
+    "results": [
+     {"verdict": "NOT_BIT_PERFECT", "end": "LAST", "diff": "0.741"}
+    ]
+   },
+   {
+    "case": "block 8's R-header spells count 29, a unit of chip 230 changed in channel 0",
+    "allow_silence": false,
+    "stream": [
+     {"file": "pcm48_24"}
+    ],
+    "change": [
+     {"op": "xor", "frame": 35716, "count": 24, "value": "0xC0000000"},
+     {"op": "xor", "frame": 35812, "count": 24, "value": "0xC0000000"},
+     {"op": "xor", "frame": 35980, "count": 24, "value": "0xC0000000"},
+     {"op": "xor", "frame": 36100, "count": 24, "value": "0xC0000000"},
+     {
+      "op": "xor",
+      "frame": 36043,
+      "channels": [0],
+      "value": "0x00000100"
+     }
+    ],
+    "results": [
+     {"verdict": "NOT_BIT_PERFECT", "end": "LAST", "diff": "0.751"}
+    ]
+   },
+   {
+    "case": "block 8's R-header spells count 29, a payload bit of block 10",
+    "allow_silence": false,
+    "stream": [
+     {"file": "pcm48_24"}
+    ],
+    "change": [
+     {"op": "xor", "frame": 35716, "count": 24, "value": "0xC0000000"},
+     {"op": "xor", "frame": 35812, "count": 24, "value": "0xC0000000"},
+     {"op": "xor", "frame": 35980, "count": 24, "value": "0xC0000000"},
+     {"op": "xor", "frame": 36100, "count": 24, "value": "0xC0000000"},
+     {
+      "op": "xor",
+      "frame": 43960,
+      "channels": [0],
+      "value": "0x00000100"
+     }
+    ],
+    "results": [
+     {"verdict": "NOT_BIT_PERFECT", "end": "LAST", "diff": "0.737"}
+    ]
+   },
+   {
+    "case": "block 8's R-header spells count 29, a payload bit of block 10, the stream stops in the tail before LAST",
+    "allow_silence": false,
+    "stream": [
+     {"file": "pcm48_24"}
+    ],
+    "change": [
+     {"op": "xor", "frame": 35716, "count": 24, "value": "0xC0000000"},
+     {"op": "xor", "frame": 35812, "count": 24, "value": "0xC0000000"},
+     {"op": "xor", "frame": 35980, "count": 24, "value": "0xC0000000"},
+     {"op": "xor", "frame": 36100, "count": 24, "value": "0xC0000000"},
+     {
+      "op": "xor",
+      "frame": 43960,
+      "channels": [0],
+      "value": "0x00000100"
+     },
+     {"op": "stop", "frame": 106596}
+    ],
+    "results": [
+     {"verdict": "NOT_BIT_PERFECT", "end": "STOP", "diff": "0.916"}
+    ]
+   },
+   {
+    "case": "DoP, an r6 bit's two chips inverted in channel 0, a marker zeroed in chip 193",
+    "allow_silence": false,
+    "stream": [
+     {"file": "dop64"}
+    ],
+    "change": [
+     {
+      "op": "xor",
+      "frame": 143460,
+      "count": 88,
+      "channels": [0],
+      "value": "0x00FFFF00"
+     },
+     {"op": "and", "frame": 141615, "value": "0x00FFFFFF"}
+    ],
+    "results": [
+     {"verdict": "NOT_BIT_PERFECT", "end": "LAST", "diff": "0.803"}
+    ]
+   },
+   {
+    "case": "DoP, an r6 bit's two chips inverted in channel 0, a padding bit set in chip 193",
+    "allow_silence": false,
+    "stream": [
+     {"file": "dop64", "slot": 32}
+    ],
+    "change": [
+     {
+      "op": "xor",
+      "frame": 143460,
+      "count": 88,
+      "channels": [0],
+      "value": "0x00FFFF00"
+     },
+     {
+      "op": "xor",
+      "frame": 141615,
+      "channels": [1],
+      "value": "0x00000001"
+     }
+    ],
+    "results": [
+     {"verdict": "NOT_BIT_PERFECT", "end": "LAST", "diff": "0.803"}
+    ]
+   },
+   {
     "case": "the stream starts at the last lead-in block",
     "allow_silence": false,
     "stream": [

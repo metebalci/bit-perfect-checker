@@ -1,7 +1,8 @@
 """The firmware's checker engine (firmware/bpc1/bpc1_checker.c) through its
 host tool firmware/bpc1/host/bpc1_check.c, on generated raw s32le streams:
 the verdict cases of the vectors file and random changes against the
-reference checker/verify.py (verdict, end, diff and bits);
+reference checker/verify.py (verdict, end, diff and bits; for random faults
+in the R-headers' r5 and r6 chips, diff to the source unit);
 no false fail (clean files of every kind, depth and rate, gapless runs,
 starts and stops within the lead-in and tail), no false pass (single-bit
 changes in every class of body unit, DoP marker and padding faults, drops,
@@ -36,6 +37,7 @@ CHIP_R5 = 13 + 5 * 32
 FUZZ_TRIALS = 1500
 MULTI_TRIALS = 300
 SWEEP_TRIALS = 200
+RHDR_TRIALS = 150
 
 _streams = {}
 
@@ -229,16 +231,76 @@ def sweep_case(rng):
     return x, rate, 32, rng.choice([1, 333, 4096]), rng.random() < 0.3, ops
 
 
-def py_results(w, rate, slot=32, silence=False):
+def rhdr_case(rng, dop):
+    """A file with the layout LONG (body R-headers 8 and 24), PCM at 48 kHz or
+    DoP, with 1 to 3 random faults in the r5 and r6 chips of its body
+    R-headers: a chip inverted or zeroed from one of its units on, one unit's
+    low bit changed, or both chips of a bit inverted (a valid pair of the
+    other value, which only the CRC or the count shows); DoP also a marker
+    zeroed or a padding bit set. The stream stops after the LAST block, in
+    the tail before it (the count not known) or right after a block's chip
+    236. Returns the stream, its rate and slot, and the changes."""
+    if dop:
+        cfg, w = words(spec.KIND_DSD_DOP, spec.DSD_RATES[0], 1, LONG)
+        inv, zero, d = 0x00FFFF00, 0xFF0000FF, 16  # the DSD bytes; frames: 16 DSD bits
+    else:
+        cfg, w = words(spec.KIND_PCM, 48000, 24, LONG)
+        inv, zero, d = 0xC0000000, 0, 1
+    at = lambda k, q, t=0: chip_frame(cfg, k, q) // d + t
+    L = at(8, 1) - at(8, 0)
+    x = w.view(np.uint32).copy()
+    ops = []
+    for _ in range(rng.randint(1, 3)):
+        k, q, ch = rng.choice((8, 24)), CHIP_R5 + rng.randrange(64), rng.choice(([0], [1], [0, 1]))
+        t = rng.randrange(L) if rng.random() < 0.4 else 0
+        kind = rng.choice(("invert", "zero", "low", "pair") + (("marker", "padding") if dop else ()))
+        a, b = at(k, q, t), at(k, q + 1)
+        if kind == "invert":
+            x[a:b, ch] ^= np.uint32(inv)
+        elif kind == "zero":
+            x[a:b, ch] &= np.uint32(zero)
+        elif kind == "low":
+            x[a, ch] ^= np.uint32(0x100)
+        elif kind == "pair":
+            q = CHIP_R5 + ((q - CHIP_R5) & ~1)
+            x[at(k, q):at(k, q + 2), ch] ^= np.uint32(inv)
+        elif kind == "marker":
+            x[a, ch] &= np.uint32(0x00FFFFFF)
+        else:
+            x[a, ch] ^= np.uint32(1)
+        ops.append((kind, k, q, t, ch))
+    end = rng.random()
+    if end < 0.2:
+        x = x[:26 * frames_per_block(cfg) + 100]
+        ops.append(("stop in the tail", None))
+    elif end < 0.3:
+        k = rng.choice((8, 24))
+        x = x[:at(k, CHIP_R5 + 64)]
+        ops.append(("stop after chip 236", k))
+    return x.view(np.int32), cfg.rate // d, 32, ops
+
+
+def py_verify(w, rate, slot=32, silence=False):
     """checker/verify.py on the stream as the device receives it in the slot."""
     x = (w.view(np.uint32) & np.uint32((0xFFFFFFFF << (32 - slot)) & 0xFFFFFFFF)).view(np.int32)
     st = readers.Stream(False, rate, 2, np.ascontiguousarray(x), "test", slot_bits=slot, valid_bits=slot)
+    return verify.verify_stream(st, silence)
+
+
+def py_results(w, rate, slot=32, silence=False):
     return [(r["verdict"], r["end"], "-" if r["diff"] is None else "%.3f" % r["diff"], str(r["bits"]))
-            for r in verify.verify_stream(st, silence)]
+            for r in py_verify(w, rate, slot, silence)]
 
 
 def c_key(res):
     return [(r["verdict"], r["end"], r["diff"], r["bits"]) for r in res]
+
+
+def unit_key(res):
+    """Verdict, end and, for NOT_BIT_PERFECT, the source unit of the first
+    difference: of the engine's results or of checker/verify.py's."""
+    return [(r["verdict"], r["end"], str(r["diff_unit"]) if r["verdict"] == "NOT_BIT_PERFECT" else "-")
+            for r in res]
 
 
 def build(directory, name):
@@ -841,6 +903,20 @@ class Checker(unittest.TestCase):
         bad = self.fuzz(cases)
         self.assertEqual(bad, [], f"{len(bad)} of {len(cases)} differ")
 
+    def test_rhdr_faults_against_verify(self):
+        """Random faults in the r5 and r6 chips of body R-headers (fixed seed),
+        PCM and DoP: the same verdict, end and first difference, to the
+        source unit, as checker/verify.py (12.6, the R-header rule)."""
+        for dop in (False, True):
+            with self.subTest("DoP" if dop else "PCM"):
+                rng = random.Random(4 + dop)
+                cases = [rhdr_case(rng, dop) for _ in range(RHDR_TRIALS)]
+                with ThreadPoolExecutor(max_workers=min(12, os.cpu_count() or 1)) as pool:
+                    got = list(pool.map(lambda c: unit_key(self.results(c[0], c[1], slot=c[2])), cases))
+                bad = [(ops, c, p) for (x, rate, slot, ops), c in zip(cases, got)
+                       if c != (p := unit_key(py_verify(x, rate, slot)))]
+                self.assertEqual(bad, [], f"{len(bad)} of {len(cases)} differ")
+
     def test_review_differences(self):
         """Streams on which the two checkers differed in a review, with what
         12.6 gives: both give it now."""
@@ -983,6 +1059,11 @@ class Checker(unittest.TestCase):
         with self.subTest("two overruns, the first before the difference"):
             r = self.one(x, 48000, overruns=(3 * B, 20 * B))
             self.assertEqual((r["verdict"], r["diff"]), ("DEVICE_OVERRUN", "-"))
+        with self.subTest("an overrun that drops whole r5 bit pairs"):
+            for k, n in ((8, 24), (8, 48), (24, 24), (24, 48)):
+                d = chip_frame(cfg, k, CHIP_R5 + 4)  # the chips after it shift by one or two bits
+                r = self.one(np.delete(w, np.s_[d:d + n], axis=0), 48000, overruns=(d,))
+                self.assertEqual((r["verdict"], r["diff"]), ("DEVICE_OVERRUN", "-"), (k, n))
         with self.subTest("a body left after an overrun"):
             r = self.one(w[: 10 * B], 48000, overruns=(8 * B,))
             self.assertEqual((r["verdict"], r["diff"]), ("DEVICE_OVERRUN", "-"))

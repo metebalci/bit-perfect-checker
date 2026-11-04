@@ -17,11 +17,12 @@ A file passes only on what it shows: the lead-in X-sync before its body (or
 a body from block 0), the tail X-sync after it (or its own LAST flag), and
 every body unit equal to the expected one in every channel, X-syncs and
 R-header units included. The R-header chips of r5 (block count) and r6 (its
-CRC) are checked by the chip rule: each chip one of its two values, the two
-chips of a bit opposite, r6 the CRC of r0-r5, and r5 the LAST block's index
-+ 1, or the same in every body R-header. This module is the authority for
-the hardware checker's verdict, end, diff and bits; the diagnosis
-(check.py) only describes what changed.
+CRC) are checked by the R-header rule: each chip one of its two values, the
+two chips of a bit opposite; then, only where they all arrived so, r6 the CRC
+of r0-r5 and r5 the LAST block's index + 1, or the same in every channel and
+body R-header, a failure at the block's first r5 unit. This module is the
+authority for the hardware checker's verdict, end, diff and bits; the
+diagnosis (check.py) only describes what changed.
 """
 
 from dataclasses import dataclass
@@ -300,7 +301,9 @@ def _verify_file(stream, start, stop, end, g):
     rx = work.data[p:min(p + n, u1)]
     eq = (rx == sig.ref(L * U, L * U + len(rx))).all(axis=1)
     body = []                       # (body unit, why)
-    body += _chip_rule(sig, work.dsd, rx, eq, L, n, last[0] + 1 if last else None)
+    dop_bad = _dop_frames(stream, p, p + len(rx)) if dop else []
+    body += _chip_rule(sig, work.dsd, rx, eq, L, n, last[0] + 1 if last else None,
+                       dop_bad[0][0] if dop_bad else None)
     bad = np.nonzero(~eq)[0]
     if len(bad):
         body.append((int(bad[0]), "a body unit differs"))
@@ -308,8 +311,7 @@ def _verify_file(stream, start, stop, end, g):
         body.append((len(rx), "the body did not arrive in full"))
     if E is None:
         body.append((len(rx), "no tail X-sync or LAST block after the body"))
-    if dop:
-        body += _dop_frames(stream, p, p + len(rx))
+    body += dop_bad
     fails += [(L * U + i, p + i, why) for i, why in body]
     if dop:
         out["bits"] = effective_bits(stream.data[p // 2:(p + len(rx) + 1) // 2])
@@ -341,14 +343,17 @@ def _chips(sig, dsd, k0):
     return [(k0 + sig.r_start + j * sig.chip, sig.chip, PCM_CHIP, -PCM_CHIP) for j in R56]
 
 
-def _chip_rule(sig, dsd, rx, eq, L, n, count):
+def _chip_rule(sig, dsd, rx, eq, L, n, count, dop_bad=None):
     """The chips of r5 and r6 in the body's R-header blocks, in order, as
-    bpc1_checker.c reads them: a bit's first chip one of its two values, the
-    same through the chip; its second chip the opposite value, unit by unit;
-    r6 = crc16(r0..r5) with r0-r4 of the block; r5 = count (the LAST block's
-    index + 1), or the same in every body R-header. Marks the chip units as
-    compared in eq; returns the failures in body units, at most one per
-    channel and R-header block."""
+    bpc1_checker.c reads them. Chips: a bit's first chip one of its two
+    values, the same through the chip; its second chip the opposite value,
+    unit by unit. Words, only where every chip arrived in every channel with
+    no difference in them (by the chips, and for DoP no marker or padding
+    failure, dop_bad: the body unit of the first): r6 = crc16(r0..r5) with
+    r0-r4 of the block; r5 = count (the LAST block's index + 1), or the same
+    in every channel and body R-header. Marks the chip units as compared in
+    eq; returns the failures in body units: of a block, each channel's first
+    chip difference, or one words failure at its first r5 unit."""
     U = sig.units_per_block
     fails, seen = [], None
     for k in range(L, L + -(-n // U)):
@@ -358,13 +363,14 @@ def _chip_rule(sig, dsd, rx, eq, L, n, count):
         for a, m, _, _ in chips:
             eq[a:min(a + m, len(rx))] = True
         whole = len(chips) == len(R56) and chips[-1][0] + chips[-1][1] <= len(rx)
+        broken, words = [], []
         for c in range(sig.nch):
             bits = []
             for j, (a, m, plus, minus) in enumerate(chips):
                 seg = rx[a:a + m, c]       # a chip cut by the body's end: the units that arrived
                 if j % 2 == 0:             # a bit's first chip: taken as received, if a value
                     if seg[0] not in (plus, minus):
-                        fails.append((a, "an R-header chip is neither of its values"))
+                        broken.append((a, "an R-header chip is neither of its values"))
                         break
                     want, why = seg[0], "an R-header chip is neither of its values"
                     bits.append(1 if want == plus else 0)
@@ -372,20 +378,24 @@ def _chip_rule(sig, dsd, rx, eq, L, n, count):
                     want, why = (minus if bits[-1] else plus), "an R-header bit's chips are not opposite"
                 off = np.nonzero(seg != want)[0]
                 if len(off):
-                    fails.append((a + int(off[0]), why))
+                    broken.append((a + int(off[0]), why))
                     break
             else:
-                if not whole:
-                    continue       # the CRC and count need every chip; the cut fails anyway
-                r5 = int("".join(map(str, bits[0:16])), 2)
-                r6 = int("".join(map(str, bits[16:32])), 2)
-                if model.crc16_words(sig.words(c, k) + [r5]) != r6:
-                    fails.append((chips[0][0], "an R-header CRC fails"))
-                elif count is not None and r5 != count & 0xFFFF:
-                    fails.append((chips[0][0], "an R-header block count is not the LAST block's"))
-                elif count is None and seen is not None and r5 != seen:
-                    fails.append((chips[0][0], "the R-headers' block counts disagree"))
-                seen = r5 if seen is None else seen
+                words.append(bits)
+        if dop_bad is not None and chips and chips[0][0] <= dop_bad < chips[-1][0] + chips[-1][1]:
+            broken.append((dop_bad, "a DoP frame's marker or padding differs"))
+        if broken or not whole:
+            fails += broken        # the words are not judged; a cut fails anyway
+            continue
+        words = [(int("".join(map(str, b[0:16])), 2), int("".join(map(str, b[16:32])), 2)) for b in words]
+        if any(model.crc16_words(sig.words(c, k) + [r5]) != r6 for c, (r5, r6) in enumerate(words)):
+            fails.append((chips[0][0], "an R-header CRC fails"))
+            continue
+        seen = words[0][0] if seen is None else seen
+        if count is not None and any(r5 != count & 0xFFFF for r5, _ in words):
+            fails.append((chips[0][0], "an R-header block count is not the LAST block's"))
+        elif count is None and any(r5 != seen for r5, _ in words):
+            fails.append((chips[0][0], "the R-headers' block counts disagree"))
     return fails
 
 

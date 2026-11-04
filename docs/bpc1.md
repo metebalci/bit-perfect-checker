@@ -1294,18 +1294,27 @@ the first of these that holds:
      bit-perfect.
 
 **R-header rule.** Chips 173 to 236 of the chip sequence (section 7.6; r5, the
-block count, and r6, the CRC) match when each bit's first chip is one of its
-two values in every unit, the same through the chip, and its second chip is
-the opposite value in every unit; r6 = crc16(r0 to r5), with r0 to r4 equal
-to h0 to h4 of the block's own X-sync; and r5 is the block index + 1 of the
-file's intact X-sync flagged LAST or, where none arrived, r5 is the same in
-every R-header block of the body. The bits are checked in order, each as it
-is read, and `diff` is the first unit that breaks this: in a bit's first
-chip, its first unit if that is neither value, else the first unit that
-differs from it; in its second chip, the first unit that is not the opposite
-of the first chip's value. A chip that is neither value after such a unit
-does not move `diff`. This holds whether or not the checker knows the count
-yet. All other chips are compared as expected units.
+block count, and r6, the CRC) are checked in every channel in two steps.
+*Chips:* each bit's first chip is one of its two values in every unit, the
+same through the chip, and its second chip is the opposite value in every
+unit. The bits are checked in order, each as it is read, and the first unit
+that breaks this is a difference: in a bit's first chip, its first unit if
+that is neither value, else the first unit that differs from it; in its
+second chip, the first unit that is not the opposite of the first chip's
+value. *Words:* only if chips 173 to 236 arrived whole in every channel, with
+no difference in them (by the chip rule, and in DoP by (d) in their frames),
+are the words they spell (each bit from its first chip) checked: r6 =
+crc16(r0 to r5), with r0 to r4 equal to h0 to h4 of the block's own X-sync;
+and r5 is the block index + 1 of the file's intact X-sync flagged LAST or,
+where none arrived, the same in every channel and in every R-header block of
+the body. If a word check fails in any channel, the difference is the first
+unit of the block's chip 173 (its first r5 unit). Where no LAST X-sync
+arrived, the block that fails is the first whose r5 differs from another
+channel's or from an earlier R-header block's. `diff` is the earliest
+difference. A failed word check comes before every later difference, even
+when the count that shows it arrives only with the LAST X-sync, so `diff` is
+the same whether or not the checker knows the count yet. All other chips are
+compared as expected units.
 
 **Lead-in and tail.** They are not compared, except that (b) needs the last
 lead-in X-sync and the first tail X-sync: a stream that starts after the
@@ -1331,7 +1340,8 @@ both limit X-syncs intact, do not change the verdict.
   x 8 / DSD rate). It is the earliest of: the body's first unit, when (a) fails or the first
   body block's X-sync or the LEAD_IN X-sync before it is missing (where the
   body's start is not known at all: the first unit of the first block whose
-  X-sync arrived); the first body unit that differs or did not arrive; the
+  X-sync arrived); the first body unit that differs or did not arrive (in
+  chips 173 to 236, as the R-header rule places it); the
   first unit after the body, when (b) fails at the end. Where a limit X-sync
   is broken or cut off, the body runs from after the last LEAD_IN X-sync
   received to the first TAIL X-sync received, and `diff` is the first unit
@@ -1509,6 +1519,22 @@ published set played unchanged gives `BIT_PERFECT`, and each negative file
   - an r5 chip unit changed, with the count known, in a stream that starts
     after block 8, or in one that stops 50 chips later or in the tail before
     LAST, or in the first body block, 24, after a 24-block lead-in;
+  - the words of an R-header block's chips 173 to 236, all valid pairs: an r6
+    bit's two chips inverted in one channel (the CRC fails), in the whole
+    stream, in one that stops in the tail before LAST, and in one that stops
+    right after chip 236; block 8 or block 24 spelling another count with a
+    valid CRC, with and without the LAST block; a failed CRC in block 8 and
+    another count in block 24: `diff` is chip 173 of the block that fails
+    (block 24 where block 8 spells another count and no LAST block
+    arrived);
+  - another count in block 8 and a changed payload bit in block 10: `diff`
+    is block 8's chip 173 when the LAST block arrives, the payload bit when
+    it does not;
+  - a chip difference in chips 173 to 236 together with a valid pair of the
+    other value, in the same channel or the other, before or after it,
+    another count in the block included, and in DoP a marker zeroed or a
+    padding bit set in chip 193: the words are not judged, and `diff` is
+    the chip difference;
   - a DoP file cut in its body and followed by a PCM file at the same frame
     rate from its block 1; and one cut 7 frames into a body block's X-sync,
     followed by that PCM file or by a DoP file from its block 1: `diff` is the
