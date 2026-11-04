@@ -766,9 +766,10 @@ the first decimal after a `k` when it is not zero: `044k1`, `048k`, `088k2`,
 `dsd064`, `dsd128` or `dsd256`. Examples: `bpc1_pcm_096k_24bit.wav`,
 `bpc1_pcm_044k1_24bit.flac`, `bpc1_pcm_044k1_24bit.m4a`,
 `bpc1_dsd064_dop-176k4_24bit.wav`.
-A negative test file is in the folder `negative`, named after the file it
-copies, e.g. `negative/bpc1_pcm_044k1_24bit_altered.wav`. The names carry no
-warning; the tags and the release archives do.
+A negative test file is in the folder `negative` of a generated set, named
+after the file it copies, e.g. `negative/bpc1_pcm_044k1_24bit_altered.wav`;
+the release puts it in the negative archive (11.4) instead. The names carry
+no warning; the tags and the release archives do.
 
 ### 11.3 Tags
 
@@ -798,20 +799,24 @@ negative tests under their `negative/` name.
 ### 11.4 Release archives
 
 The regular set and the code-sweep set (11.6) are each released as four zip
-files, one per format, and the gapless set (11.7) as one archive. In the name `bpc1-r1-<format>.zip`, BPC1 names the
-format and its version (an incompatible format would be BPC2), and r1 is the
-release of the file set: a fix to the files under the same format becomes r2.
+files, one per format, which hold only files that should pass. The negative
+test files of both sets (11.5, 11.6) are released as one archive, and the
+gapless set (11.7) as one archive. In the name `bpc1-r1-<format>.zip`, BPC1
+names the format and its version (an incompatible format would be BPC2), and
+r1 is the release of the file set: a fix to the files under the same format
+becomes r2.
 
 | Archive | Contents | Method | Size |
 |---|---|---|---|
-| `bpc1-r1-wav.zip` | every PCM WAV (20), every DSD file (DSF, DFF and DoP-WAV, 9) and the negative WAVs (6) | deflate, level 9 | 402 025 169 bytes (about 402 MB; 64.9 % of its entries' 619 680 530 bytes) |
-| `bpc1-r1-flac.zip` | every FLAC: PCM (20), DoP (3) and negative (6) | stored | 310 569 868 bytes (about 311 MB) |
-| `bpc1-r1-aiff.zip` | every AIFF: PCM (20), DoP (3) and negative (6) | stored | 494 900 010 bytes (about 495 MB) |
-| `bpc1-r1-alac.zip` | every ALAC (`.m4a`): PCM (20), DoP (3) and negative (6) | stored | 324 316 216 bytes (about 324 MB) |
-| `bpc1-r1-sweep-wav.zip` | the sweep WAVs (20) and the negative sweep WAVs (2) | stored | 1 383 697 403 bytes (about 1.38 GB) |
-| `bpc1-r1-sweep-flac.zip` | the sweep FLACs (20) and the negative sweep FLACs (2) | stored | 1 312 253 103 bytes (about 1.31 GB) |
-| `bpc1-r1-sweep-aiff.zip` | the sweep AIFFs (20) and the negative sweep AIFFs (2) | stored | 1 383 696 105 bytes (about 1.38 GB) |
-| `bpc1-r1-sweep-alac.zip` | the sweep ALACs (20) and the negative sweep ALACs (2) | stored | 1 338 566 099 bytes (about 1.34 GB) |
+| `bpc1-r1-wav.zip` | every PCM WAV (20) and every DSD file (DSF, DFF and DoP-WAV, 9) | deflate, level 9 | 380 962 077 bytes (about 381 MB; 65.8 % of its entries' 578 995 178 bytes) |
+| `bpc1-r1-flac.zip` | every FLAC: PCM (20) and DoP (3) | stored | 286 410 677 bytes (about 286 MB) |
+| `bpc1-r1-aiff.zip` | every AIFF: PCM (20) and DoP (3) | stored | 454 213 744 bytes (about 454 MB) |
+| `bpc1-r1-alac.zip` | every ALAC (`.m4a`): PCM (20) and DoP (3) | stored | 297 385 457 bytes (about 297 MB) |
+| `bpc1-r1-sweep-wav.zip` | the sweep WAVs (20) | stored | 1 271 464 160 bytes (about 1.27 GB) |
+| `bpc1-r1-sweep-flac.zip` | the sweep FLACs (20) | stored | 1 204 255 986 bytes (about 1.20 GB) |
+| `bpc1-r1-sweep-aiff.zip` | the sweep AIFFs (20) | stored | 1 271 462 998 bytes (about 1.27 GB) |
+| `bpc1-r1-sweep-alac.zip` | the sweep ALACs (20) | stored | 1 228 868 514 bytes (about 1.23 GB) |
+| `bpc1-r1-negative.zip` | every negative test file: the regular set's (6, 11.5) and the code-sweep set's (2, 11.6), each as WAV, FLAC, AIFF and ALAC (32 files), in four folders, one per format | stored | 574 617 910 bytes (about 575 MB) |
 | `bpc1-r1-gapless.zip` | the gapless pairs (36 files) in six folders, one per format | stored | 56 856 455 bytes (about 57 MB) |
 
 FLAC data does not compress further (deflate saves 1.0 %), so the FLAC archive
@@ -824,7 +829,8 @@ order:
 1. an empty file named
    `!!! TEST SIGNALS - DO NOT PLAY ON SPEAKERS OR HEADPHONES !!!.txt` (the
    sweep archives: `!!! FULL-SCALE NOISE - NEVER PLAY ON SPEAKERS OR
-   HEADPHONES !!!.txt`);
+   HEADPHONES !!!.txt`; the negative archive, which holds sweep files too:
+   both, the full-scale one first);
 2. `README.txt`, ASCII with CRLF line ends: the warning in full, what the
    files are, how to use them with a checker, how to run them for hours to
    find rare faults (play the files one after another continuously, or loop
@@ -840,13 +846,18 @@ order:
    files at 705.6 and 768 kHz need libFLAC 1.4.0 or later, and the ALAC ones
    that Apple's own ALAC decoders refuse ALAC above 384 kHz, so those files
    are for players with their own ALAC decoder, and that the WAV and AIFF
-   files of the same name hold the same samples;
-3. `SHA256SUMS` of the audio files, those of the negative tests under their
-   `negative/` name;
-4. the audio files;
-5. a folder `negative` with the negative test files (11.5) and a
-   `README.txt`, ASCII with CRLF line ends, saying that they are
-   deliberately faulty and what each must give.
+   files of the same name hold the same samples. The format archives name
+   the negative archive. The negative archive's `README.txt` has the
+   warnings, says what the files are, that none may check as
+   `BIT_PERFECT`, and the fault in each and the verdict it gives
+   (`NOT_BIT_PERFECT`, 11.5 and 11.6), when to use them (to see a device or
+   a checker reject altered and incomplete files), and has the clipping
+   section and the MIT licence;
+3. `SHA256SUMS` of the audio files (the negative archive: names with their
+   folder);
+4. the audio files (the negative archive: the folders `aiff`, `alac`,
+   `flac` and `wav`, each with the same eight files, named as in the
+   generated set but without `negative/`).
 
 Every name inside is ASCII and valid on Windows, macOS and Linux: none of
 `< > : " / \ | ? *`, no trailing space or dot.
@@ -863,7 +874,9 @@ Six files of the set are deliberately faulty, to test checkers: a checker
 reports `NOT_BIT_PERFECT` for each of them (section 12.6). Each is a copy of
 a file of the set with one fault in its body; its lead-in and tail are
 unchanged. A port reproduces them
-exactly from the files they copy.
+exactly from the files they copy. The release holds them, with the negative
+sweep files (11.6), in `bpc1-r1-negative.zip` (11.4), not in the format
+archives.
 
 With L the lead-in block count, N the body block count and F the frames per
 block (B for PCM, B / 16 DoP frames for DoP), let p = (L + 4) x F + 1024:
@@ -922,7 +935,7 @@ tail. The FLAC and ALAC files at 705.6 and 768 kHz are as in the regular
 set (sections 9.2 and 9.7).
 
 **Names.** `bpc1_pcm_<rate>_<depth>bit_sweep.wav|.flac|.aiff|.m4a` with
-`<rate>` as in section 11.2, and
+`<rate>` as in section 11.2, and, in the generated set,
 `negative/bpc1_pcm_044k1_<depth>bit_sweep_altered.wav|.flac|.aiff|.m4a`.
 
 **Tags.** As in section 11.3, except:
@@ -944,10 +957,12 @@ depth does not carry that code, so the same change leaves it
 `BIT_PERFECT` (section 13).
 
 **Archives.** The four `bpc1-r1-sweep-*` archives of section 11.4, all
-stored. Each is organised as in 11.4, with the warning entry `!!! FULL-SCALE
-NOISE - NEVER PLAY ON SPEAKERS OR HEADPHONES !!!.txt`. Its `README.txt` has
-the full-scale warning, what the files are, how to use them and the clipping
-section of section 11.4. The regular archives are unchanged.
+stored, hold the 20 sweep files of their format; the negative sweep files
+are in `bpc1-r1-negative.zip`. Each is organised as in 11.4, with the
+warning entry `!!! FULL-SCALE NOISE - NEVER PLAY ON SPEAKERS OR HEADPHONES
+!!!.txt`. Its `README.txt` has the full-scale warning, what the files are,
+how to use them and the clipping section of section 11.4. The regular
+archives are unchanged.
 
 ### 11.7 The gapless set
 
@@ -1010,8 +1025,8 @@ adds, after `\xa9cmt`, `\xa9ART` and `\xa9alb` (UTF-8, type 1), `trkn`
 (type 0: 8 bytes, 0, `<p>` and 2 as 16-bit big-endian numbers, then 0) and
 `pgap` (type 21: one byte, 1).
 
-**Archive.** `bpc1-r1-gapless.zip`, stored, organised as in 11.4 but without
-a `negative` folder: the warning file, `README.txt` (the warning, what the
+**Archive.** `bpc1-r1-gapless.zip`, stored, organised as in 11.4: the
+warning file, `README.txt` (the warning, what the
 pairs are, when and how to play them, the results below, the clipping
 section and the MIT licence), `SHA256SUMS` (names with their folder), and
 the six folders.
@@ -1558,7 +1573,7 @@ each case is a stream built from short BPC1 files (a lead-in, a body and a
 tail of a few blocks), the changes made to it, the `allow_silence` setting
 and the results (verdict and `diff`). Besides these, each regular file of the
 published set played unchanged gives `BIT_PERFECT`, each negative file
-(11.5) gives `NOT_BIT_PERFECT`, each gapless pair (11.7) joined gives
+(11.5, 11.6) gives `NOT_BIT_PERFECT`, each gapless pair (11.7) joined gives
 `BIT_PERFECT`, and each of its parts alone gives `NOT_BIT_PERFECT`.
 
 - `BIT_PERFECT`:
@@ -1700,8 +1715,8 @@ it.
   bounds it below one per 16 minutes. Rare faults are therefore found by
   playing files continuously, for hours if needed, or by looping one file
   gaplessly, not by longer files. A 10 s body keeps a file short enough to
-  play the regular set (the 29 audio files of the WAV archive, without the
-  negative files) in 6 minutes.
+  play the regular set (the 29 audio files of the WAV archive) in 6
+  minutes.
 - **Code sweep.** The regular set already catches the value faults it models
   (gain, truncation, rounding, dither, polarity, a float path, bit errors),
   because every block carries the walking-bit bursts, which hold the

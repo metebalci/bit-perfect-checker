@@ -246,9 +246,9 @@ class Packages(unittest.TestCase):
             with self.subTest(pkg.name):
                 names = P.members(pkg)
                 # every format at every rate
-                self.assertEqual(len(names), 22)
+                self.assertEqual(len(names), 20)
                 self.assertEqual(sum("705k6" in n or "768k" in n for n in names), 4)
-                self.assertEqual(sum(n.startswith("negative/") for n in names), 2)
+                self.assertFalse([n for n in names if "/" in n or "_altered" in n])
                 self.assertEqual(pkg.method, zipfile.ZIP_STORED)
                 self.assertEqual(pkg.warning_file,
                                  "!!! FULL-SCALE NOISE - NEVER PLAY ON SPEAKERS OR HEADPHONES !!!.txt")
@@ -260,9 +260,14 @@ class Packages(unittest.TestCase):
                 self.assertIn("the sweep body covers every sample value", flat)
                 self.assertIn("Turn off ReplayGain, Sound Check, volume normalization, limiters "
                               'and any "prevent clipping" option.', flat)
-                neg = P.negative_readme(pkg).decode("ascii")
-                self.assertEqual(neg.count("-> NOT_BIT_PERFECT"), 2)
-                self.assertIn("A checker must report NOT_BIT_PERFECT.", neg)
+                self.assertNotIn("negative/", text)
+                self.assertIn("bpc1-r1-negative.zip", flat)
+        # the negative sweep files: in bpc1-r1-negative.zip, one per depth and format
+        neg = [n for n in P.members(P.NEGATIVE) if "_sweep_" in n]
+        self.assertEqual(len(neg), 8)
+        for d in ("wav", "flac", "aiff", "alac"):
+            self.assertEqual(sorted(n.split("/")[1].split(".")[0] for n in neg if n.startswith(d + "/")),
+                             ["bpc1_pcm_044k1_16bit_sweep_altered", "bpc1_pcm_044k1_24bit_sweep_altered"])
 
     def test_write_with_the_sweep_warning(self):
         import zipfile

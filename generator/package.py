@@ -3,22 +3,26 @@
     python3 -m generator package [--out out] [--dist dist]
     python3 -m generator package --sweep [--out out-sweep] [--dist dist]
     python3 -m generator package --gapless [--out out-gapless] [--dist dist]
+    python3 -m generator package --negative [--out out] [--out-sweep out-sweep] [--dist dist]
 
 bpc1-r1-wav.zip holds every PCM WAV and every DSD file; bpc1-r1-flac.zip,
 bpc1-r1-aiff.zip and bpc1-r1-alac.zip every FLAC, AIFF and ALAC (.m4a)
 file. With --sweep, from a set that `python3 -m generator --sweep` wrote:
 bpc1-r1-sweep-wav.zip, -sweep-flac.zip, -sweep-aiff.zip and
--sweep-alac.zip, all stored. With --gapless, from the set that
-`python3 -m generator --gapless` wrote: bpc1-r1-gapless.zip, stored, with
-one folder per format and no negative/. The names carry the file-set release,
-RELEASE_NAME (bpc1-r1), which also starts each archive's top-level folder
-(bpc1-r1-wav/ and so on). The dist folder's SHA256SUMS lists every zip in it,
-rewritten from the zips there after every run, a failed one too. The
-32-bit PCM WAVs that `python3 -m generator --32bit` adds are not in the
-release. Each archive has
-one top-level folder with an empty file whose name is the do-not-play
-warning, a README.txt and a SHA256SUMS, then the audio files, and a folder
-negative/ with the deliberately faulty files and a README.txt about them.
+-sweep-alac.zip, all stored. These eight hold only files that should pass.
+With --negative, from the regular set (--out) and the code-sweep set
+(--out-sweep): bpc1-r1-negative.zip, stored, with every negative test file
+of both sets in one folder per format (wav/, flac/, aiff/, alac/). With
+--gapless, from the set that `python3 -m generator --gapless` wrote:
+bpc1-r1-gapless.zip, stored, with one folder per format. The names carry
+the file-set release, RELEASE_NAME (bpc1-r1), which also starts each
+archive's top-level folder (bpc1-r1-wav/ and so on). The dist folder's
+SHA256SUMS lists every zip in it, rewritten from the zips there after every
+run, a failed one too. The 32-bit PCM WAVs that `python3 -m generator
+--32bit` adds are not in the release. Each archive has one top-level folder
+with an empty file whose name is the do-not-play warning (the negative
+archive: both warnings), a README.txt and a SHA256SUMS, then the audio
+files.
 
 Determinism: entries sorted by name, one fixed timestamp, Unix permissions
 0644 (files) and 0755 (the folder), no comments or extra fields. The WAV
@@ -59,11 +63,12 @@ class Package:
     name: str          # zip file name without .zip, also the top-level folder
     method: int        # zipfile.ZIP_DEFLATED or ZIP_STORED
     files: str         # "wav": WAV and DSD files; "flac", "aiff", "alac": those of the WAVs;
-                       # "gapless": every file of the gapless set
+                       # "gapless": every file of the gapless set; "negative": the
+                       # negative test files of the regular and the sweep set
     title: str
     contents: str      # README paragraph about what this archive holds
     sweep: bool = False                    # the code-sweep set
-    warning_file: str = WARNING_FILE
+    warning_file: str | tuple = WARNING_FILE  # the empty warning file, or several
     warning_text: str = WARNING_TEXT
 
     @property
@@ -80,8 +85,6 @@ WAV = Package(
            body and a 0.5 s tail.
   DSD      DSD64, DSD128 and DSD256, each as DSF, DFF and DoP in a 24-bit
            WAV (9 files), 10 s body.
-  Negative in the folder negative/: deliberately faulty files that must not
-           check as bit-perfect (6 files, see negative/README.txt).
 
 The PCM files and the DoP files also come as FLAC, AIFF and ALAC, in
 {RELEASE_NAME}-flac.zip, {RELEASE_NAME}-aiff.zip and {RELEASE_NAME}-alac.zip.
@@ -102,8 +105,6 @@ FLAC = Package(
             body and a 0.5 s tail.
   DoP FLAC  DSD64, DSD128 and DSD256 as DoP in 24-bit FLAC at 176.4, 352.8
             and 705.6 kHz (3 files), 10 s body.
-  Negative  in the folder negative/: deliberately faulty files that must
-            not check as bit-perfect (6 files, see negative/README.txt).
 
 Each FLAC file decodes to exactly the samples of the WAV file of the same
 name. The PCM files at 705.6 and 768 kHz and the DSD256 DoP file, at
@@ -127,8 +128,6 @@ SWEEP_CONTENTS = """This archive holds the code-sweep files{fmt}:
            code, in a scrambled order. The 16-bit body lasts 10 s; the
            24-bit body holds all 2^24 codes in each channel, which takes
            6.9 minutes at 44.1 kHz and 23.5 s at 768 kHz.
-  Negative in the folder negative/: deliberately faulty files that must not
-           check as bit-perfect (2 files, see negative/README.txt).
 
 They are checked like the regular files: BIT_PERFECT only if every sample
 arrived unchanged. Where the regular files test the paths of a player and
@@ -177,8 +176,6 @@ def _contents(fmt, ext, note):
             body and a 0.5 s tail.
   DoP       DSD64, DSD128 and DSD256 as DoP in 24-bit {fmt} at 176.4, 352.8
             and 705.6 kHz (3 files), 10 s body.
-  Negative  in the folder negative/: deliberately faulty files that must
-            not check as bit-perfect (6 files, see negative/README.txt).
 
 {textwrap.fill(f"Each {fmt} file holds exactly the samples of the WAV file of the same "
                f"name. {note} DSD as DSF and DFF is only in the WAV archive, "
@@ -221,16 +218,23 @@ changed the join; two NOT_BIT_PERFECT (diff 7.500, then 7.523 or 7.509) when
 it closed the stream between the parts. Checked one by one, each part is
 NOT_BIT_PERFECT; that is expected.""")
 
+NEGATIVE = Package(
+    f"{RELEASE_NAME}-negative", zipfile.ZIP_STORED, "negative", "BPC1 v1 negative test files",
+    """  wav/ flac/ aiff/ alac/  the same 8 files in each format (32 files)""",
+    warning_file=(SWEEP_WARNING_FILE, WARNING_FILE), warning_text=SWEEP_WARNING_TEXT)
+
 RELEASE = (WAV, FLAC, AIFF, ALAC)          # the published archives
 SWEEP_RELEASE = (SWEEP_WAV, SWEEP_FLAC, SWEEP_AIFF, SWEEP_ALAC)
 EXT = fileset.EXT                          # beside each WAV
 
 
 def archives_line(pkg):
-    """The README line that names the set's four archives."""
+    """The README lines that name the set's four archives and the negative one."""
     names = [p.filename for p in (SWEEP_RELEASE if pkg.sweep else RELEASE)]
     return textwrap.fill("The set comes in four archives, one per format: " + ", ".join(names[:-1])
-                         + " and " + names[-1] + ".", 76)
+                         + " and " + names[-1] + ". The negative tests, deliberately faulty "
+                         "files that must not check as bit-perfect, are in "
+                         + NEGATIVE.filename + ".", 76, break_on_hyphens=False)
 
 
 def file_set(pkg):
@@ -239,49 +243,51 @@ def file_set(pkg):
     return fileset.sweep_set() if pkg.sweep else fileset.test_set()
 
 
+def negative_files():
+    """(name in the negative archive, from the sweep set, path in its set) of
+    every negative test file of the regular and the code-sweep set: one
+    folder per format."""
+    out = []
+    for sweep, files in ((False, fileset.test_set()), (True, fileset.sweep_set())):
+        for f in files:
+            if f.fault:
+                out.append((f"wav/{f.filename}", sweep, f.relpath))
+                out += [(f"{x}/{f.name}{EXT[x]}", sweep, f.relpath_as(x)) for x in f.formats]
+    return sorted(out)
+
+
 def members(pkg):
-    """Paths ("/"-separated) of the generated set that go into the package."""
+    """Paths ("/"-separated) in the package: those of the generated set, or,
+    for the negative archive, those in its folders."""
+    if pkg.files == "negative":
+        return [n for n, _, _ in negative_files()]
     out = []
     for f in file_set(pkg):
+        if f.fault:
+            continue                       # in the negative archive
         if pkg.files in ("wav", "gapless"):
             out.append(f.relpath)
         out += [f.relpath_as(x) for x in f.formats if pkg.files in (x, "gapless")]
     return sorted(out)
 
 
-def negative_readme(pkg):
-    """negative/README.txt: what each deliberately faulty file must give."""
-    ext = ".wav" if pkg.files == "wav" else EXT[pkg.files]
+def negative_rows(files):
+    """README lines for negative test files: each one's fault and verdict."""
     lines = []
-    for f in [f for f in file_set(pkg) if f.fault]:
+    for f in files:
         what, where = fileset.fault_text(f)
-        lines += [f"  {f.name}{ext}", f"      {what}"]
+        lines += [f"  {f.name}", f"      {what}"]
         lines += [f"      {where}"] if where else []
         lines += [f"      -> {fileset.expected(f)}"]
-    rows = "\n".join(lines)
-    text = f"""!!! {pkg.warning_text} !!!
-
-Negative tests: deliberately faulty files
-=========================================
-
-The files in this folder are deliberately faulty: each one must NOT check as
-bit-perfect. They test the checker itself. Each is the file of the same name
-without _altered or _incomplete, with one fault in its body, as section 11.5
-of docs/bpc1.md describes; the lead-in and tail are unchanged.
-Body blocks are counted from 0. The fault in each, and the verdict it must
-give:
-
-{rows}
-
-A checker must report NOT_BIT_PERFECT.
-"""
-    return text.replace("\n", "\r\n").encode("ascii")
+    return "\n".join(lines)
 
 
 def clipping(pkg):
     """The README section about clipping and level indicators."""
     peaks = ("the walking-bit bursts in every block reach it, and the sweep body covers "
              "every sample value up to it" if pkg.sweep else
+             "the walking-bit bursts in every block reach it, and the body of the sweep "
+             "files covers every sample value up to it" if pkg.files == "negative" else
              "the walking-bit bursts in every block reach it")
     paras = [f"The files reach full scale: {peaks}. A player or tool that measures levels "
              "may report clipping, or peaks at 0 dBFS. That is expected, and no problem "
@@ -299,6 +305,8 @@ def readme(pkg):
         return sweep_readme(pkg)
     if pkg.files == "gapless":
         return gapless_readme(pkg)
+    if pkg.files == "negative":
+        return negative_readme(pkg)
     with open(LICENSE, encoding="ascii") as f:
         licence = f.read().strip()
     text = f"""!!! {WARNING_TEXT} !!!
@@ -327,11 +335,6 @@ conversion.
 {pkg.contents}
 
 {archives_line(pkg)}
-
-The folder negative/ holds deliberately faulty files: each must NOT check
-as bit-perfect (one altered, one incomplete each of PCM 44.1 kHz and 48 kHz
-24-bit and DSD64 as DoP at 176.4 kHz). negative/README.txt says what each
-must give.
 
 SHA256SUMS lists the SHA-256 of every file.
 
@@ -429,6 +432,93 @@ licence:
     return text.replace("\n", "\r\n").encode("ascii")
 
 
+def negative_readme(pkg):
+    """README.txt of the negative archive: what each deliberately faulty
+    file is and the verdict it must give."""
+    with open(LICENSE, encoding="ascii") as f:
+        licence = f.read().strip()
+    regular = [f for f in fileset.test_set() if f.fault]
+    sweep = [f for f in fileset.sweep_set() if f.fault]
+    text = f"""!!! {pkg.warning_text} !!!
+
+{pkg.title}
+{"=" * len(pkg.title)}
+
+WARNING: {pkg.warning_text}.
+WARNING: {WARNING_TEXT}.
+These files are not music. The regular ones contain a full-scale burst every
+85 to 93 ms, and parts of them are loud square waves and noise; the body of
+the sweep ones is noise at full scale. Played on speakers or headphones they
+are loud, and they can damage equipment and hearing at once. Play them only
+into a bit-perfect checker.
+
+
+What they are
+-------------
+
+Test signals in the BPC1 format of the Bit-Perfect Checker project, each
+deliberately faulty: each one must NOT check as bit-perfect. Each is a copy
+of a file of the regular set or of the code-sweep set with one fault in its
+body, as sections 11.5 and 11.6 of docs/bpc1.md describe; the lead-in and
+tail are unchanged. Its name is that of the file it copies with _altered or
+_incomplete added.
+
+{pkg.contents}
+
+The fault in each (body blocks counted from 0), and the verdict it must
+give, in every format:
+
+From the regular set ({RELEASE_NAME}-wav.zip and the other format archives):
+
+{negative_rows(regular)}
+
+From the code-sweep set ({RELEASE_NAME}-sweep-wav.zip and the others):
+
+{negative_rows(sweep)}
+
+A checker must report NOT_BIT_PERFECT for each: a file here must not check
+as BIT_PERFECT.
+
+SHA256SUMS lists the SHA-256 of every file, with its folder.
+
+
+When to use them
+----------------
+
+They test the checker, not the player. Play or check them to see that a
+Bit-Perfect Checker device, or the software checker, does reject altered and
+incomplete files: after setting a device up, after changing its firmware or
+a checker, or to see what a failure looks like. A BIT_PERFECT result for any
+of them means that the checker is wrong. Whether a player is bit-perfect is
+what the files of the other archives test.
+
+
+How to use them
+---------------
+
+Use them as the regular files ({RELEASE_NAME}-wav.zip): play a file into a
+Bit-Perfect Checker device and read its verdict, or check a file with the
+software checker of the bit-perfect-checker repository:
+
+  python3 -m checker FILE...
+
+The format is specified in docs/bpc1.md of that repository.
+
+
+{clipping(pkg)}
+
+
+Licence
+-------
+
+The test files, like the generator that writes them, are under the MIT
+licence:
+
+{licence}
+"""
+    return text.replace("\n", "\r\n").encode("ascii")
+
+
 def gapless_readme(pkg):
     with open(LICENSE, encoding="ascii") as f:
         licence = f.read().strip()
@@ -502,19 +592,21 @@ def sha256_file(path):
 
 def write_zip(path, top, files, method, readme_bytes, digests=None, texts=None,
               warning_file=WARNING_FILE, limit=None):
-    """Write `path` with folder `top`: the warning file, README.txt,
-    SHA256SUMS and `files`, entries sorted by name. `files` lists source
+    """Write `path` with folder `top`: the warning file (`warning_file`, a
+    name or a tuple of names), README.txt, SHA256SUMS and `files`, entries
+    sorted by name. `files` lists source
     paths, stored under their base name, or (name, source path) pairs, where
-    name may be in a subfolder ("negative/x.wav"). `texts` maps further
-    names to bytes (e.g. "negative/README.txt"). A zip of `limit` bytes or
+    name may be in a subfolder ("wav/x.wav"). `texts` maps further
+    names to bytes (e.g. "notes/README.txt"). A zip of `limit` bytes or
     more (default ASSET_LIMIT) is removed and raises RuntimeError; `path`
     is then left as it was."""
     limit = ASSET_LIMIT if limit is None else limit
     digests = digests or {}
     names = dict(f if isinstance(f, tuple) else (os.path.basename(f), f) for f in files)
     sums = "".join(f"{digests.get(n) or sha256_file(p)}  {n}\n" for n, p in sorted(names.items()))
-    entries = {warning_file: b"", "README.txt": readme_bytes,
-               "SHA256SUMS": sums.encode("ascii")}
+    warnings = (warning_file,) if isinstance(warning_file, str) else warning_file
+    entries = {w: b"" for w in warnings}
+    entries.update({"README.txt": readme_bytes, "SHA256SUMS": sums.encode("ascii")})
     entries.update(texts or {})
     entries.update(names)
     for n in list(entries):
@@ -558,33 +650,52 @@ def read_sums(out_dir):
     return sums
 
 
-def build(pkg, out_dir, dist_dir, limit=None):
-    """Check the package's files against out/SHA256SUMS and write the zip."""
-    sums = read_sums(out_dir)
-    if sums is None:
-        raise RuntimeError(f"{out_dir}/SHA256SUMS missing: run the full generator first")
-    names = members(pkg)
-    missing = [n for n in names if n not in sums or not os.path.isfile(os.path.join(out_dir, n))]
+def sources(pkg, out_dir, sweep_dir=None):
+    """(name in the package, generated set, path in that set) of every file
+    of the package; the negative archive takes the sweep set's files from
+    `sweep_dir`."""
+    if pkg.files != "negative":
+        return [(n, out_dir, n) for n in members(pkg)]
+    if sweep_dir is None:
+        raise RuntimeError(f"{pkg.filename} needs the code-sweep set too (--out-sweep)")
+    return [(n, sweep_dir if sweep else out_dir, rel) for n, sweep, rel in negative_files()]
+
+
+def build(pkg, out_dir, dist_dir, limit=None, sweep_dir=None):
+    """Check the package's files against the SHA256SUMS of their set and
+    write the zip."""
+    rows = sources(pkg, out_dir, sweep_dir)
+    sums = {}
+    for d in dict.fromkeys(d for _, d, _ in rows):
+        gen = "python3 -m generator" + (" --sweep" if d == sweep_dir else "")
+        if not os.path.isdir(d):
+            raise RuntimeError(f"{d}: folder missing: write the set with `{gen} --out {d}` first")
+        sums[d] = read_sums(d)
+        if sums[d] is None:
+            raise RuntimeError(f"{d}/SHA256SUMS missing: run the full generator first ({gen})")
+    missing = [os.path.join(d, rel) for _, d, rel in rows
+               if rel not in sums[d] or not os.path.isfile(os.path.join(d, *rel.split("/")))]
     if missing:
         hint = {"flac": " (FLAC needs flac >= 1.4.0 when generating)",
                 "alac": " (ALAC needs a C++ compiler when generating)"}.get(pkg.files, "")
-        raise RuntimeError(f"{pkg.filename}: {len(missing)} files missing in {out_dir}{hint}, "
+        raise RuntimeError(f"{pkg.filename}: {len(missing)} files missing{hint}, "
                            f"e.g. {missing[0]}")
-    paths = [os.path.join(out_dir, *n.split("/")) for n in names]
-    for n, p in zip(names, paths):
-        if sha256_file(p) != sums[n]:
-            raise RuntimeError(f"{p} does not match {out_dir}/SHA256SUMS")
+    files, digests = [], {}
+    for n, d, rel in rows:
+        p = os.path.join(d, *rel.split("/"))
+        if sha256_file(p) != sums[d][rel]:
+            raise RuntimeError(f"{p} does not match {d}/SHA256SUMS")
+        files.append((n, p))
+        digests[n] = sums[d][rel]
     os.makedirs(dist_dir, exist_ok=True)
-    texts = {} if pkg.files == "gapless" else {f"{fileset.NEGATIVE_DIR}/README.txt": negative_readme(pkg)}
-    return write_zip(os.path.join(dist_dir, pkg.filename), pkg.name, list(zip(names, paths)),
-                     pkg.method, readme(pkg), {n: sums[n] for n in names}, texts,
-                     pkg.warning_file, limit)
+    return write_zip(os.path.join(dist_dir, pkg.filename), pkg.name, files, pkg.method,
+                     readme(pkg), digests, None, pkg.warning_file, limit)
 
 
 def _job(args):
-    pkg, out_dir, dist_dir, limit = args
+    pkg, out_dir, dist_dir, limit, sweep_dir = args
     try:
-        path = build(pkg, out_dir, dist_dir, limit)
+        path = build(pkg, out_dir, dist_dir, limit, sweep_dir)
         return pkg.filename, os.path.getsize(path), sha256_file(path), None
     except (OSError, RuntimeError, ValueError) as e:
         return pkg.filename, 0, None, str(e)
@@ -600,12 +711,20 @@ def main(argv=None):
                        help="build the code-sweep zips from a set written with --sweep")
     which.add_argument("--gapless", action="store_true",
                        help="build the gapless zip from a set written with --gapless")
+    which.add_argument("--negative", action="store_true",
+                       help="build the negative zip from the regular set (--out) and the "
+                            "code-sweep set (--out-sweep)")
+    ap.add_argument("--out-sweep", help="with --negative: the code-sweep set (default: out-sweep)")
     a = ap.parse_args(argv)
+    if a.out_sweep and not a.negative:
+        ap.error("--out-sweep goes with --negative")
     a.out = a.out or ("out-gapless" if a.gapless else "out")
-    pkgs = SWEEP_RELEASE if a.sweep else (GAPLESS,) if a.gapless else RELEASE
+    sweep_dir = (a.out_sweep or "out-sweep") if a.negative else None
+    pkgs = (SWEEP_RELEASE if a.sweep else (GAPLESS,) if a.gapless else (NEGATIVE,) if a.negative
+            else RELEASE)
     with ProcessPoolExecutor(max_workers=len(pkgs)) as pool:
         # the limit goes with each job: a worker imports this module afresh
-        res = list(pool.map(_job, [(p, a.out, a.dist, ASSET_LIMIT) for p in pkgs]))
+        res = list(pool.map(_job, [(p, a.out, a.dist, ASSET_LIMIT, sweep_dir) for p in pkgs]))
     ok = [r for r in res if r[3] is None]
     for name, size, _, err in res:
         print(f"{name}: error: {err}" if err else f"{size:>13,d}  {name}",

@@ -84,14 +84,14 @@ class Repeatability(unittest.TestCase):
             self.assertEqual(sorted(os.listdir(os.path.join(a, "dist"))),
                              ["SHA256SUMS", "bpc1-r1-aiff.zip", "bpc1-r1-alac.zip",
                               "bpc1-r1-flac.zip", "bpc1-r1-wav.zip"])
-            for name, ext, count in (("bpc1-r1-wav", ".wav", 29), ("bpc1-r1-flac", ".flac", 29),
-                                     ("bpc1-r1-aiff", ".aiff", 29), ("bpc1-r1-alac", ".m4a", 29)):
+            for name, ext, count in (("bpc1-r1-wav", ".wav", 23), ("bpc1-r1-flac", ".flac", 23),
+                                     ("bpc1-r1-aiff", ".aiff", 23), ("bpc1-r1-alac", ".m4a", 23)):
                 with zipfile.ZipFile(os.path.join(a, "dist", name + ".zip")) as zf:
-                    neg = [n for n in zf.namelist() if n.startswith(name + "/negative/")]
+                    neg = [n for n in zf.namelist() if "negative" in n or "_altered" in n
+                           or "_incomplete" in n]
                     audio = [n for n in zf.namelist() if n.endswith(ext)]
                     self.assertIsNone(zf.testzip())
-                self.assertEqual(len(neg), 8, neg)      # the folder, README.txt, 6 files
-                self.assertEqual(sum(n.endswith(ext) for n in neg), 6)
+                self.assertEqual(neg, [])               # in bpc1-r1-negative.zip
                 self.assertEqual(len(audio), count, name)   # the WAV zip: and 3 DSF, 3 DFF
                 self.assertEqual(sum("705k6" in n or "768k" in n for n in audio), 5, name)
 

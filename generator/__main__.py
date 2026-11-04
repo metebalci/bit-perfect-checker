@@ -4,7 +4,8 @@
                          [--only TEXT] [--jobs N]
     python3 -m generator --sweep [--out out-sweep] [--no-flac] [--no-aiff] [--no-alac] ...
     python3 -m generator --gapless [--out out-gapless] [--no-flac] [--no-aiff] [--no-alac] ...
-    python3 -m generator package [--sweep | --gapless] [--out out] [--dist dist]
+    python3 -m generator package [--sweep | --gapless | --negative] [--out out] [--dist dist]
+                                 [--out-sweep out-sweep]
 
 --sweep writes the code-sweep set (kind 5) instead of the regular set;
 --gapless the gapless set (regular files cut in two, one folder per format,

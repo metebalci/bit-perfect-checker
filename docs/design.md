@@ -85,7 +85,9 @@ implementations can follow it. The main choices:
   regular set cannot find a fault that changes a single code. The sweep files
   are long (up to 416 s at 24-bit 44.1 kHz) and full-scale noise for their
   whole length, which is why they are a separate set. The sweep is 16- and
-  24-bit at all ten rates.
+  24-bit at all ten rates. A path is proven bit-perfect only when both the
+  regular and the sweep files pass; the regular files are the quick first
+  check, which already finds any processing that touches all samples.
 - **A bijection generates the sweep** without a table or a state, so a
   checker still computes any unit directly.
 
@@ -161,13 +163,16 @@ them:
   through a different path, so the WAV set is where a test starts, not where it
   ends. FLAC, AIFF and ALAC are made from the WAV of the same name and hold
   the same samples.
-- **Negative files.** In a folder `negative/` of every zip, deliberately faulty
-  copies show that a checker catches faults. In the regular set: PCM at 44.1
-  and 48 kHz 24-bit and DSD64 as DoP, each altered and each with frames cut
-  from the middle of the body, and each must give `NOT_BIT_PERFECT`. Their
-  names end in `_altered` and `_incomplete`, which name the fault built into
-  the file. In the sweep set, one code near full scale is changed, a fault only
-  a sweep finds.
+- **Negative files.** In a zip of their own, `bpc1-r1-negative.zip`, one
+  folder per format, deliberately faulty copies show that a checker catches
+  faults. Most tests play only the files that should pass and look for
+  green; the format zips hold only those, so a whole folder played as a
+  playlist must give only `BIT_PERFECT`. In the
+  regular set: PCM at 44.1 and 48 kHz 24-bit and DSD64 as DoP, each altered
+  and each with frames cut from the middle of the body, and each must give
+  `NOT_BIT_PERFECT`. Their names end in `_altered` and `_incomplete`, which
+  name the fault built into the file. In the sweep set, one code near full
+  scale is changed, a fault only a sweep finds.
 - **Warnings.** Every file carries `TEST - DO NOT PLAY ON SPEAKERS` in its
   title and comment tags. Each zip holds an empty file whose name is the
   warning, repeated in its `README.txt`. The audio file names carry no
@@ -266,16 +271,18 @@ deflated WAV zip on the zlib version.
 ### Release
 
 - **Names.** The test files are named after the format with the file-set
-  release: `bpc1-r1-wav.zip`, `-flac.zip`, `-aiff.zip` and `-alac.zip`, and
-  `bpc1-r1-sweep-*.zip` for the sweep set. BPC1 names the format and its
-  version (an incompatible format would be BPC2); r1 is the first release of
-  the files, and changed files become r2. The tag is `bpc1-r1`. Changed files
-  are a new release, not new assets on an old one.
+  release: `bpc1-r1-wav.zip`, `-flac.zip`, `-aiff.zip` and `-alac.zip`,
+  `bpc1-r1-sweep-*.zip` for the sweep set, `bpc1-r1-negative.zip` for the
+  negative files of both and `bpc1-r1-gapless.zip` for the gapless set. BPC1
+  names the format and its version (an incompatible format would be BPC2);
+  r1 is the first release of the files, and changed files become r2. The
+  tag is `bpc1-r1`. Changed files are a new release, not new assets on an
+  old one.
 - **Firmware** is named after the project, with its own version:
   `bit-perfect-checker-firmware-<version>.zip`, under its own tag
   (section 8).
 - **Downloads** are GitHub release assets of this repository. GitHub allows each
-  release file up to 2 GiB; the largest zips are about 1.4 GB. Packaging treats
+  release file up to 2 GiB; the largest zips are about 1.3 GB. Packaging treats
   a zip of 2 GiB (2^31 bytes) or more as an error and does not write it.
 - Releases are rare and published by hand with `gh release create`, without a
   release workflow. A published firmware binary is the tested binary,

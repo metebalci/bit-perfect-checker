@@ -65,9 +65,14 @@ files.
    per format: `bpc1-r1-wav.zip`, `bpc1-r1-flac.zip`, `bpc1-r1-aiff.zip`
    and `bpc1-r1-alac.zip`, and the code-sweep files in
    `bpc1-r1-sweep-wav.zip`, `-sweep-flac.zip`, `-sweep-aiff.zip` and
-   `-sweep-alac.zip` (each about 1.3 to 1.4 GB), and the gapless pairs in
+   `-sweep-alac.zip` (each about 1.2 to 1.3 GB; a path is proven
+   bit-perfect only when both the regular and the sweep files pass), the
+   gapless pairs in
    `bpc1-r1-gapless.zip` (about 57 MB; play them only after the regular
-   files pass). Or generate them
+   files pass), and the negative tests, deliberately faulty files that must
+   not check as bit-perfect, in `bpc1-r1-negative.zip` (about 575 MB; they
+   show that a device or checker rejects altered and incomplete files).
+   Or generate them
    ([Generate the test files](#generate-the-test-files)). The FLAC and ALAC
    files at 705.6 and 768 kHz, and the DSD256 DoP files, need a decoder that
    takes these rates (see
@@ -102,7 +107,7 @@ Without `flac` or the ALAC tools the generator skips those files and says so.
 Into `out/`: 122 files, about 1.75 GB. Twenty-four of them, in `out/negative/`,
 are deliberately faulty copies, altered or incomplete, that a checker must
 report as `NOT_BIT_PERFECT` (see the [signal format](docs/bpc1.md),
-section 11.5):
+section 11.5); the release puts them in `bpc1-r1-negative.zip`:
 
 ```
 python3 -m generator                 # the full set, with SHA256SUMS
@@ -209,17 +214,18 @@ twice through the command line and compares every byte. With
 `BPC1_FULL_SET=1` it generates the whole set, with the 32-bit WAVs, twice,
 packages each into its own dist folder, and compares every byte of the files
 and of the four zips. It expects all four zips, so it needs `flac` and the C++
-compiler. It does not cover the sweep set.
+compiler. It does not cover the sweep set, nor the negative zip, which needs
+the sweep set.
 
 ### Package a release
 
-From `out/` into `dist/`: `bpc1-r1-wav.zip` (PCM WAV, DSD, negative WAV;
-about 402 MB), `bpc1-r1-flac.zip` (PCM, DoP and negative FLAC; about
-311 MB), `bpc1-r1-aiff.zip` (AIFF; about 495 MB) and `bpc1-r1-alac.zip`
-(ALAC in `.m4a`; about 324 MB). Each holds an empty file whose name is the
-warning, a README.txt, a SHA256SUMS of its files and the negative tests in a
-folder `negative/`. Packaging first checks every file against
-`out/SHA256SUMS`. It stops with an error, and does not write the zip, when
+From `out/` into `dist/`: `bpc1-r1-wav.zip` (PCM WAV and DSD; about
+381 MB), `bpc1-r1-flac.zip` (PCM and DoP FLAC; about 286 MB),
+`bpc1-r1-aiff.zip` (AIFF; about 454 MB) and `bpc1-r1-alac.zip` (ALAC in
+`.m4a`; about 297 MB). Each holds an empty file whose name is the warning,
+a README.txt, a SHA256SUMS of its files and the files that should pass; the
+negative tests go into a zip of their own (below). Packaging first checks
+every file against `out/SHA256SUMS`. It stops with an error, and does not write the zip, when
 a zip reaches 2 GiB (2^31 bytes), GitHub's limit per release file. After
 every run, a failed one too, it rewrites `dist/SHA256SUMS` from the zips in
 `dist/`, hashed afresh.
@@ -238,6 +244,17 @@ python3 -m generator --sweep --out out-sweep
 python3 -m generator package --sweep --out out-sweep   # the four bpc1-r1-sweep-*.zip, all stored
 ```
 
+The negative tests of both sets, the 24 of `out/negative/` and the 8 of
+`out-sweep/negative/`, go into one stored zip, `bpc1-r1-negative.zip`
+(about 575 MB), with one folder per format (`wav/`, `flac/`, `aiff/`,
+`alac/`), a README.txt that says what each file must give, and a
+SHA256SUMS whose names carry their folder. It needs both sets, and stops
+with an error when either folder or one of its files is missing:
+
+```
+python3 -m generator package --negative --out out --out-sweep out-sweep
+```
+
 The gapless set (36 files, about 57 MB, a separate set: see the
 [signal format](docs/bpc1.md), section 11.7) tests whether a player joins
 two tracks without a gap. Each pair is a regular file cut in two inside its
@@ -245,7 +262,7 @@ body, at 7.5 s: PCM 44.1 and 48 kHz, 16 and 24 bits, as WAV, AIFF, FLAC
 and ALAC, and DSD64 as DSF and DFF, one folder per format. It is written
 into `out-gapless/` by default and packaged into one stored zip,
 `bpc1-r1-gapless.zip` (about 57 MB), with its README.txt and a SHA256SUMS
-whose names carry their folder; there is no `negative/` folder:
+whose names carry their folder:
 
 ```
 python3 -m generator --gapless                         # into out-gapless/
@@ -273,32 +290,35 @@ byte-identical to the release's.
    python3 -m generator --gapless --out out-gapless
    ```
 
-3. Package all three into one empty dist folder:
+3. Package all three, and the negative tests of the regular and the sweep
+   set, into one empty dist folder:
 
    ```
    python3 -m generator package --out out --dist dist
    python3 -m generator package --sweep --out out-sweep --dist dist
+   python3 -m generator package --negative --out out --out-sweep out-sweep --dist dist
    python3 -m generator package --gapless --out out-gapless --dist dist
    ```
 
    The folder must be empty because `dist/SHA256SUMS` lists every zip in the
-   folder, those of earlier runs too. After the three commands it lists all
-   nine zips.
+   folder, those of earlier runs too. After the four commands it lists all
+   ten zips.
 4. Compare `dist/SHA256SUMS` with the `SHA256SUMS` of the release, for
    example with `diff`. No difference means the zips are identical.
 
 If the lines of some zips differ, look at each zip's own `SHA256SUMS`,
 the checksums of its audio files, to find the files that differ. With a
-`flac` version other than the release's, the FLAC files and the two FLAC zips
-differ in their bytes but not in the decoded samples: the generator decodes
-every FLAC file and compares it with its WAV, so the samples are those of the
-WAV, and the checker gives `BIT_PERFECT` on the file.
+`flac` version other than the release's, the FLAC files and the zips that
+hold them (the two FLAC zips and the negative zip) differ in their bytes but
+not in the decoded samples: the generator decodes every FLAC file and
+compares it with its WAV, so the samples are those of the WAV, and the
+checker gives the file the WAV's verdict.
 With another zlib version only the WAV zip differs, but not the checksums of
 the files inside it.
 
 For the ALAC files, build the ALAC helper with GCC 15.2, as the release did,
-or compare `dist/SHA256SUMS` to see whether the two ALAC zips came out the
-same. Another compiler or other flags may change the ALAC bytes, because
+or compare `dist/SHA256SUMS` to see whether the two ALAC zips and the
+negative zip came out the same. Another compiler or other flags may change the ALAC bytes, because
 Apple's encoder has undefined behaviour (see ALAC above). The decoded
 samples must still equal the WAV's, and the generator checks that for every
 ALAC file it writes.
@@ -406,7 +426,7 @@ Before a release, all of these hold:
    ```
 
 4. Every zip is under 2 GiB. Packaging stops with an error for a zip of
-   2 GiB or more and does not write it (see Package a release), so all nine
+   2 GiB or more and does not write it (see Package a release), so all ten
    zips must build without an error.
 
 ## Known issues

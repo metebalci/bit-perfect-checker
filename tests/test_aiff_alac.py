@@ -361,12 +361,13 @@ class Packages(unittest.TestCase):
                 self.assertEqual(pkg.method, zipfile.ZIP_STORED)
                 text = P.readme(pkg).decode("ascii")
                 self.assertIn("Clipping and level indicators", text)
-                neg = P.negative_readme(pkg).decode("ascii")
-                self.assertIn(ext, neg)
-                self.assertIn("A checker must report NOT_BIT_PERFECT.", neg)
-        self.assertEqual(len(flac), 29)
-        self.assertEqual([len(P.members(p)) for p in P.RELEASE], [35, 29, 29, 29])
-        self.assertEqual([len(P.members(p)) for p in P.SWEEP_RELEASE], [22, 22, 22, 22])
+                self.assertIn(P.NEGATIVE.filename, " ".join(text.split()))
+        self.assertEqual(len(flac), 23)
+        self.assertEqual([len(P.members(p)) for p in P.RELEASE], [29, 23, 23, 23])
+        self.assertEqual([len(P.members(p)) for p in P.SWEEP_RELEASE], [20, 20, 20, 20])
+        neg = P.members(P.NEGATIVE)                     # 8 per format, in its folder
+        for d, ext in (("aiff", ".aiff"), ("alac", ".m4a")):
+            self.assertEqual(sum(n.startswith(d + "/") and n.endswith(ext) for n in neg), 8)
 
 
 if __name__ == "__main__":
