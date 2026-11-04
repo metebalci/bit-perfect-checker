@@ -15,6 +15,16 @@ system, USB audio stack) delivers a file bit-perfect. It consists of:
   what changed;
 - `bpcctl`, a client for test automation.
 
+Checking that a player delivers audio bit-perfect is usually hard. A USB
+protocol analyzer (from about $1,300) captures what the host sends, but
+comparing it with the file is left to you. A digital loopback recording
+needs an audio interface with digital inputs, and the recording software's
+own conversions can hide or cause changes. A few DACs, such as RME's ADI-2
+series, recognise a short test pattern. Bit-Perfect Checker turns an
+inexpensive development board (an STM32 Nucleo, about $35) into a USB audio
+sink that a host plays to like any DAC. It compares every sample it receives
+with the test signal, and shows the result on its LEDs and in a serial log.
+
 You play a test file to the board with any player on any operating system,
 and the board gives a verdict per file. A pass proves that every sample
 arrived unchanged. A fail almost always means a real change; rarely, a USB
@@ -428,6 +438,22 @@ Before a release, all of these hold:
 4. Every zip is under 2 GiB. Packaging stops with an error for a zip of
    2 GiB or more and does not write it (see Package a release), so all ten
    zips must build without an error.
+
+## FAQ
+
+**Is this the same as RME's Bit Test?** The idea is similar; the depth is
+not. RME's Bit Test, in the ADI-2 series converters (see the
+[ADI-2 Pro manual](https://rme-audio.de/downloads/adi2pro_e.pdf), section
+34.21), recognises a short bit pattern of about 400 samples, repeated in its
+test files. It shows "Bit Test passed" with the bit depth it found, and
+shows nothing when the test fails. It finds common faults quickly: level
+changes, EQ, dither, bit reduction, polarity, channel swaps. Bit-Perfect
+Checker compares every sample of every test file, at ten rates up to
+768 kHz, as PCM and DoP, in WAV, FLAC, AIFF and ALAC. It gives a verdict for
+each file, with where the first difference lies and how many packets were
+lost. Its sweep files prove that every sample value of 16 and 24 bits
+arrives unchanged. Naim's DAC-V1 also had a built-in BitPerfect test with
+its own test files.
 
 ## Known issues
 
