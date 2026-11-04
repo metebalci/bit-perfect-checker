@@ -274,6 +274,30 @@ def unpack_dop(s):
     return d
 
 
+def describe(s):
+    """The format of a stream, as --join compares it: kind, rate, channels and
+    sample format."""
+    text = f"{'DSD' if s.dsd else 'PCM'} at {s.rate} Hz, {s.nch} channels"
+    if not s.dsd:
+        text += (f", {s.valid_bits} bits in {s.slot_bits}-bit "
+                 f"{'float' if s.is_float else 'integer'} samples")
+    return text
+
+
+def join(streams, names):
+    """One stream of several, in order, as a host joins files for gapless
+    playback. They must agree in kind (PCM or DSD), rate, channel count and
+    sample format; else ValueError, naming the first that differs."""
+    first = streams[0]
+    for s, n in zip(streams[1:], names[1:]):
+        if describe(s) != describe(first):
+            raise ValueError(f"cannot join {n} to {names[0]}: {describe(s)}, not {describe(first)}")
+    containers = list(dict.fromkeys(s.container for s in streams))
+    return Stream(first.dsd, first.rate, first.nch, np.concatenate([s.data for s in streams]),
+                  " + ".join(containers), first.slot_bits, first.valid_bits, first.is_float,
+                  notes=[x for s in streams for x in s.notes])
+
+
 def read_file(path, raw=None, rate=None, nch=None):
     if raw:
         with open(path, "rb") as f:

@@ -40,13 +40,15 @@ def _syncsafe(n):
     return bytes([(n >> 21) & 0x7F, (n >> 14) & 0x7F, (n >> 7) & 0x7F, n & 0x7F])
 
 
-def id3v23(title, artist, album, comment):
-    """Minimal ID3v2.3 tag with ISO-8859-1 (here: ASCII) text frames."""
+def id3v23(title, artist, album, comment, track=None):
+    """Minimal ID3v2.3 tag with ISO-8859-1 (here: ASCII) text frames; TRCK
+    (e.g. "1/2") only when a track is given."""
     def frame(fid, data):
         return fid.encode("ascii") + struct.pack(">I", len(data)) + b"\x00\x00" + data
     frames = (frame("TIT2", b"\x00" + title.encode("ascii"))
               + frame("TPE1", b"\x00" + artist.encode("ascii"))
               + frame("TALB", b"\x00" + album.encode("ascii"))
+              + (frame("TRCK", b"\x00" + track.encode("ascii")) if track else b"")
               + frame("COMM", b"\x00eng\x00" + comment.encode("ascii")))
     return b"ID3\x03\x00\x00" + _syncsafe(len(frames)) + frames
 
@@ -109,10 +111,13 @@ DSF_CHANNEL_TYPES = {1: 1, 2: 2, 3: 3, 4: 4, 5: 6, 6: 7}
 
 
 def write_dsf(path, rate, nch, nbits, tag, chunks):
-    """`chunks` yields uint8 bit arrays (nch, bits); bits a multiple of 32768."""
-    if nbits % (8 * DSF_BLOCK):
-        raise ValueError("DSF writer needs whole 4096-byte blocks")
-    data_len = nch * nbits // 8
+    """`chunks` yields uint8 bit arrays (nch, bits), bits a multiple of 8.
+    nbits, the sample count, need not fill the last 4096-byte block: its
+    rest is zero bytes, as Sony's specification 1.01 asks (Annotation 3)."""
+    if nbits % 8:
+        raise ValueError("DSF writer needs whole bytes")
+    nblk = -(-nbits // (8 * DSF_BLOCK))
+    data_len = nch * nblk * DSF_BLOCK
     data_off = 28 + 52
     meta_off = data_off + 12 + data_len
     total = meta_off + len(tag)
@@ -123,13 +128,25 @@ def write_dsf(path, rate, nch, nbits, tag, chunks):
                                       nbits, DSF_BLOCK, 0))
         f.write(b"data" + struct.pack("<Q", 12 + data_len))
         written = 0
+        rest = np.zeros((nch, 0), dtype=np.uint8)       # bytes short of a whole block
+
+        def blocks(packed):
+            arr = packed.reshape(nch, -1, DSF_BLOCK).transpose(1, 0, 2)
+            f.write(arr.tobytes())
+            return arr.size
+
         for bits in chunks:
+            if bits.shape[1] % 8:
+                raise ValueError("DSF writer needs whole bytes")
             packed = np.packbits(bits, axis=1, bitorder="little")  # (nch, bytes)
-            nblk = packed.shape[1] // DSF_BLOCK
-            arr = packed.reshape(nch, nblk, DSF_BLOCK).transpose(1, 0, 2)
-            data = arr.tobytes()
-            written += len(data)
-            f.write(data)
+            if rest.shape[1]:
+                packed = np.concatenate([rest, packed], axis=1)
+            whole = packed.shape[1] // DSF_BLOCK * DSF_BLOCK
+            written += blocks(packed[:, :whole])
+            rest = packed[:, whole:]
+        if rest.shape[1]:
+            pad = np.zeros((nch, DSF_BLOCK - rest.shape[1]), dtype=np.uint8)
+            written += blocks(np.concatenate([rest, pad], axis=1))
         f.write(tag)
     if written != data_len:
         raise RuntimeError(f"{path}: wrote {written} of {data_len} data bytes")
@@ -291,10 +308,11 @@ def _aiff_chunk(cid, body):
     return cid + struct.pack(">I", len(body)) + body + (b"\x00" if len(body) & 1 else b"")
 
 
-def write_aiff(wav_path, aiff_path, name, annotation):
+def write_aiff(wav_path, aiff_path, name, annotation, id3=None):
     """Write an AIFF with the samples of a PCM WAV (16 or 24 bits): FORM AIFF
     with COMM, NAME (the title), ANNO (the comment) and SSND (offset and
-    block size 0), the samples big-endian, chunks padded to even length."""
+    block size 0), the samples big-endian, chunks padded to even length; with
+    `id3`, an ID3 tag, an `ID3 ` chunk after SSND."""
     with open(wav_path, "rb") as f:
         image = f.read()
     nch, rate, bits = wav_format(image)
@@ -306,14 +324,14 @@ def write_aiff(wav_path, aiff_path, name, annotation):
     head = (_aiff_chunk(b"COMM", comm) + _aiff_chunk(b"NAME", name.encode("ascii"))
             + _aiff_chunk(b"ANNO", annotation.encode("ascii")))
     ssnd = b"SSND" + struct.pack(">III", 8 + len(be), 0, 0)
-    size = 4 + len(head) + len(ssnd) + len(be) + (len(be) & 1)
+    trailer = (b"\x00" if len(be) & 1 else b"") + (_aiff_chunk(b"ID3 ", id3) if id3 else b"")
+    size = 4 + len(head) + len(ssnd) + len(be) + len(trailer)
     if size > 0xFFFFFFFF:
         raise ValueError("file too large for AIFF")
     with open(aiff_path, "wb") as f:
         f.write(b"FORM" + struct.pack(">I", size) + b"AIFF" + head + ssnd)
         f.write(be)
-        if len(be) & 1:
-            f.write(b"\x00")
+        f.write(trailer)
 
 
 def read_aiff(path):
@@ -392,7 +410,8 @@ def mp4_alac_moov(rate, nch, bits, cookie, sizes, frames, data_offset, tags):
     """The moov box of an ALAC track whose packets lie back to back from
     data_offset: no times (creation and modification 0), the track's time
     scale the sample rate, chunks of ALAC_PACKETS_PER_CHUNK packets, and the
-    tags [(4-byte key, text)] in udta/meta/ilst."""
+    tags [(4-byte key, value)] in udta/meta/ilst: a text as UTF-8 (data type
+    1), or (data type, bytes)."""
     n = len(sizes)
     mvhd = _full_box(b"mvhd", struct.pack(">IIII", 0, 0, rate, frames) + struct.pack(">IH", 0x10000, 0x100)
                      + bytes(10) + UNITY_MATRIX + bytes(24) + struct.pack(">I", 2))
@@ -430,27 +449,29 @@ def mp4_alac_moov(rate, nch, bits, cookie, sizes, frames, data_offset, tags):
     stco = _full_box(b"stco", struct.pack(">I", nchunks) + struct.pack(f">{nchunks}I", *offsets))
     stbl = _box(b"stbl", stsd + stts + stsc + stsz + stco)
     mdia = _box(b"mdia", mdhd + hdlr + _box(b"minf", smhd + dinf + stbl))
-    ilst = _box(b"ilst", b"".join(_box(key, _box(b"data", struct.pack(">II", 1, 0) + text.encode("utf-8")))
-                                  for key, text in tags))
+    values = [(key, (1, v.encode("utf-8")) if isinstance(v, str) else v) for key, v in tags]
+    ilst = _box(b"ilst", b"".join(_box(key, _box(b"data", struct.pack(">II", kind, 0) + data))
+                                  for key, (kind, data) in values))
     meta = _full_box(b"meta", _full_box(b"hdlr", struct.pack(">I", 0) + b"mdirappl" + bytes(9)) + ilst)
     return _box(b"moov", mvhd + _box(b"trak", tkhd + mdia) + _box(b"udta", meta))
 
 
-def encode_alac(wav_path, m4a_path, title, comment):
+def encode_alac(wav_path, m4a_path, title, comment, tags=()):
     """Encode a 16- or 24-bit WAV as ALAC in MP4 with Apple's reference
     encoder (generator/alac.py), then decode it with Apple's decoder and
     compare the PCM with the WAV's.
 
     The MP4 holds ftyp, moov and mdat, in this order; moov has one track with
     the packets and the encoder's magic cookie, and the tags \xa9nam (the
-    title), \xa9too (ALAC_TOOL) and \xa9cmt (the comment)."""
+    title), \xa9too (ALAC_TOOL) and \xa9cmt (the comment), then `tags`, as
+    mp4_alac_moov takes them."""
     nch, rate, bits, offset, size = wav_data_span(wav_path)
     packets_path = m4a_path + ".alac.tmp"
     try:
         cookie, sizes = alac.encode(wav_path, offset, size, rate, nch, bits, packets_path)
         frames = size // (nch * bits // 8)
         ftyp = _box(b"ftyp", b"M4A " + struct.pack(">I", 0) + b"M4A mp42isom")
-        tags = [(b"\xa9nam", title), (b"\xa9too", ALAC_TOOL), (b"\xa9cmt", comment)]
+        tags = [(b"\xa9nam", title), (b"\xa9too", ALAC_TOOL), (b"\xa9cmt", comment)] + list(tags)
         moov_len = len(mp4_alac_moov(rate, nch, bits, cookie, sizes, frames, 0, tags))
         moov = mp4_alac_moov(rate, nch, bits, cookie, sizes, frames, len(ftyp) + moov_len + 8, tags)
         data_len = sum(sizes)

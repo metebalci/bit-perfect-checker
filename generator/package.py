@@ -2,12 +2,15 @@
 
     python3 -m generator package [--out out] [--dist dist]
     python3 -m generator package --sweep [--out out-sweep] [--dist dist]
+    python3 -m generator package --gapless [--out out-gapless] [--dist dist]
 
 bpc1-r1-wav.zip holds every PCM WAV and every DSD file; bpc1-r1-flac.zip,
 bpc1-r1-aiff.zip and bpc1-r1-alac.zip every FLAC, AIFF and ALAC (.m4a)
 file. With --sweep, from a set that `python3 -m generator --sweep` wrote:
 bpc1-r1-sweep-wav.zip, -sweep-flac.zip, -sweep-aiff.zip and
--sweep-alac.zip, all stored. The names carry the file-set release,
+-sweep-alac.zip, all stored. With --gapless, from the set that
+`python3 -m generator --gapless` wrote: bpc1-r1-gapless.zip, stored, with
+one folder per format and no negative/. The names carry the file-set release,
 RELEASE_NAME (bpc1-r1), which also starts each archive's top-level folder
 (bpc1-r1-wav/ and so on). The dist folder's SHA256SUMS lists every zip in it,
 rewritten from the zips there after every run, a failed one too. The
@@ -55,7 +58,8 @@ ASSET_LIMIT = 2 ** 31                      # GitHub: each release file must be u
 class Package:
     name: str          # zip file name without .zip, also the top-level folder
     method: int        # zipfile.ZIP_DEFLATED or ZIP_STORED
-    files: str         # "wav": WAV and DSD files; "flac", "aiff", "alac": those of the WAVs
+    files: str         # "wav": WAV and DSD files; "flac", "aiff", "alac": those of the WAVs;
+                       # "gapless": every file of the gapless set
     title: str
     contents: str      # README paragraph about what this archive holds
     sweep: bool = False                    # the code-sweep set
@@ -199,9 +203,27 @@ SWEEP_ALAC = Package(f"{RELEASE_NAME}-sweep-alac", zipfile.ZIP_STORED, "alac",
                                      + ALAC_NOTE.format(above=SWEEP_ABOVE)),
                      True, SWEEP_WARNING_FILE, SWEEP_WARNING_TEXT)
 
+GAPLESS = Package(
+    f"{RELEASE_NAME}-gapless", zipfile.ZIP_STORED, "gapless", "BPC1 v1 test files: gapless pairs",
+    """This archive holds gapless pairs: regular test files cut in two at 7.5 s,
+inside the body that a checker judges.
+
+  wav/ aiff/ flac/ alac/  PCM 44.1 and 48 kHz, 16 and 24 bits (4 pairs each)
+  dsf/ dff/               DSD64 (1 pair each)
+
+Play them only after the regular files pass in the same player and format:
+they assume that samples arrive unchanged, and test only that the player
+joins two tracks without a gap. Turn gapless playback on and crossfade off,
+and play part1, then part2 (a whole folder plays them in order). Each pair
+gives one BIT_PERFECT, with lost=0 on the result line, when the join was
+exact; one NOT_BIT_PERFECT with diff 7.500 or a little less when the player
+changed the join; two NOT_BIT_PERFECT (diff 7.500, then 7.523 or 7.509) when
+it closed the stream between the parts. Checked one by one, each part is
+NOT_BIT_PERFECT; that is expected.""")
+
 RELEASE = (WAV, FLAC, AIFF, ALAC)          # the published archives
 SWEEP_RELEASE = (SWEEP_WAV, SWEEP_FLAC, SWEEP_AIFF, SWEEP_ALAC)
-EXT = {"flac": ".flac", "aiff": ".aiff", "alac": ".m4a"}     # beside each WAV
+EXT = fileset.EXT                          # beside each WAV
 
 
 def archives_line(pkg):
@@ -212,6 +234,8 @@ def archives_line(pkg):
 
 
 def file_set(pkg):
+    if pkg.files == "gapless":
+        return fileset.gapless_set()
     return fileset.sweep_set() if pkg.sweep else fileset.test_set()
 
 
@@ -219,10 +243,9 @@ def members(pkg):
     """Paths ("/"-separated) of the generated set that go into the package."""
     out = []
     for f in file_set(pkg):
-        if pkg.files == "wav":
+        if pkg.files in ("wav", "gapless"):
             out.append(f.relpath)
-        if pkg.files in f.formats:
-            out.append(f.relpath[:-len(f.ext)] + EXT[pkg.files])
+        out += [f.relpath_as(x) for x in f.formats if pkg.files in (x, "gapless")]
     return sorted(out)
 
 
@@ -274,6 +297,8 @@ def clipping(pkg):
 def readme(pkg):
     if pkg.sweep:
         return sweep_readme(pkg)
+    if pkg.files == "gapless":
+        return gapless_readme(pkg)
     with open(LICENSE, encoding="ascii") as f:
         licence = f.read().strip()
     text = f"""!!! {WARNING_TEXT} !!!
@@ -404,6 +429,51 @@ licence:
     return text.replace("\n", "\r\n").encode("ascii")
 
 
+def gapless_readme(pkg):
+    with open(LICENSE, encoding="ascii") as f:
+        licence = f.read().strip()
+    text = f"""!!! {WARNING_TEXT} !!!
+
+{pkg.title}
+{"=" * len(pkg.title)}
+
+WARNING: {WARNING_TEXT}.
+These files are not music. Every 85 to 93 ms they contain a full-scale burst,
+and parts of them are loud square waves and noise. Played on speakers or
+headphones they are loud and unpleasant, and they can damage equipment and
+hearing. Play them only into a bit-perfect checker.
+
+
+What they are
+-------------
+
+Test signals in the BPC1 format of the Bit-Perfect Checker project. A
+checker regenerates every expected sample from the signal itself, and tells
+whether the playback chain delivered the file bit-perfect: BIT_PERFECT or
+NOT_BIT_PERFECT.
+
+{pkg.contents}
+
+SHA256SUMS lists the SHA-256 of every file, with its folder.
+
+The format and this set (section 11.7) are specified in docs/bpc1.md of the
+bit-perfect-checker source repository.
+
+
+{clipping(pkg)}
+
+
+Licence
+-------
+
+The test files, like the generator that writes them, are under the MIT
+licence:
+
+{licence}
+"""
+    return text.replace("\n", "\r\n").encode("ascii")
+
+
 def valid_name(name):
     """Portable file name: ASCII, none of <>:"/\\|?*, no trailing space or dot."""
     return (name.isascii() and not FORBIDDEN & set(name) and name == name.strip()
@@ -505,9 +575,9 @@ def build(pkg, out_dir, dist_dir, limit=None):
         if sha256_file(p) != sums[n]:
             raise RuntimeError(f"{p} does not match {out_dir}/SHA256SUMS")
     os.makedirs(dist_dir, exist_ok=True)
+    texts = {} if pkg.files == "gapless" else {f"{fileset.NEGATIVE_DIR}/README.txt": negative_readme(pkg)}
     return write_zip(os.path.join(dist_dir, pkg.filename), pkg.name, list(zip(names, paths)),
-                     pkg.method, readme(pkg), {n: sums[n] for n in names},
-                     {f"{fileset.NEGATIVE_DIR}/README.txt": negative_readme(pkg)},
+                     pkg.method, readme(pkg), {n: sums[n] for n in names}, texts,
                      pkg.warning_file, limit)
 
 
@@ -523,12 +593,16 @@ def _job(args):
 def main(argv=None):
     ap = argparse.ArgumentParser(prog="python3 -m generator package",
                                  description="Build the release zip files from a generated set.")
-    ap.add_argument("--out", default="out", help="generated set (default: out)")
+    ap.add_argument("--out", help="generated set (default: out; with --gapless: out-gapless)")
     ap.add_argument("--dist", default="dist", help="output directory (default: dist)")
-    ap.add_argument("--sweep", action="store_true",
-                    help="build the code-sweep zips from a set written with --sweep")
+    which = ap.add_mutually_exclusive_group()
+    which.add_argument("--sweep", action="store_true",
+                       help="build the code-sweep zips from a set written with --sweep")
+    which.add_argument("--gapless", action="store_true",
+                       help="build the gapless zip from a set written with --gapless")
     a = ap.parse_args(argv)
-    pkgs = SWEEP_RELEASE if a.sweep else RELEASE
+    a.out = a.out or ("out-gapless" if a.gapless else "out")
+    pkgs = SWEEP_RELEASE if a.sweep else (GAPLESS,) if a.gapless else RELEASE
     with ProcessPoolExecutor(max_workers=len(pkgs)) as pool:
         # the limit goes with each job: a worker imports this module afresh
         res = list(pool.map(_job, [(p, a.out, a.dist, ASSET_LIMIT) for p in pkgs]))
@@ -537,7 +611,7 @@ def main(argv=None):
         print(f"{name}: error: {err}" if err else f"{size:>13,d}  {name}",
               file=sys.stderr if err else sys.stdout)
     if os.path.isdir(a.dist):
-        # SHA256SUMS lists every zip in dist, the regular and the sweep ones, from the
+        # SHA256SUMS lists every zip in dist, of every set, from the
         # files there after every run: a failed zip leaves no stale line
         digests = {name: digest for name, _, digest, _ in ok}
         zips = sorted(n for n in os.listdir(a.dist)

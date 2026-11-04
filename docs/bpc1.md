@@ -571,8 +571,12 @@ Sony DSD Stream File, version 1, little-endian:
   block size per channel 4096, reserved 0.
 - `data` chunk: blocks of 4096 bytes per channel, channel 0's block first,
   then channel 1's, and so on. Within each byte the earliest DSD bit is the
-  least significant bit. A BPC1 block is a whole number of DSF blocks, so no
-  padding occurs.
+  least significant bit. A BPC1 block is a whole number of DSF blocks, so a
+  whole file needs no padding; a part of the gapless set (11.7) ends in a
+  block padded with zero bytes. The sample count gives the bits that count;
+  Sony's [DSF specification 1.01](https://dsd-guide.com/sites/default/files/white-papers/DSFFileFormatSpec_E.pdf)
+  fixes the block size and asks to "fill ZERO(0x00) for unused sample data
+  area in the block" (Annotation 3).
 - Metadata: an ID3v2.3 tag at the end of the file (TIT2, TPE1, TALB, COMM;
   ISO-8859-1 text, here plain ASCII).
 
@@ -627,7 +631,8 @@ order:
   two's complement, most significant byte first, channels interleaved by
   frame.
 
-AIFF carries no artist and no album tag here. Decoding an AIFF file of the set
+AIFF carries no artist and no album tag here, except in the gapless set
+(11.7). Decoding an AIFF file of the set
 MUST give the samples of the WAV of the same name exactly; the generator's
 tests do so. AIFF output is byte-identical on every run. No AIFF is made for
 DSF, DFF or 32-bit files.
@@ -671,7 +676,8 @@ holds, in this order:
   `minf` `smhd`, `dinf` and `stbl`), then `udta`/`meta`/`ilst` with the MP4
   tags `\xa9nam` (title), `\xa9too` (the encoder:
   `Apple ALAC encoder, macosforge/alac c38887c`) and `\xa9cmt` (comment),
-  as UTF-8 `data` atoms of type 1. No artist or album tag is written;
+  as UTF-8 `data` atoms of type 1. No artist or album tag is written,
+  except in the gapless set (11.7);
 - `mdat`: the packets back to back.
 
 `stbl` holds `stsd` with one `alac` sample entry (data reference 1, the
@@ -741,8 +747,8 @@ set: `python3 -m generator --32bit` also writes the ten 32-bit PCM WAVs
 (about 289 MB), which are not published and not in the release archives.
 
 All files are stereo, use seed 0x42504331 and have a 2 s lead-in and a
-0.5 s tail. The code-sweep set (section 11.6) is separate and not part of
-these 122 files.
+0.5 s tail. The code-sweep set (section 11.6) and the gapless set (section
+11.7) are separate and not part of these 122 files.
 
 ### 11.2 Names
 
@@ -776,7 +782,7 @@ All tag text is ASCII:
 | Comment | `BPC1 v1 bit-perfect test signal, low-level payload with full-scale bursts. TEST - DO NOT PLAY ON SPEAKERS OR HEADPHONES.` |
 
 AIFF and ALAC files carry the title and the comment only (sections 9.6 and
-9.7).
+9.7), except in the gapless set (11.7).
 
 A negative test file's title ends in `- NEGATIVE TEST, DELIBERATELY ALTERED`
 or `- NEGATIVE TEST, DELIBERATELY INCOMPLETE`, and its comment goes on with
@@ -792,7 +798,7 @@ negative tests under their `negative/` name.
 ### 11.4 Release archives
 
 The regular set and the code-sweep set (11.6) are each released as four zip
-files, one per format. In the name `bpc1-r1-<format>.zip`, BPC1 names the
+files, one per format, and the gapless set (11.7) as one archive. In the name `bpc1-r1-<format>.zip`, BPC1 names the
 format and its version (an incompatible format would be BPC2), and r1 is the
 release of the file set: a fix to the files under the same format becomes r2.
 
@@ -806,6 +812,7 @@ release of the file set: a fix to the files under the same format becomes r2.
 | `bpc1-r1-sweep-flac.zip` | the sweep FLACs (20) and the negative sweep FLACs (2) | stored | 1 312 253 103 bytes (about 1.31 GB) |
 | `bpc1-r1-sweep-aiff.zip` | the sweep AIFFs (20) and the negative sweep AIFFs (2) | stored | 1 383 696 105 bytes (about 1.38 GB) |
 | `bpc1-r1-sweep-alac.zip` | the sweep ALACs (20) and the negative sweep ALACs (2) | stored | 1 338 566 099 bytes (about 1.34 GB) |
+| `bpc1-r1-gapless.zip` | the gapless pairs (36 files) in six folders, one per format | stored | 56 856 455 bytes (about 57 MB) |
 
 FLAC data does not compress further (deflate saves 1.0 %), so the FLAC archive
 is stored, and so are the AIFF and ALAC archives; the WAV and DSD files
@@ -941,6 +948,86 @@ stored. Each is organised as in 11.4, with the warning entry `!!! FULL-SCALE
 NOISE - NEVER PLAY ON SPEAKERS OR HEADPHONES !!!.txt`. Its `README.txt` has
 the full-scale warning, what the files are, how to use them and the clipping
 section of section 11.4. The regular archives are unchanged.
+
+### 11.7 The gapless set
+
+A third, separate set tests gapless playback. Each **pair** is a regular file
+of the set (11.1) cut in two inside its body: part 1 holds units 0 to J - 1,
+part 2 units J to the end. Played gaplessly, a pair arrives as the regular
+file, with its identity, and gives one result (12.6). The set assumes a
+bit-perfect transport: it is played after the regular files of the same
+formats give `BIT_PERFECT`. `python3 -m generator --gapless` writes it and
+`python3 -m generator package --gapless` builds its archive.
+
+| Group | Pairs |
+|---|---|
+| PCM | `bpc1_pcm_044k1_16bit`, `bpc1_pcm_044k1_24bit`, `bpc1_pcm_048k_16bit`, `bpc1_pcm_048k_24bit`, each as WAV, AIFF, FLAC and ALAC (16) |
+| DSD | `bpc1_dsd064_dsf`, `bpc1_dsd064_dff` (2) |
+
+The set is 36 files, 56 840 736 bytes (about 57 MB).
+
+**The cut.** J is one unit after 7.5 s. PCM: J = 7.5 x rate + 1 frames
+(330 751 at 44.1 kHz, block 80, frame 3071; 360 001 at 48 kHz, block 87,
+frame 3649). DSD: J = 16 x (7.5 x rate / 16 + 1) bits, after 1 323 001 DoP
+frames (21 168 016 bits: block 80, bit 196 496 at DSD64). J lies in the
+payload of a body block that is not an R-header block. J, for DSD its DoP
+frame count, is odd and not a multiple of 3, 5 or 7, so it falls on no block
+boundary, no 4096-frame FLAC or ALAC packet boundary and no DSF block
+boundary, and, counted from the file's start, on no boundary of 2^k frames
+or of a 6-frame USB packet. The units at J differ from zero and from the
+units before and after them in every channel (in the DSF pair, DSD bytes
+0x95 and 0xA9), so a unit inserted, dropped or repeated at J changes the
+unit at J. Part 1 of a DSD pair holds an odd number of DoP frames, so a
+player that starts the DoP marker phase again with part 2 repeats a marker.
+
+**Files.** Each part is a whole file of its format (9.1 to 9.4, 9.6, 9.7)
+with its own length and the identity (kind, rate, depth, channels, seed) of
+the regular file; the FLAC and ALAC parts end on a short frame or packet,
+and the FLAC parts' STREAMINFO and the ALAC parts' last `stts` entry carry
+their frame counts. A DSF part ends inside a 4096-byte block, whose rest is
+zero bytes; its sample count gives the bits that count (in its last block,
+part 1 has 4082 bytes per channel, part 2 has 14). Decoding both parts of a
+pair and joining them MUST give the units of the regular file exactly.
+
+**Names.** One folder per format, `wav`, `aiff`, `flac`, `alac`, `dsf`,
+`dff`; a part is named after its regular file with `_gapless_part1` or
+`_gapless_part2`, e.g. `flac/bpc1_pcm_044k1_24bit_gapless_part1.flac`.
+
+**Tags.** As in 11.3, except:
+
+| Tag | Value |
+|---|---|
+| Title | `TEST - DO NOT PLAY ON SPEAKERS - BPC1 <description> gapless, part <p> of 2` |
+| Album | `BPC1 gapless <description> <format>`, one per pair, e.g. `BPC1 gapless PCM 44.1 kHz 24-bit FLAC`; `BPC1 gapless DSD64 DSF` and `BPC1 gapless DSD64 DFF` |
+| Track | `<p>` of 2 |
+| Comment | `BPC1 v1 bit-perfect test signal, gapless pair, part <p> of 2: one test file cut at 7.500 s. Play both parts gaplessly; a checker gives one result for the pair. TEST - DO NOT PLAY ON SPEAKERS OR HEADPHONES.` |
+
+WAV adds `ITRK` (`1` or `2`) to `LIST`/`INFO`, after `ICMT`; FLAC adds
+`TRACKNUMBER` and `TRACKTOTAL` after `COMMENT`. AIFF adds an `ID3 ` chunk
+after `SSND`, holding the ID3v2.3 tag of 9.3 with `TRCK` (`1/2` or `2/2`)
+between `TALB` and `COMM`; DSF and DFF add the same `TRCK` to their tag. ALAC
+adds, after `\xa9cmt`, `\xa9ART` and `\xa9alb` (UTF-8, type 1), `trkn`
+(type 0: 8 bytes, 0, `<p>` and 2 as 16-bit big-endian numbers, then 0) and
+`pgap` (type 21: one byte, 1).
+
+**Archive.** `bpc1-r1-gapless.zip`, stored, organised as in 11.4 but without
+a `negative` folder: the warning file, `README.txt` (the warning, what the
+pairs are, when and how to play them, the results below, the clipping
+section and the MIT licence), `SHA256SUMS` (names with their folder), and
+the six folders.
+
+**Results.** *Informative: they follow from 12.6.* A pair played gaplessly
+gives one `BIT_PERFECT`. Units inserted, dropped or repeated at the cut, or
+DoP markers that start again with part 2, give one `NOT_BIT_PERFECT` with
+`diff` 7.500; a change that reaches back into part 1, such as a crossfade
+or the end of part 1 cut short, gives a little less (7.490 for a 10 ms
+linear crossfade). A stream that stops between the parts gives two
+`NOT_BIT_PERFECT` results: `end` `STOP` with `diff` 7.500, then `diff` at the
+first block after the cut, 7.523 (44.1 kHz, DSD64) or 7.509 (48 kHz). A
+pause in which the host sends no audio carries no units and is not seen by
+the verdict. A checker that reads files judges each as a stream of its own,
+so each part alone gives `NOT_BIT_PERFECT`; the reference checker's `--join`
+judges both parts as one stream.
 
 ## 12. Checking
 
@@ -1470,8 +1557,9 @@ Verdict cases (12.6). The vectors file lists them exactly under `verdicts`:
 each case is a stream built from short BPC1 files (a lead-in, a body and a
 tail of a few blocks), the changes made to it, the `allow_silence` setting
 and the results (verdict and `diff`). Besides these, each regular file of the
-published set played unchanged gives `BIT_PERFECT`, and each negative file
-(11.5) gives `NOT_BIT_PERFECT`.
+published set played unchanged gives `BIT_PERFECT`, each negative file
+(11.5) gives `NOT_BIT_PERFECT`, each gapless pair (11.7) joined gives
+`BIT_PERFECT`, and each of its parts alone gives `NOT_BIT_PERFECT`.
 
 - `BIT_PERFECT`:
   - the file unchanged, PCM, DoP and code sweep; 16-bit content in a 24-bit

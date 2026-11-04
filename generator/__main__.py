@@ -3,9 +3,12 @@
     python3 -m generator [--out out] [--32bit] [--no-flac] [--no-aiff] [--no-alac]
                          [--only TEXT] [--jobs N]
     python3 -m generator --sweep [--out out-sweep] [--no-flac] [--no-aiff] [--no-alac] ...
-    python3 -m generator package [--sweep] [--out out] [--dist dist]
+    python3 -m generator --gapless [--out out-gapless] [--no-flac] [--no-aiff] [--no-alac] ...
+    python3 -m generator package [--sweep | --gapless] [--out out] [--dist dist]
 
---sweep writes the code-sweep set (kind 5) instead of the regular set. Every
+--sweep writes the code-sweep set (kind 5) instead of the regular set;
+--gapless the gapless set (regular files cut in two, one folder per format,
+by default in out-gapless). Every
 16- and 24-bit PCM and DoP WAV also comes as FLAC (flac >= 1.4.0), AIFF
 (written here) and ALAC in .m4a (Apple's reference encoder, built with the
 host C++ compiler); a missing tool skips its format.
@@ -28,11 +31,14 @@ def main(argv=None):
     ap = argparse.ArgumentParser(prog="python3 -m generator",
                                  description="Write the BPC1 v1 test-file set "
                                              "('package' builds the release zips).")
-    ap.add_argument("--out", default="out", help="output directory (default: out)")
+    ap.add_argument("--out", help="output directory (default: out; with --gapless: out-gapless)")
     ap.add_argument("--32bit", dest="pcm32", action="store_true",
                     help="also write the ten 32-bit PCM WAVs (not part of the release)")
-    ap.add_argument("--sweep", action="store_true",
-                    help="write the code-sweep set instead (full-scale; about 5.4 GB, all formats)")
+    which = ap.add_mutually_exclusive_group()
+    which.add_argument("--sweep", action="store_true",
+                       help="write the code-sweep set instead (full-scale; about 5.4 GB, all formats)")
+    which.add_argument("--gapless", action="store_true",
+                       help="write the gapless set instead (pairs of parts, all formats)")
     ap.add_argument("--no-flac", action="store_true", help="skip FLAC encoding")
     ap.add_argument("--no-aiff", action="store_true", help="skip the AIFF files")
     ap.add_argument("--no-alac", action="store_true", help="skip ALAC encoding")
@@ -44,14 +50,24 @@ def main(argv=None):
     ap.add_argument("--jobs", type=int, default=os.cpu_count() or 1)
     ap.add_argument("--list", action="store_true", help="list the files and exit")
     a = ap.parse_args(argv)
+    if a.gapless and a.pcm32:
+        ap.error("--32bit is not part of the gapless set")
+    a.out = a.out or ("out-gapless" if a.gapless else "out")
 
-    files = fileset.sweep_set(seed=a.seed) if a.sweep else fileset.test_set(seed=a.seed, pcm32=a.pcm32)
+    if a.sweep:
+        files = fileset.sweep_set(seed=a.seed)
+    elif a.gapless:
+        files = fileset.gapless_set(seed=a.seed)
+    else:
+        files = fileset.test_set(seed=a.seed, pcm32=a.pcm32)
     if a.only:
         files = [f for f in files if any(t in f.name for t in a.only)]
     if a.list:
-        from .package import EXT
         for f in files:
-            exts = " ".join(EXT[x] for x in f.formats)
+            if f.part:
+                print("\n".join([f.relpath] + [f.relpath_as(x) for x in f.formats]))
+                continue
+            exts = " ".join(fileset.EXT[x] for x in f.formats)
             print(f.relpath + (f"  (+ {exts})" if exts else ""))
         return 0
 

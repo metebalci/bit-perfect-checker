@@ -7,7 +7,7 @@ system, USB audio stack) delivers a file bit-perfect. It consists of:
   generator for its test files: WAV, FLAC, AIFF and ALAC for PCM (16- and
   24-bit, 44.1 to 768 kHz, and 32-bit WAV on request), and DSF, DFF and DoP
   (in WAV, FLAC, AIFF and ALAC) for DSD64 to DSD256, plus a separate
-  code-sweep set;
+  code-sweep set and a gapless set;
 - firmware that turns a development board into a class-compliant USB Audio
   Class 2 output device (the "DAC" from the host's point of view) that checks
   every sample it receives, the hardware checker;
@@ -65,7 +65,9 @@ files.
    per format: `bpc1-r1-wav.zip`, `bpc1-r1-flac.zip`, `bpc1-r1-aiff.zip`
    and `bpc1-r1-alac.zip`, and the code-sweep files in
    `bpc1-r1-sweep-wav.zip`, `-sweep-flac.zip`, `-sweep-aiff.zip` and
-   `-sweep-alac.zip` (each about 1.3 to 1.4 GB). Or generate them
+   `-sweep-alac.zip` (each about 1.3 to 1.4 GB), and the gapless pairs in
+   `bpc1-r1-gapless.zip` (about 57 MB; play them only after the regular
+   files pass). Or generate them
    ([Generate the test files](#generate-the-test-files)). The FLAC and ALAC
    files at 705.6 and 768 kHz, and the DSD256 DoP files, need a decoder that
    takes these rates (see
@@ -236,6 +238,20 @@ python3 -m generator --sweep --out out-sweep
 python3 -m generator package --sweep --out out-sweep   # the four bpc1-r1-sweep-*.zip, all stored
 ```
 
+The gapless set (36 files, about 57 MB, a separate set: see the
+[signal format](docs/bpc1.md), section 11.7) tests whether a player joins
+two tracks without a gap. Each pair is a regular file cut in two inside its
+body, at 7.5 s: PCM 44.1 and 48 kHz, 16 and 24 bits, as WAV, AIFF, FLAC
+and ALAC, and DSD64 as DSF and DFF, one folder per format. It is written
+into `out-gapless/` by default and packaged into one stored zip,
+`bpc1-r1-gapless.zip` (about 57 MB), with its README.txt and a SHA256SUMS
+whose names carry their folder; there is no `negative/` folder:
+
+```
+python3 -m generator --gapless                         # into out-gapless/
+python3 -m generator package --gapless                 # dist/bpc1-r1-gapless.zip
+```
+
 ### Rebuild a release and check it
 
 With the tool versions of the table above, the steps give zips that are
@@ -248,23 +264,26 @@ byte-identical to the release's.
    `git submodule update --init generator/third_party/alac`, which is all
    the generator needs). Check that `git -C generator/third_party/alac
    rev-parse HEAD` prints the codec commit of the table.
-2. Generate the regular and the sweep set, each into an empty folder:
+2. Generate the regular, the sweep and the gapless set, each into an empty
+   folder:
 
    ```
    python3 -m generator --out out
    python3 -m generator --sweep --out out-sweep
+   python3 -m generator --gapless --out out-gapless
    ```
 
-3. Package both into one empty dist folder:
+3. Package all three into one empty dist folder:
 
    ```
    python3 -m generator package --out out --dist dist
    python3 -m generator package --sweep --out out-sweep --dist dist
+   python3 -m generator package --gapless --out out-gapless --dist dist
    ```
 
    The folder must be empty because `dist/SHA256SUMS` lists every zip in the
-   folder, those of earlier runs too. After the two commands it lists all
-   eight zips.
+   folder, those of earlier runs too. After the three commands it lists all
+   nine zips.
 4. Compare `dist/SHA256SUMS` with the `SHA256SUMS` of the release, for
    example with `diff`. No difference means the zips are identical.
 
@@ -290,6 +309,8 @@ ALAC file it writes.
 python3 -m checker out/bpc1_pcm_096k_24bit.wav
 python3 -m checker --json out/*.dsf
 python3 -m checker --raw s32le --rate 96000 --channels 2 capture.raw
+python3 -m checker --join out-gapless/flac/bpc1_pcm_044k1_24bit_gapless_part1.flac \
+                          out-gapless/flac/bpc1_pcm_044k1_24bit_gapless_part2.flac
 ```
 
 It reads WAV, FLAC, AIFF, ALAC (`.m4a`, decoded with Apple's ALAC decoder),
@@ -315,6 +336,14 @@ A capture that holds several files (a host joins them, for example for
 gapless playback) gives one report per file; `--json` prints one JSON object
 per file, one per line. The exit status is 0 only when every file is
 bit-perfect.
+
+The checker judges each file it is given as a stream of its own. A pair of
+the gapless set is one test file in two parts, so each part alone is
+`NOT_BIT_PERFECT`. `--join` judges the files as one stream, in the order
+given, as a gapless player joins them: a pair joined gives one
+`BIT_PERFECT`. The files must have the same rate, channel count and sample
+format, else the checker stops with an error; they may be of different
+containers (a FLAC part 1 and an ALAC part 2, for example).
 
 ### Automate with bpcctl
 
@@ -377,7 +406,7 @@ Before a release, all of these hold:
    ```
 
 4. Every zip is under 2 GiB. Packaging stops with an error for a zip of
-   2 GiB or more and does not write it (see Package a release), so all eight
+   2 GiB or more and does not write it (see Package a release), so all nine
    zips must build without an error.
 
 ## Known issues

@@ -2,7 +2,8 @@
 
 import hashlib
 import os
-from dataclasses import dataclass
+import struct
+from dataclasses import dataclass, replace
 
 import numpy as np
 
@@ -26,6 +27,15 @@ FAULT_FRAME = 1024                        # first faulty frame in that block
 FAULT_FRAMES = 1000
 FAULTS = ("altered", "incomplete")
 
+# The gapless set (section 11.7): regular files cut in two inside the body.
+GAPLESS_PCM = ((44100, 16), (44100, 24), (48000, 16), (48000, 24))
+GAPLESS_DSD = (2822400, ("dsf", "dff"))
+CUT_MS = 7500                              # the cut: one unit after 7.5 s
+PARTS = 2
+
+EXT = {"flac": ".flac", "aiff": ".aiff", "alac": ".m4a"}     # beside each PCM or DoP WAV
+FORMAT_NAMES = {"wav": "WAV", "flac": "FLAC", "aiff": "AIFF", "alac": "ALAC"}
+
 
 @dataclass(frozen=True)
 class FileSpec:
@@ -35,6 +45,7 @@ class FileSpec:
     formats: tuple     # formats this WAV (PCM or DoP) also ships in: "flac", "aiff", "alac"
     description: str
     fault: str = ""    # negative test: "altered" or "incomplete"
+    part: int = 0      # gapless set: part 1 or 2 of a regular file; 0 for a whole file
 
     @property
     def ext(self):
@@ -46,11 +57,41 @@ class FileSpec:
 
     @property
     def relpath(self):
-        """Path in a generated set and in the release archives, "/"-separated."""
+        """Path in a generated set and in the release archives, "/"-separated:
+        a gapless part in the folder of its format."""
+        if self.part:
+            return f"{self.container}/{self.filename}"
         return f"{NEGATIVE_DIR}/{self.filename}" if self.fault else self.filename
+
+    def relpath_as(self, fmt):
+        """The path of this WAV's FLAC, AIFF or ALAC file ("flac", "aiff",
+        "alac")."""
+        if self.part:
+            return f"{fmt}/{self.name}{EXT[fmt]}"
+        return self.relpath[:-len(self.ext)] + EXT[fmt]
+
+    @property
+    def units(self):
+        """The units of the regular file that this file holds, [u0, u1):
+        frames (PCM) or DSD bits per channel (DSD kinds)."""
+        if not self.part:
+            return 0, self.cfg.total_units
+        cut = gapless_cut(self.cfg)
+        return (0, cut) if self.part == 1 else (cut, self.cfg.total_units)
+
+    def album(self, fmt):
+        """The album tag of this file as format fmt ("wav", "flac", "aiff",
+        "alac", "dsf", "dff")."""
+        if not self.part:
+            return ALBUM
+        if self.container in ("dsf", "dff"):
+            return f"BPC1 gapless {self.description}"
+        return f"BPC1 gapless {self.description} {FORMAT_NAMES[fmt]}"
 
     @property
     def title(self):
+        if self.part:
+            return f"{WARNING} - BPC1 {self.description} gapless, part {self.part} of {PARTS}"
         if self.fault:
             return (f"{WARNING} - BPC1 {self.description} - NEGATIVE TEST, "
                     f"DELIBERATELY {self.fault.upper()}")
@@ -58,6 +99,10 @@ class FileSpec:
 
     @property
     def comment(self):
+        if self.part:
+            return (f"BPC1 v1 bit-perfect test signal, gapless pair, part {self.part} of {PARTS}: "
+                    f"one test file cut at {CUT_MS / 1000:.3f} s. Play both parts gaplessly; a "
+                    f"checker gives one result for the pair. {WARNING} OR HEADPHONES.")
         if self.cfg.kind == spec.KIND_SWEEP:
             text = f"BPC1 v1 bit-perfect test signal, full-scale code sweep. {WARNING} OR HEADPHONES."
         else:
@@ -196,6 +241,24 @@ def sweep_set(seed=spec.DEFAULT_SEED):
     return files + neg
 
 
+def gapless_cut(cfg):
+    """The first unit of part 2: one unit after CUT_MS, the unit a frame
+    (PCM) or a DoP frame of 16 DSD bits (DSD), so that part 1 of a DSD pair
+    holds an odd number of DoP frames."""
+    unit = 16 if cfg.dsd else 1
+    return (cfg.rate * CUT_MS // 1000 // unit + 1) * unit
+
+
+def gapless_set(seed=spec.DEFAULT_SEED):
+    """The gapless set: parts 1 and 2 of each regular file of the pairs, with
+    the regular file's identity. A PCM part is a WAV, also written as FLAC,
+    AIFF and ALAC; a DSD part a DSF or DFF file."""
+    bases = [pcm_file(r, d, seed=seed) for r, d in GAPLESS_PCM]
+    bases += [dsd_file(GAPLESS_DSD[0], c, seed=seed) for c in GAPLESS_DSD[1]]
+    return [replace(b, name=f"{b.name}_gapless_part{p}", part=p)
+            for b in bases for p in range(1, PARTS + 1)]
+
+
 def test_set(seed=spec.DEFAULT_SEED, pcm32=False):
     """The published set; with pcm32=True the 32-bit PCM WAVs are added."""
     files = []
@@ -218,12 +281,16 @@ def _chunk_ranges(total_blocks, block_len, target=1 << 20):
 
 
 def info_tags(fspec):
-    return containers.riff_info([("INAM", fspec.title), ("IART", ARTIST),
-                                 ("IPRD", ALBUM), ("ICMT", fspec.comment)])
+    tags = [("INAM", fspec.title), ("IART", ARTIST), ("IPRD", fspec.album("wav")),
+            ("ICMT", fspec.comment)]
+    return containers.riff_info(tags + ([("ITRK", str(fspec.part))] if fspec.part else []))
 
 
-def id3_tag(fspec):
-    return containers.id3v23(fspec.title, ARTIST, ALBUM, fspec.comment)
+def id3_tag(fspec, fmt=None):
+    """The ID3v2.3 tag of a DSF or DFF file, or of a gapless part's AIFF."""
+    track = f"{fspec.part}/{PARTS}" if fspec.part else None
+    return containers.id3v23(fspec.title, ARTIST, fspec.album(fmt or fspec.container),
+                             fspec.comment, track)
 
 
 def _faulty(fspec, chunks, frames_per_block):
@@ -256,8 +323,44 @@ def _faulty(fspec, chunks, frames_per_block):
         yield x
 
 
+def _part_chunks(cfg, u0, u1, blocks, units_per_block, axis):
+    """Units u0..u1-1 of a file in chunks: blocks(cfg, k0, k1) gives blocks
+    k0..k1-1, units_per_block of them each along `axis`."""
+    k0, k1 = u0 // units_per_block, -(-u1 // units_per_block)
+    for a, b in _chunk_ranges(k1 - k0, units_per_block):
+        a, b = a + k0, b + k0
+        n0 = a * units_per_block
+        lo, hi = max(u0, n0) - n0, min(u1, b * units_per_block) - n0
+        x = blocks(cfg, a, b)
+        yield x[lo:hi] if axis == 0 else x[:, lo:hi]
+
+
+def write_part(fspec, out_dir):
+    """Write one part of the gapless set (a WAV, DSF or DFF) and return its
+    path."""
+    cfg = fspec.cfg
+    path = os.path.join(out_dir, *fspec.relpath.split("/"))
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    u0, u1 = fspec.units
+    if fspec.container == "wav":
+        chunks = _part_chunks(cfg, u0, u1, pcm_blocks, cfg.block_len, 0)
+        containers.write_wav(path, cfg.rate, cfg.nch, cfg.depth, cfg.depth, u1 - u0,
+                             info_tags(fspec), chunks)
+    elif fspec.container == "dsf":
+        containers.write_dsf(path, cfg.rate, cfg.nch, u1 - u0, id3_tag(fspec),
+                             _part_chunks(cfg, u0, u1, dsd_blocks, cfg.block_len, 1))
+    elif fspec.container == "dff":
+        containers.write_dff(path, cfg.rate, cfg.nch, u1 - u0, fspec.title, ARTIST, id3_tag(fspec),
+                             _part_chunks(cfg, u0, u1, dsd_blocks, cfg.block_len, 1))
+    else:
+        raise ValueError(f"no gapless part in {fspec.container}")
+    return path
+
+
 def write_file(fspec, out_dir):
     """Write one file of the set and return its path."""
+    if fspec.part:
+        return write_part(fspec, out_dir)
     cfg = fspec.cfg
     path = os.path.join(out_dir, *fspec.relpath.split("/"))
     os.makedirs(os.path.dirname(path), exist_ok=True)
@@ -290,28 +393,50 @@ def write_file(fspec, out_dir):
 
 
 def flac_tags(fspec):
-    return [("TITLE", fspec.title), ("ARTIST", ARTIST), ("ALBUM", ALBUM),
+    tags = [("TITLE", fspec.title), ("ARTIST", ARTIST), ("ALBUM", fspec.album("flac")),
             ("COMMENT", fspec.comment)]
+    if fspec.part:
+        tags += [("TRACKNUMBER", str(fspec.part)), ("TRACKTOTAL", str(PARTS))]
+    return tags
 
 
-def write_flac(fspec, wav_path):
-    flac_path = wav_path[:-4] + ".flac"
+def _target(wav_path, path, fmt):
+    """The path to write: `path`, or the WAV's with the format's extension."""
+    path = path or wav_path[:-4] + EXT[fmt]
+    os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
+    return path
+
+
+def write_flac(fspec, wav_path, path=None):
+    flac_path = _target(wav_path, path, "flac")
     rate = fspec.cfg.rate // 16 if fspec.container == "dop" else fspec.cfg.rate
     containers.encode_flac(wav_path, flac_path, flac_tags(fspec), rate)
     return flac_path
 
 
-def write_aiff(fspec, wav_path):
-    """The AIFF of a PCM or DoP WAV: the title in NAME, the comment in ANNO."""
-    aiff_path = wav_path[:-4] + ".aiff"
-    containers.write_aiff(wav_path, aiff_path, fspec.title, fspec.comment)
+def write_aiff(fspec, wav_path, path=None):
+    """The AIFF of a PCM or DoP WAV: the title in NAME, the comment in ANNO;
+    a gapless part also has an ID3 chunk."""
+    aiff_path = _target(wav_path, path, "aiff")
+    containers.write_aiff(wav_path, aiff_path, fspec.title, fspec.comment,
+                          id3_tag(fspec, "aiff") if fspec.part else None)
     return aiff_path
 
 
-def write_alac(fspec, wav_path):
+def alac_tags(fspec):
+    """The MP4 tags of a gapless part's ALAC beyond the title, tool and
+    comment: artist, album, track number (data type 0) and gapless (pgap,
+    type 21)."""
+    if not fspec.part:
+        return []
+    return [(b"\xa9ART", ARTIST), (b"\xa9alb", fspec.album("alac")),
+            (b"trkn", (0, struct.pack(">HHHH", 0, fspec.part, PARTS, 0))), (b"pgap", (21, b"\x01"))]
+
+
+def write_alac(fspec, wav_path, path=None):
     """The ALAC (.m4a) of a PCM or DoP WAV, with the title and comment."""
-    m4a_path = wav_path[:-4] + ".m4a"
-    containers.encode_alac(wav_path, m4a_path, fspec.title, fspec.comment)
+    m4a_path = _target(wav_path, path, "alac")
+    containers.encode_alac(wav_path, m4a_path, fspec.title, fspec.comment, alac_tags(fspec))
     return m4a_path
 
 
@@ -330,11 +455,9 @@ def job(args):
     want_aiff, want_alac = args[3:5] if len(args) > 3 else (False, False)
     wav = write_file(fspec, out_dir)
     paths = [wav]
-    if want_flac and "flac" in fspec.formats:
-        paths.append(write_flac(fspec, wav))
-    if want_aiff and "aiff" in fspec.formats:
-        paths.append(write_aiff(fspec, wav))
-    if want_alac and "alac" in fspec.formats:
-        paths.append(write_alac(fspec, wav))
+    for fmt, want, write in (("flac", want_flac, write_flac), ("aiff", want_aiff, write_aiff),
+                             ("alac", want_alac, write_alac)):
+        if want and fmt in fspec.formats:
+            paths.append(write(fspec, wav, os.path.join(out_dir, *fspec.relpath_as(fmt).split("/"))))
     return [(os.path.relpath(p, out_dir).replace(os.sep, "/"), os.path.getsize(p), sha256(p))
             for p in paths]

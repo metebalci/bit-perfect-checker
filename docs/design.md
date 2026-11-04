@@ -155,8 +155,8 @@ them:
 - **Formats.** PCM (16- and 24-bit, ten rates) as WAV, FLAC, AIFF and ALAC.
   DSD64, DSD128 and DSD256 as DSF, DFF, and DoP in a 24-bit WAV; the DoP files
   also as FLAC, AIFF and ALAC. The regular set is 122 files, about 1.75 GB; the
-  code-sweep set is 88 files, about 5.4 GB (bpc1.md, sections 11.1
-  and 11.6).
+  code-sweep set is 88 files, about 5.4 GB; the gapless set is 36 files,
+  about 57 MB (bpc1.md, sections 11.1, 11.6 and 11.7).
 - **Every format a player plays is tested.** A player can decode each format
   through a different path, so the WAV set is where a test starts, not where it
   ends. FLAC, AIFF and ALAC are made from the WAV of the same name and hold
@@ -213,6 +213,46 @@ Apple's `afconvert`.
 ### AIFF
 
 The generator writes AIFF itself, from the samples of the WAV.
+
+### The gapless set
+
+A player that plays tracks gaplessly joins them in one stream. Between two
+regular files that join falls in the tail of one and the lead-in of the
+next, which no checker compares, so the regular files cannot show a join
+that drops, inserts or repeats samples. A gapless pair is one regular file
+cut in two inside its body: the join falls in compared units, and the pair
+gives one result.
+
+- **One pair per format.** Each format reaches the join through its own
+  decoder and container. FLAC and ALAC parts end on a short frame or packet
+  that a decoder must not pad or drop; ALAC has no priming and no edit list,
+  so its frame count is the last `stts` entry. A DSF part ends inside a
+  4096-byte block, zero-padded as Sony's specification asks: a player that
+  plays whole blocks inserts the padding. DFF has no blocks. WAV and AIFF
+  are the plain case. The pairs are 44.1 and 48 kHz at 16 and 24 bits, the
+  rates and depths of most albums played gaplessly, and DSD64; one zip of
+  about 57 MB holds them all.
+- **The cut, one unit after 7.5 s.** It lies in the body, away from both
+  ends, in the payload of a block without an R-header, and at the same time
+  at every rate, so a change at the join gives `diff` 7.500 for every format.
+  The cut (for DSD, its count of DoP frames) is odd and not a multiple of 3,
+  5 or 7: it falls on no block, no 4096-frame FLAC or ALAC packet, no DSF
+  block, no buffer of 2^k frames and no 6-frame USB packet counted from the
+  file's start, so a player that rounds the join to any of these is seen.
+  The units at the cut differ from zero and from their neighbours, so a
+  unit inserted, dropped or repeated there changes the first unit compared
+  after the join. Part 1 of a DSD pair holds an odd number of DoP frames,
+  so DoP markers that start again with part 2 repeat a marker.
+- **The regular file's identity.** The parts carry the identity of the file
+  they come from, so the format, both checkers and the firmware need no
+  change: a pair played gaplessly is that file. Each part alone is
+  `NOT_BIT_PERFECT`; the software checker's `--join` judges the parts of a
+  pair as one stream.
+- **After the regular set.** The pairs test the join only. They assume that
+  samples arrive unchanged, which the regular files of the same player and
+  format show first. A gapless pass is `BIT_PERFECT` with `lost=0`: a pause
+  in which the host sends no audio carries no units and leaves the verdict
+  unchanged, but a DAC plays it as a dropout.
 
 ### Determinism
 

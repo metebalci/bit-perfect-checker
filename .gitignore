@@ -17,6 +17,7 @@ venv/
 
 # Generated test audio (published as release assets, never committed)
 out/
+out-gapless/
 *.wav
 *.flac
 *.dsf
