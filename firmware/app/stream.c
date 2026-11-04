@@ -486,19 +486,36 @@ typedef struct {
   uint64_t next;   // where the segment after this stream's began; UINT64_MAX not yet
 } fifo_state_t;
 
-// The FIFO before a read. The bytes read are brought in line with it, which
-// also follows TinyUSB's clearing it (a new alt setting, a bus reset). An
-// overflowed FIFO drops its oldest bytes here, as the interrupt counted,
-// rather than in the read.
-static void fifo_state(tu_fifo_t *ff, fifo_state_t *f) {
-  board_irq_disable();
-  uint16_t count = tu_ff_overflow_count(ff->depth, ff->wr_idx, ff->rd_idx);
-  if (count > ff->depth) {
-    tu_fifo_correct_read_pointer(ff);
-    count = ff->depth;
+// Brings the bytes read in line with the FIFO, with interrupts off, and
+// returns the bytes it holds. An overflowed FIFO drops its oldest bytes
+// here, as the interrupt counted, rather than in the next read. No FIFO
+// (after a bus reset) is an empty one.
+static uint16_t fifo_sync(tu_fifo_t *ff) {
+  uint16_t count = 0;
+  if (ff != NULL) {
+    count = tu_ff_overflow_count(ff->depth, ff->wr_idx, ff->rd_idx);
+    if (count > ff->depth) {
+      tu_fifo_correct_read_pointer(ff);
+      count = ff->depth;
+    }
   }
   fifo_read_all = fifo_written - fifo_skipped - count;
   fifo_read = (uint32_t) fifo_read_all;
+  return count;
+}
+
+// TinyUSB cleared the FIFO (a new alt setting, a bus reset): the bytes not
+// read so far are gone, and must not count against the next packets.
+static void fifo_cleared(void) {
+  board_irq_disable();
+  (void) fifo_sync(tud_audio_get_ep_out_ff());
+  board_irq_enable();
+}
+
+// The FIFO before a read
+static void fifo_state(tu_fifo_t *ff, fifo_state_t *f) {
+  board_irq_disable();
+  uint16_t count = fifo_sync(ff);
   f->count = count;
   f->at = fifo_written - count;
   f->next = isr.seq == s.seq ? UINT64_MAX : isr_prev.seq == s.seq ? isr.start : isr_prev.start;
@@ -948,6 +965,7 @@ void stream_set_rate(uint32_t rate) {
 
 void stream_set_alt(uint8_t alt) {
   stop("alt");
+  fifo_cleared();
   status.alt = alt;
   status.slot = uac2_alts[alt].slot;
   status.resolution = uac2_alts[alt].resolution;
@@ -962,6 +980,7 @@ void stream_set_alt(uint8_t alt) {
 
 void stream_reset(void) {
   stop("reset");
+  fifo_cleared();
   status.alt = 0;
   status.slot = 0;
   status.resolution = 0;
