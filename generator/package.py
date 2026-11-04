@@ -289,7 +289,7 @@ hearing. Play them only into a bit-perfect checker.
 What they are
 -------------
 
-Test signals in the BPC1 format of the bit-perfect-checker project. A
+Test signals in the BPC1 format of the Bit-Perfect Checker project. A
 checker regenerates every expected sample from the signal itself, and tells
 whether the playback chain delivered the file bit-perfect: BIT_PERFECT or
 NOT_BIT_PERFECT. The software checker also describes what changed, as an
@@ -364,7 +364,7 @@ equipment and hearing at once. Play them only into a bit-perfect checker.
 What they are
 -------------
 
-Test signals in the BPC1 format of the bit-perfect-checker project. A
+Test signals in the BPC1 format of the Bit-Perfect Checker project. A
 checker regenerates every expected sample from the signal itself, and tells
 whether the playback chain delivered the file bit-perfect: BIT_PERFECT or
 NOT_BIT_PERFECT.

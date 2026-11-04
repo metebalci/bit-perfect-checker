@@ -1,6 +1,6 @@
 # Design
 
-How bit-perfect-checker is built and why. The signal itself is specified in
+How Bit-Perfect Checker is built and why. The signal itself is specified in
 [bpc1.md](bpc1.md); this document gives the choices around
 it. How to use, build and release is in the [README](../README.md); the
 device's log, commands and LEDs are in the [firmware README](../firmware/README.md);

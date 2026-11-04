@@ -87,7 +87,7 @@ class Readme(unittest.TestCase):
                 self.assertIn("loop one file gaplessly", text.replace("\n", " "))
                 self.assertIn("Every repetition gets its own result.", text.replace("\n", " "))
                 self.assertNotIn("soak", text.lower())
-                self.assertIn("BPC1 format of the bit-perfect-checker project", " ".join(text.split()))
+                self.assertIn("BPC1 format of the Bit-Perfect Checker project", " ".join(text.split()))
                 self.assertNotRegex(text, r"bit-perfect-check(?!er)")
                 flat = " ".join(text.split())
                 self.assertIn("Clipping and level indicators", text)
