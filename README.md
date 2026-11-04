@@ -444,18 +444,17 @@ Before a release, all of these hold:
 ## FAQ
 
 **Is this the same as RME's Bit Test?** The idea is similar; the depth is
-not. RME's Bit Test, in the ADI-2 series converters (see the
-[ADI-2 Pro manual](https://rme-audio.de/downloads/adi2pro_e.pdf), section
-34.21), recognises a short bit pattern of about 400 samples, repeated in its
-test files. It shows "Bit Test passed" with the bit depth it found, and
-shows nothing when the test fails. It finds common faults quickly: level
-changes, EQ, dither, bit reduction, polarity, channel swaps. Bit-Perfect
-Checker compares every sample of every test file, at ten rates up to
-768 kHz, as PCM and DoP, in WAV, FLAC, AIFF and ALAC. It gives a verdict for
-each file, with where the first difference lies and how many packets were
-lost. Its sweep files prove that every sample value of 16 and 24 bits
-arrives unchanged. Naim's DAC-V1 also had a built-in BitPerfect test with
-its own test files.
+not. RME's Bit Test, in the ADI-2 series converters (see the [ADI-2 Pro
+manual](https://rme-audio.de/downloads/adi2pro_e.pdf), section 34.21),
+recognises a short bit pattern of about 400 samples, repeated in its test
+files. It shows "Bit Test passed" with the bit depth it found. It finds
+common faults quickly: level changes, EQ, dither, bit reduction, polarity,
+channel swaps. Bit-Perfect Checker compares every sample of every test file,
+at ten rates up to 768 kHz, as PCM and DoP, in WAV, FLAC, AIFF and ALAC. It
+gives a verdict for each file, with where the first difference lies and how
+many packets were lost. Its sweep files prove that every sample value of 16
+and 24 bits arrives unchanged. Naim's DAC-V1 also had a built-in BitPerfect
+test with its own test files.
 
 **Do I need to test every format (WAV, AIFF, FLAC, ALAC)?** Yes, every
 format you play. Unless you control the whole audio chain, which is rare,
