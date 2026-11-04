@@ -20,10 +20,12 @@ protocol analyzer (from about $1,300) captures what the host sends, but
 comparing it with the file is left to you. A digital loopback recording
 needs an audio interface with digital inputs, and the recording software's
 own conversions can hide or cause changes. A few DACs, such as RME's ADI-2
-series, recognise a short test pattern. Bit-Perfect Checker turns an
-inexpensive development board (an STM32 Nucleo, about $35) into a USB audio
-sink that a host plays to like any DAC. It compares every sample it receives
-with the test signal, and shows the result on its LEDs and in a serial log.
+series, have a built-in bit test: they recognise a short pattern in their
+maker's test files and show when it arrived unchanged. Bit-Perfect Checker
+turns an inexpensive development board (an STM32 Nucleo, about $35) into a
+USB audio sink that a host plays to like any DAC. It compares every sample
+it receives with the test signal, and shows the result on its LEDs and in a
+serial log.
 
 You play a test file to the board with any player on any operating system,
 and the board gives a verdict per file. A pass proves that every sample
