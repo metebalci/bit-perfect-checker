@@ -457,17 +457,17 @@ lost. Its sweep files prove that every sample value of 16 and 24 bits
 arrives unchanged. Naim's DAC-V1 also had a built-in BitPerfect test with
 its own test files.
 
-**Do I need to test every format (WAV, AIFF, FLAC, ALAC)?** Test the formats
-you play. Start with WAV: it holds plain samples, so it tests the player's
-output path alone, and if WAV fails, the other formats will too. Once WAV
-passes, each of the others also tests its decoder, and players often decode
-each format through a different path: a FLAC or ALAC decoder can change
-samples that pass unchanged as WAV. For example, ffmpeg's ALAC decoder, used
-by players built on ffmpeg, decodes some of the ALAC test files at 192 kHz
-and above wrongly ([issue
-25727](https://code.ffmpeg.org/FFmpeg/FFmpeg/issues/25727)). The files of
-one name hold the same samples in every format, so a pass as WAV and a fail
-as FLAC or ALAC points at that format's decoder.
+**Do I need to test every format (WAV, AIFF, FLAC, ALAC)?** Yes, every
+format you play. Unless you control the whole audio chain, which is rare,
+you cannot be sure which parts a player uses for every format and which only
+for one: each format has its own decoder, and players often take a different
+path for each. That is why the test files come in several formats. Start
+with WAV: it holds plain samples, so if it fails, the other formats will
+too. The files of one name hold the same samples in every format, so a pass
+as WAV and a fail as FLAC or ALAC points at that format's decoder. For
+example, ffmpeg's ALAC decoder, used by players built on ffmpeg, decodes
+some of the ALAC test files at 192 kHz and above wrongly ([issue
+25727](https://code.ffmpeg.org/FFmpeg/FFmpeg/issues/25727)).
 
 ## Known issues
 
