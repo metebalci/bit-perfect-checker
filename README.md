@@ -468,6 +468,22 @@ files ffmpeg's own encoder makes correctly, but some files made by Apple's
 encoder wrongly, among them some of the ALAC test files at 192 kHz and above
 ([issue 25727](https://code.ffmpeg.org/FFmpeg/FFmpeg/issues/25727)).
 
+**Do I need to test the DSD files?** Only if you play DSD. DSD takes a
+different path in the player than PCM: it reads the DSF or DFF file, packs
+the DSD bits into DoP frames with their alternating markers, keeps the
+channels in order and switches the output to the DoP rate. A player that
+passes every PCM file can still get one of these steps wrong, or convert DSD
+to PCM, which many players do by default. The DoP files, DSD already packed
+as DoP inside WAV, FLAC, AIFF or ALAC, check that the path carries DoP
+untouched.
+
+**Why is there no DSD sweep?** On the way to the device, DSD travels as DoP:
+24-bit words at 176.4, 352.8 or 705.6 kHz. The 24-bit PCM sweep files at
+these rates already carry every 24-bit value, so they prove that every DoP
+word passes the path unchanged. What remains is the player's packing of the
+DSD bits, and its faults do not depend on particular values: the regular DSD
+files find them.
+
 ## Known issues
 
 - **DSD256 files longer than about 380 s.** The board's C checker and the
