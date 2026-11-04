@@ -659,7 +659,8 @@ depend on the pinned codec, as measured with the helper built by GCC 15.2:
 the encoder has undefined behaviour (left shifts of negative values in
 `codec/dp_enc.c`, lines 109, 137 and 230, and misaligned 32-bit accesses in
 `codec/ag_enc.c`, lines 196 to 246), so a helper built by another compiler
-may write other bytes, which must still decode to the WAV's samples. It
+or with other flags may write other bytes, which must still decode to the
+WAV's samples. It
 holds, in this order:
 
 - `ftyp`: major brand `M4A `, minor version 0, compatible brands `M4A `,

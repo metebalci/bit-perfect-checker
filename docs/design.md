@@ -201,12 +201,14 @@ Apple's `afconvert`.
   `afconvert` on macOS). The ALAC files at 705.6 and 768 kHz and DSD256 as DoP
   are therefore for players with their own ALAC decoder; the WAV and AIFF files
   of the same name hold the same samples.
-- The bytes of an ALAC file depend on the pinned codec, as measured with GCC
-  15.2. Apple's encoder has undefined behaviour (left shifts of negative
-  values in `codec/dp_enc.c`, lines 109, 137 and 230, and misaligned 32-bit
-  accesses in `codec/ag_enc.c`, lines 196 to 246), so a helper built by
-  another compiler or version may write other bytes; the generator's decode
-  and compare still checks the samples.
+- The bytes of an ALAC file depend on the pinned codec and on how the helper
+  was built. Build the ALAC helper with GCC 15.2, as the release did, or
+  compare `dist/SHA256SUMS` with the release's. Another compiler or other
+  flags may change the ALAC bytes, because Apple's encoder has undefined
+  behaviour (left shifts of negative values in `codec/dp_enc.c`, lines 109,
+  137 and 230, and misaligned 32-bit accesses in `codec/ag_enc.c`, lines 196
+  to 246). The decoded samples must still equal the WAV's; the generator
+  decodes every ALAC file it writes and compares it with the WAV.
 
 ### AIFF
 

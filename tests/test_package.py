@@ -337,6 +337,39 @@ class AssetLimit(unittest.TestCase):
         for n, d in before.items():
             self.assertEqual(P.sha256_file(os.path.join(dist, n)), d, n)
 
+    def test_cli_sums_after_failed_run(self):
+        """A run in which one zip fails still rewrites SHA256SUMS from the zips in dist."""
+        out = os.path.join(self.dir, "out-changed")
+        shutil.copytree(self.out, out)
+        code, _ = self._package("dist-changed")
+        self.assertEqual(code, 0)
+        dist = os.path.join(self.dir, "dist-changed")
+        sizes = {p.filename: os.path.getsize(os.path.join(dist, p.filename)) for p in P.RELEASE}
+        limit = max(sizes.values())
+        over = {n for n, s in sizes.items() if s >= limit}
+        # change a file of a zip that is still written, keeping its size
+        pkg = next(p for p in P.RELEASE if p.filename not in over and p.files != "wav")
+        name = next(n for n in P.members(pkg) if n.endswith(P.EXT[pkg.files]))
+        data = name.upper().encode("ascii")
+        with open(os.path.join(out, *name.split("/")), "wb") as f:
+            f.write(data)
+        sums = P.read_sums(out)
+        sums[name] = hashlib.sha256(data).hexdigest()
+        with open(os.path.join(out, "SHA256SUMS"), "w") as f:
+            f.writelines(f"{d}  {n}\n" for n, d in sorted(sums.items()))
+        before = P.sha256_file(os.path.join(dist, pkg.filename))
+        for n in over:                                      # gone from dist: not listed
+            os.remove(os.path.join(dist, n))
+        err = StringIO()
+        with mock_limit(limit), redirect_stdout(StringIO()), redirect_stderr(err):
+            code = cli.main(["package", "--out", out, "--dist", dist])
+        self.assertNotEqual(code, 0)
+        self.assertTrue(all(n + ": error:" in err.getvalue() for n in over), err.getvalue())
+        self.assertNotEqual(P.sha256_file(os.path.join(dist, pkg.filename)), before)
+        zips = sorted(n for n in os.listdir(dist) if n.endswith(".zip"))
+        self.assertEqual(P.read_sums(dist), {n: P.sha256_file(os.path.join(dist, n))
+                                             for n in zips})
+
 
 def mock_limit(limit):
     return mock.patch.object(P, "ASSET_LIMIT", limit)

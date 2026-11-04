@@ -9,7 +9,8 @@ file. With --sweep, from a set that `python3 -m generator --sweep` wrote:
 bpc1-r1-sweep-wav.zip, -sweep-flac.zip, -sweep-aiff.zip and
 -sweep-alac.zip, all stored. The names carry the file-set release,
 RELEASE_NAME (bpc1-r1), which also starts each archive's top-level folder
-(bpc1-r1-wav/ and so on). The dist folder's SHA256SUMS lists every zip built there. The
+(bpc1-r1-wav/ and so on). The dist folder's SHA256SUMS lists every zip in it,
+rewritten from the zips there after every run, a failed one too. The
 32-bit PCM WAVs that `python3 -m generator --32bit` adds are not in the
 release. Each archive has
 one top-level folder with an empty file whose name is the do-not-play
@@ -535,12 +536,13 @@ def main(argv=None):
     for name, size, _, err in res:
         print(f"{name}: error: {err}" if err else f"{size:>13,d}  {name}",
               file=sys.stderr if err else sys.stdout)
-    if ok and len(ok) == len(res):
-        # SHA256SUMS lists every zip built in dist: the regular and the sweep ones
-        sums = read_sums(a.dist) or {}
-        sums = {n: d for n, d in sums.items() if os.path.isfile(os.path.join(a.dist, n))}
-        sums.update((name, digest) for name, _, digest, _ in ok)
+    if os.path.isdir(a.dist):
+        # SHA256SUMS lists every zip in dist, the regular and the sweep ones, from the
+        # files there after every run: a failed zip leaves no stale line
+        digests = {name: digest for name, _, digest, _ in ok}
+        zips = sorted(n for n in os.listdir(a.dist)
+                      if n.endswith(".zip") and os.path.isfile(os.path.join(a.dist, n)))
         with open(os.path.join(a.dist, "SHA256SUMS"), "w") as f:
-            for name in sorted(sums):
-                f.write(f"{sums[name]}  {name}\n")
+            for name in zips:
+                f.write(f"{digests.get(name) or sha256_file(os.path.join(a.dist, name))}  {name}\n")
     return 0 if len(ok) == len(res) else 1

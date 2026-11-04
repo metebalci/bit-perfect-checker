@@ -144,8 +144,8 @@ compares the samples with the WAV's. The bytes of a FLAC file depend on the
 ([macosforge/alac](https://github.com/macosforge/alac), Apache-2.0), a git
 submodule in `generator/third_party/alac` pinned at commit `c38887c`. The
 helper, `generator/alac_tool.cpp`, driven by `generator/alac.py`, is built
-from the codec's sources with the host C++ compiler on first use (`-std=c++11
--O2`). It encodes the WAV's samples in packets of 4096 frames, the last one
+from the codec's sources with the host C++ compiler on first use (`-std=c++20
+-Wno-register -O2`; C++20 defines the encoder's shifts of negative values). It encodes the WAV's samples in packets of 4096 frames, the last one
 partial. The generator then writes the MP4 container itself, with no times
 (creation and modification are 0) and no edit list, in the order `ftyp`,
 `moov`, `mdat`. The tags are `©nam` (the title), `©too` (the encoder, `Apple
@@ -218,7 +218,9 @@ about 402 MB), `bpc1-r1-flac.zip` (PCM, DoP and negative FLAC; about
 warning, a README.txt, a SHA256SUMS of its files and the negative tests in a
 folder `negative/`. Packaging first checks every file against
 `out/SHA256SUMS`. It stops with an error, and does not write the zip, when
-a zip reaches 2 GiB (2^31 bytes), GitHub's limit per release file.
+a zip reaches 2 GiB (2^31 bytes), GitHub's limit per release file. After
+every run, a failed one too, it rewrites `dist/SHA256SUMS` from the zips in
+`dist/`, hashed afresh.
 
 ```
 python3 -m generator package
@@ -260,9 +262,9 @@ byte-identical to the release's.
    python3 -m generator package --sweep --out out-sweep --dist dist
    ```
 
-   The folder must be empty because `dist/SHA256SUMS` keeps the entries of
-   zips that are already in the folder and lists them next to the new ones. After
-   the two commands it lists all eight zips.
+   The folder must be empty because `dist/SHA256SUMS` lists every zip in the
+   folder, those of earlier runs too. After the two commands it lists all
+   eight zips.
 4. Compare `dist/SHA256SUMS` with the `SHA256SUMS` of the release, for
    example with `diff`. No difference means the zips are identical.
 
@@ -274,6 +276,13 @@ every FLAC file and compares it with its WAV, so the samples are those of the
 WAV, and the checker gives `BIT_PERFECT` on the file.
 With another zlib version only the WAV zip differs, but not the checksums of
 the files inside it.
+
+For the ALAC files, build the ALAC helper with GCC 15.2, as the release did,
+or compare `dist/SHA256SUMS` to see whether the two ALAC zips came out the
+same. Another compiler or other flags may change the ALAC bytes, because
+Apple's encoder has undefined behaviour (see ALAC above). The decoded
+samples must still equal the WAV's, and the generator checks that for every
+ALAC file it writes.
 
 ### Check a file or a capture
 
