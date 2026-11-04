@@ -1,6 +1,6 @@
-# bit-perfect-checker
+# Bit-Perfect Checker
 
-bit-perfect-checker proves whether an audio playback chain (player, operating
+Bit-Perfect Checker proves whether an audio playback chain (player, operating
 system, USB audio stack) delivers a file bit-perfect. It consists of:
 
 - the BPC1 test signal ([signal format](docs/bpc1.md)) and a
@@ -423,7 +423,7 @@ Vigna), as the [signal format](docs/bpc1.md) describes.
 
 ## How it was written
 
-bit-perfect-checker is written with [Claude Code](https://claude.com/claude-code), using Anthropic's Claude Opus and Claude Sonnet.
+Bit-Perfect Checker is written with [Claude Code](https://claude.com/claude-code), using Anthropic's Claude Opus and Claude Sonnet.
 
 ## Licence
 
