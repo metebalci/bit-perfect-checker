@@ -426,7 +426,7 @@ Vigna), as the [signal format](docs/bpc1.md) describes.
 Bit-Perfect Checker is written with [Claude Code](https://claude.com/claude-code), using Anthropic's Claude Opus and Claude Sonnet.
 
 Occasional code reviews, for a second opinion, were done with OpenAI's
-GPT-6 Astra in [Codex](https://openai.com/codex/).
+GPT-6 Astra in [Codex](https://github.com/openai/codex).
 
 ## Licence
 
