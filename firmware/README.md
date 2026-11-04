@@ -377,12 +377,13 @@ once the host has the device back, and `run` then plays.
 `run` sends a unique `mark`, runs the player command, waits for the
 `result` lines of the streams that started after the mark (a stream is done
 at its `stream stop` line, which says how many results it had), prints
-them, and exits with 1 when any result is `NOT_BIT_PERFECT` or
-`UNKNOWN_SIGNAL` (or fewer than N results are `BIT_PERFECT` or
-`DEVICE_OVERRUN` with `--expect N`), else 4 when any is `DEVICE_OVERRUN`,
-else 0 when at least one
-result arrived and all are `BIT_PERFECT`, 2 if no result arrived and 3 if
-the player failed. `--json` prints each line as one JSON object. The port
+them, and exits with 3 if the player failed, else 2 if no result arrived,
+else 1 when any result is `NOT_BIT_PERFECT` or `UNKNOWN_SIGNAL` (or fewer
+than N results are `BIT_PERFECT` or `DEVICE_OVERRUN` with `--expect N`),
+else 4 when any is `DEVICE_OVERRUN` or the reporting is incomplete (a
+`stream stop` line with `results_lost` above 0, fewer result lines than its
+`results=`, or a stream unfinished at the timeout), else 0: at least one
+result arrived and all are `BIT_PERFECT`. `--json` prints each line as one JSON object. The port
 is `$BPC_PORT`, else `/dev/ttyACM0`; `--port` overrides it. Without
 `bpcctl`, the same steps by hand: open the port, send `mark <id>`, wait
 for the echo, play, then wait for the `stream stop` line after the
