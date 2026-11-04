@@ -1043,6 +1043,14 @@ static void at_anchor(bpc1_checker_t *ck) {
   file_anchor(ck, &a);
 }
 
+// The overrun at the head of the queue falls in the extent of the file
+// being checked, as its X-syncs have shown it so far: it is the file's. One
+// after it stays queued, for the stretch or the file after it, or for this
+// file once a later X-sync extends the extent (12.6).
+static bool over_in_extent(const bpc1_checker_t *ck) {
+  return ck->nover && ck->over[0] < extent_end(ck) << 1;
+}
+
 // The next position the comparison has to stop at: an X-sync, an overrun,
 // the end of the LAST block
 static uint64_t next_event(const bpc1_checker_t *ck) {
@@ -1051,7 +1059,7 @@ static uint64_t next_event(const bpc1_checker_t *ck) {
   if (ck->nq) {
     ev = (ck->q[0].h + one) >> sh;
   }
-  if (ck->nover) {
+  if (over_in_extent(ck)) {
     ev = min64(ev, (ck->over[0] + one) >> sh);
   }
   if (ck->end_known && ck->state != ST_BODY) {
@@ -1062,7 +1070,7 @@ static uint64_t next_event(const bpc1_checker_t *ck) {
 
 static void cursor_step(bpc1_checker_t *ck, uint64_t limit) {
   uint64_t ph = ck->p << ck->shift;
-  while (ck->nover && ck->over[0] <= ph) {
+  while (over_in_extent(ck) && ck->over[0] <= ph) {
     if (!ck->overrun) {
       ck->over_rx = (ck->over[0] + (1u << ck->shift) - 1u) >> ck->shift;
     }
@@ -1072,7 +1080,9 @@ static void cursor_step(bpc1_checker_t *ck, uint64_t limit) {
   }
   if (ck->rdec.done && ck->rdec.seen <= ph) {
     ck->rdec.done = false;
-    if (ck->rdec.mode == ck->mode && bpc1_same_file(&ck->rdec.f, &ck->id) && ck->rdec.h >= ck->first_h) {
+    // the file's first R-header that gives a count sets the extent (12.6)
+    if (!ck->rcount_known && ck->rdec.mode == ck->mode && bpc1_same_file(&ck->rdec.f, &ck->id) &&
+        ck->rdec.h >= ck->first_h) {
       ck->rcount_known = true;
       ck->rcount = ck->rdec.total;
     }
@@ -1171,7 +1181,7 @@ static void rdec_start(bpc1_checker_t *ck, const bpc1_anchor_t *a, const bpc1_fi
 }
 
 // The chip centre at unit u of an R-header block: decode by the sign of the
-// sample (PCM) or the byte 0xEE / 0x11 (DSD), 12.3.
+// sample (PCM) or the byte 0xEE / 0x11 (DSD), 12.6, Extent of a file.
 static void rdec_unit(bpc1_checker_t *ck, uint64_t u, const uint32_t w[], uint32_t byte_sh) {
   bpc1_rdec_t *d = &ck->rdec;
   if (!d->active || u != d->next) {

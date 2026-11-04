@@ -209,6 +209,135 @@ class StepCase(unittest.TestCase):
             self.assertTrue(np.array_equal(st.data, samples << 16))
 
 
+READ_TRACK = """
+import resource, sys
+try:
+    resource.setrlimit(resource.RLIMIT_AS, (2 << 30, 2 << 30))
+except (ValueError, OSError):
+    pass
+from generator import containers
+try:
+    containers.read_alac_track(sys.argv[1])
+except ValueError as e:
+    print("ValueError:", e)
+"""
+
+
+@unittest.skipUnless(ALAC, "Apple's ALAC codec not usable")
+class Mp4Reader(unittest.TestCase):
+    """The MP4 reader that the checker uses (containers.read_alac_track) on
+    damaged and unusual files: each gives a clear ValueError, or is read,
+    never a hang, an unbounded allocation or another exception. The cases
+    edit a file in place, so that every size and offset else stays valid."""
+
+    COMMENT = "COVRCOVR"
+
+    @classmethod
+    def setUpClass(cls):
+        cls.tmp = H.TempDir()
+        d = cls.tmp.__enter__()
+        cls.wav, cls.m4a = os.path.join(d, "t.wav"), os.path.join(d, "t.m4a")
+        rng = np.random.default_rng(5)
+        cls.samples = rng.integers(-30000, 30000, size=(2 * 4096 + 100, 2)).astype(np.int32)
+        containers.write_wav(cls.wav, 44100, 2, 16, 16, len(cls.samples), b"", [cls.samples])
+        containers.encode_alac(cls.wav, cls.m4a, "reader test", cls.COMMENT)
+        with open(cls.m4a, "rb") as f:
+            cls.image = f.read()
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.tmp.__exit__(None, None, None)
+
+    def variant(self, image):
+        path = os.path.join(os.path.dirname(self.m4a), "v.m4a")
+        with open(path, "wb") as f:
+            f.write(image)
+        return path
+
+    def replace(self, old, new):
+        self.assertEqual(self.image.count(old), 1)
+        self.assertEqual(len(old), len(new))
+        return self.image.replace(old, new)
+
+    def read_isolated(self, image):
+        """read_alac_track in a child process with a time and a memory limit:
+        what it printed (the ValueError's text) or the exception's last line."""
+        import subprocess
+        import sys
+        top = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        r = subprocess.run([sys.executable, "-c", READ_TRACK, self.variant(image)], cwd=top,
+                           capture_output=True, text=True, timeout=60)
+        return (r.stdout + r.stderr).strip().split("\n")[-1]
+
+    def test_cover_art(self):
+        """A covr item (binary data, type 13: JPEG) is skipped; the text tags
+        stay and the checker reads the samples."""
+        from checker import readers
+        image = self.replace(b"\xa9cmt", b"covr")
+        old = struct.pack(">II", 1, 0) + self.COMMENT.encode()
+        image = image.replace(old, struct.pack(">II", 13, 0) + b"\xff\xd8\xff\xe0\x00\x10JF")
+        track = containers.read_alac_track(self.variant(image))
+        self.assertEqual(track.tags, {b"\xa9nam": "reader test", b"\xa9too": containers.ALAC_TOOL})
+        st = readers.read_file(self.variant(image))
+        self.assertTrue(np.array_equal(st.data, self.samples << 16))
+
+    def test_box_size_64_zero(self):
+        """A top-level box with size 1 and a 64-bit size 0 ends the read with
+        an error instead of looping."""
+        out = self.read_isolated(self.image + struct.pack(">I4sQ", 1, b"free", 0))
+        self.assertEqual(out, "ValueError: MP4: bad size of box b'free'")
+
+    def test_box_beyond_the_file(self):
+        out = self.read_isolated(self.image + struct.pack(">I4s", 100, b"free"))
+        self.assertEqual(out, "ValueError: MP4: bad size of box b'free'")
+        out = self.read_isolated(self.image + struct.pack(">I4sI", 1, b"free", 0))
+        self.assertEqual(out, "ValueError: MP4: truncated box header")
+
+    def test_constant_size_count(self):
+        """A constant packet size with a count that the file cannot hold is
+        refused before any table is built."""
+        i = self.image.index(b"stsz")
+        stsz = struct.pack(">4sIII", b"stsz", 0, 1, 0xFFFFFFFF)
+        out = self.read_isolated(self.image[:i] + stsz + self.image[i + len(stsz):])
+        self.assertEqual(out, "ValueError: MP4: stsz packet count exceeds the file")
+
+    def test_tables_shorter_than_their_counts(self):
+        for box, at in ((b"stsz", 12), (b"stco", 8), (b"stsc", 8)):
+            with self.subTest(box.decode()):
+                i = self.image.index(box) + at
+                image = self.image[:i] + struct.pack(">I", 0x10000) + self.image[i + 4:]
+                out = self.read_isolated(image)
+                self.assertEqual(out, f"ValueError: MP4: {box.decode()} box shorter than its "
+                                      "entry count")
+
+    def test_missing_boxes(self):
+        """A missing box gives a ValueError that names it, and the checker an
+        error line with exit status 2."""
+        import contextlib
+        import io
+        from checker import __main__ as cli
+        for box in (b"moov", b"mdia", b"minf", b"stbl", b"stsd", b"stsz", b"stsc", b"stco"):
+            with self.subTest(box.decode()):
+                path = self.variant(self.replace(box, b"free"))
+                with self.assertRaisesRegex(ValueError, f"MP4: no {box.decode()}"):
+                    containers.read_alac_track(path)
+                err = io.StringIO()
+                with contextlib.redirect_stderr(err), contextlib.redirect_stdout(io.StringIO()):
+                    self.assertEqual(cli.main([path]), 2)
+                self.assertIn(f"error: MP4: no {box.decode()}", err.getvalue())
+
+    def test_truncated_file(self):
+        """A file cut inside mdat: mdat is longer than the file, or with its
+        size cut too, the last packets lie beyond the end."""
+        with self.assertRaisesRegex(ValueError, "bad size of box b'mdat'"):
+            containers.read_alac_track(self.variant(self.image[:-100]))
+        i = self.image.index(b"mdat") - 4
+        size = struct.unpack_from(">I", self.image, i)[0]
+        image = self.image[:i] + struct.pack(">I", size - 100) + self.image[i + 4:-100]
+        with self.assertRaisesRegex(ValueError, "packet beyond the end of the file"):
+            containers.read_alac_track(self.variant(image))
+
+
 class Packages(unittest.TestCase):
     def test_archives(self):
         names = [p.filename for p in P.RELEASE]

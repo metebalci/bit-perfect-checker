@@ -10,22 +10,25 @@
 result lines of the streams the player sent. The device prints one result
 per file, so a stream may have several; a result names its stream with
 stream=<id>. A stream is done at its `stream stop` line, which follows its
-results and says how many there were (results=<n>); bpcctl warns when
-fewer arrived. A result's verdict is BIT_PERFECT, NOT_BIT_PERFECT,
-UNKNOWN_SIGNAL (a stretch of the stream outside every recognised file,
-silence included) or DEVICE_OVERRUN; its file=<n> is its place in its
-stream, stretches of unknown signal included. The stop line also gives
-outside=<units>, the units outside every file. Every result is printed,
-and the exit status is
+results and says how many there were (results=<n>) and how many the device
+dropped because its queue of results was full (results_lost=<n>). A
+result's verdict is BIT_PERFECT, NOT_BIT_PERFECT, UNKNOWN_SIGNAL (a stretch
+of the stream outside every recognised file, silence included) or
+DEVICE_OVERRUN; its file=<n> is its place in its stream, stretches of
+unknown signal included. The stop line also gives outside=<units>, the
+units outside every file. Every result is printed, and the exit status is
+the first of these that holds:
+  3  the player command failed
+  2  no result line at all: the device did not answer, or no stream
+     arrived
   1  any result is NOT_BIT_PERFECT or UNKNOWN_SIGNAL (or another verdict),
      or fewer than N results are BIT_PERFECT or DEVICE_OVERRUN with
      --expect N
-  4  else any result is DEVICE_OVERRUN: the device's receive buffer
-     overflowed and it could not judge the file; run it again
+  4  not fully judged, play again: any result is DEVICE_OVERRUN (the
+     device's receive buffer overflowed), or the reporting is incomplete:
+     a stream's results_lost is above 0, fewer result lines arrived than
+     its results=, or the timeout ended the wait before it stopped
   0  else: at least one result, all BIT_PERFECT
-  2  no result line at all: the device did not answer, or no stream
-     arrived
-  3  the player command failed
 
 --json (run, result, status, monitor) prints each line as one JSON object,
 one per line: time, event, the plain words (if any) as "words", and every
@@ -94,6 +97,7 @@ class Tracker:
         self.stopped = set()      # stage 0: stopped, its result still to come
         self.done = set()
         self.expected = {}        # stream -> results= of its stop line
+        self.lost = {}            # stream -> results_lost= of its stop line
         self.settings = {}        # stream -> allow_silence of its start line
         self.results = []
 
@@ -110,6 +114,8 @@ class Tracker:
             sid = line.fields.get("id")
             if sid not in self.started:
                 return
+            if "results_lost" in line.fields:
+                self.lost[sid] = int(line.fields["results_lost"])
             if "results" in line.fields:
                 self.expected[sid] = int(line.fields["results"])
                 self.done.add(sid)
@@ -131,10 +137,22 @@ class Tracker:
         return [(s, got.get(s, 0), n) for s, n in sorted(self.expected.items())
                 if got.get(s, 0) < n]
 
+    def incomplete(self):
+        """Why the reporting of the streams is incomplete: one message per
+        stream with results dropped by the device, fewer result lines than
+        its stop line announced, or no stop line yet."""
+        why = [f"stream {s}: the device dropped {n} results (results_lost={n})"
+               for s, n in sorted(self.lost.items()) if n > 0]
+        why += [f"stream {s}: {got} of {want} results arrived" for s, got, want in self.short()]
+        why += [f"stream {s} did not stop before the timeout" for s in sorted(self.started - self.done)]
+        return why
 
-def exit_code(results, expect=0):
+
+def exit_code(results, expect=0, incomplete=False):
     """The exit status for the results of a run's streams; expect: the
-    number of BIT_PERFECT results the run must have at least."""
+    number of BIT_PERFECT results the run must have at least; incomplete:
+    the device's reporting of the streams was incomplete (results lost,
+    fewer than announced, a stream unfinished), so a file may be unjudged."""
     if not results:
         return EXIT_NO_RESULT
     verdicts = [r.fields.get("verdict") for r in results]
@@ -142,7 +160,7 @@ def exit_code(results, expect=0):
         return EXIT_FAIL
     if verdicts.count("BIT_PERFECT") + verdicts.count("DEVICE_OVERRUN") < expect:
         return EXIT_FAIL       # a file did not arrive at all (an overrun arrived, unjudged)
-    return EXIT_OVERRUN if "DEVICE_OVERRUN" in verdicts else EXIT_PASS
+    return EXIT_OVERRUN if "DEVICE_OVERRUN" in verdicts or incomplete else EXIT_PASS
 
 
 def value(text):
@@ -204,8 +222,9 @@ def run(port, command, timeout, json_out, expect=0):
         setting = tracker.settings.get(stream_of(r))
         extra = {"allow_silence": setting == "true"} if setting is not None else None
         print(as_json(r, extra) if json_out else " ".join(["result"] + r.words))
-    for sid, got, want in tracker.short():
-        print(f"bpcctl: stream {sid}: {got} of {want} results arrived", file=sys.stderr)
+    incomplete = tracker.incomplete()
+    for why in incomplete:
+        print(f"bpcctl: {why}", file=sys.stderr)
     if player.returncode != 0:
         print(f"bpcctl: the player exited with {player.returncode}", file=sys.stderr)
         return EXIT_COMMAND
@@ -214,7 +233,10 @@ def run(port, command, timeout, json_out, expect=0):
     bp = sum(1 for r in tracker.results if r.fields.get("verdict") == "BIT_PERFECT")
     if tracker.results and bp < expect:
         print(f"bpcctl: {bp} of {expect} expected results are BIT_PERFECT", file=sys.stderr)
-    return exit_code(tracker.results, expect)
+    code = exit_code(tracker.results, expect, bool(incomplete))
+    if code == EXIT_OVERRUN and incomplete:
+        print("bpcctl: not every file was judged: play again", file=sys.stderr)
+    return code
 
 
 def formats(port, wanted, timeout):
@@ -267,11 +289,12 @@ def main(argv=None):
     p.add_argument("list", nargs="?", help="e.g. 24/3 or 16/2,32/4, or default")
     p.add_argument("--timeout", type=float, default=10.0,
                    help="seconds to wait for a host to mount the device again (default 10)")
-    run_help = ("run a player and wait for the results of its streams: exit 1 when any "
-                "result is NOT_BIT_PERFECT or UNKNOWN_SIGNAL (or fewer than --expect are "
-                "BIT_PERFECT or DEVICE_OVERRUN), else 4 any DEVICE_OVERRUN (not judged: "
-                "rerun), else 0 with at "
-                "least one BIT_PERFECT; 2 no result, 3 the player failed")
+    run_help = ("run a player and wait for the results of its streams: exit 3 when the "
+                "player failed, else 2 with no result, else 1 when any result is "
+                "NOT_BIT_PERFECT or UNKNOWN_SIGNAL (or fewer than --expect are BIT_PERFECT or "
+                "DEVICE_OVERRUN), else 4 when not fully judged (any DEVICE_OVERRUN, results "
+                "lost, fewer than announced, or a stream unfinished at the timeout: play "
+                "again), else 0 with at least one result, all BIT_PERFECT")
     p = sub.add_parser("run", help=run_help, description=run_help)
     p.add_argument("--timeout", type=float, default=10.0,
                    help="seconds to wait for the result after the player exits (default 10)")

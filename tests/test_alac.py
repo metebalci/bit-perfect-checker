@@ -165,6 +165,108 @@ class Codec(unittest.TestCase):
         self.assertEqual(head, alac.CODEC_COMMIT)
 
 
+def config(frame_length=4096, nch=2, bits=16, kb=14, version=0):
+    """An ALACSpecificConfig with Apple's defaults."""
+    return struct.pack(">IBBBBBBHIII", frame_length, version, bits, 40, 10, kb, nch, 255, 0, 0, 44100)
+
+
+def packet_header(nch, escape=False, shifted=0, count=None):
+    """The 23 header bits of a packet's first element, then the partial-frame
+    count if given: (value, bit count)."""
+    v = (1 if nch == 2 else 0) << 20 | (count is not None) << 3 | shifted << 1 | escape
+    return (v << 32 | count, 55) if count is not None else (v, 23)
+
+
+def compressed(nch, order, count=None, shifted=0, tail=0):
+    """A compressed element with predictor order `order` on each channel and
+    all-zero coefficients, then `tail` zero bytes (the Rice data)."""
+    v, n = packet_header(nch, False, shifted, count)
+    v, n = v << 16, n + 16                                   # mixBits, mixRes
+    for _ in range(nch):
+        v, n = (v << 16 | 0x09 << 8 | 4 << 5 | order) << 16 * order, n + 16 + 16 * order
+    pad = -n % 8
+    return (v << pad).to_bytes((n + pad) // 8, "big") + bytes(tail)
+
+
+@unittest.skipUnless(USABLE, f"Apple's ALAC codec not usable: {alac.missing()}")
+class DecoderInput(unittest.TestCase):
+    """The helper checks the cookie and each packet before Apple's decoder
+    sees them, and afterwards that the packet ended where its elements do. In
+    the cases below the decoder without these checks overran its buffers
+    (AddressSanitizer: frame lengths 16 and 1) or returned success on PCM it
+    read from behind the packet (the truncated escape packets)."""
+
+    def refused(self, packets, cookie, why):
+        with self.assertRaisesRegex(RuntimeError, why):
+            alac.decode_packets(packets, cookie)
+
+    def test_cookie(self):
+        _, packets = alac.encode_pcm(noise(100, 2, 16, 1), 44100, 2, 16)
+        for cookie, why in ((config(frame_length=16), "frames per packet"),
+                            (config(frame_length=31), "frames per packet"),
+                            (config(frame_length=16385), "frames per packet"),
+                            (config(bits=8), "bit depth"), (config(bits=33), "bit depth"),
+                            (config(nch=3), "one or two channels"),
+                            (config(kb=0), "Rice limit"), (config(kb=15), "Rice limit"),
+                            (config(version=1), "compatible version"),
+                            (config()[:23], "too short"),
+                            (b"\x00\x00\x00\x0cfrma" + b"alac" + config()[:20], "too short")):
+            with self.subTest(cookie=cookie.hex()):
+                self.refused(packets, cookie, "bad cookie: " + why)
+        # the frma and alac atoms before the config are skipped, as by Apple's decoder
+        cookie, _ = alac.encode_pcm(noise(100, 2, 16, 1), 44100, 2, 16)
+        wrapped = b"\x00\x00\x00\x0cfrmaalac" + b"\x00\x00\x00\x24alac" + b"\x00" * 4 + cookie
+        self.assertEqual(alac.decode_packets(packets, wrapped), noise(100, 2, 16, 1))
+
+    def test_predictor_order_beyond_small_buffers(self):
+        """Frame length 16 with order 30, and frame length 1, mono, with order
+        4: the predictor writes out[1..order] beyond the decoder's buffers."""
+        self.refused([compressed(2, 30, tail=40)], config(frame_length=16), "frames per packet")
+        self.refused([compressed(1, 4)], config(frame_length=1, nch=1), "frames per packet")
+
+    def test_predictor_order_against_samples(self):
+        for nch in (1, 2):
+            with self.subTest(nch=nch):
+                self.refused([compressed(nch, 8, count=8, tail=8)], config(nch=nch),
+                             "predictor order not below the sample count")
+
+    def test_header_fields(self):
+        self.refused([compressed(2, 4, count=0, tail=8)], config(), "partial-frame count 0")
+        self.refused([compressed(1, 4, shifted=2, tail=8)], config(nch=1), "bytes shifted")
+        self.refused([compressed(2, 4, shifted=0, tail=8)], config(bits=32), "bytes shifted")
+        v, n = packet_header(2, escape=True, shifted=1)
+        self.refused([(v << 1).to_bytes(3, "big") + bytes(4096 * 4)], config(),
+                     "escape packet with shifted bytes")
+        p = bytearray(compressed(2, 4, tail=8))
+        p[1] |= 0x01                                     # an unused header bit
+        self.refused([bytes(p)], config(), "unused bits")
+
+    def test_truncated_escape_packet(self):
+        """The header of an escape packet without its PCM ("20 00 02"), and
+        a real escape packet one byte short."""
+        self.refused([bytes.fromhex("200002")], config(), "escape packet shorter than its samples")
+        pcm = noise(4096, 2, 16, 3)
+        cookie, packets = alac.encode_pcm(pcm, 44100, 2, 16)
+        self.assertEqual(packets[0][2] & 0x02, 0x02)       # escaped: noise does not compress
+        self.assertEqual(len(packets[0]), (23 + 4096 * 32 + 3 + 6) // 8)
+        self.assertEqual(alac.decode_packets(packets, cookie), pcm)
+        self.refused([packets[0][:-1]], cookie, "packet ends before its END element")
+        self.refused([packets[0][:-3]], cookie, "escape packet shorter than its samples")
+
+    def test_packet_length(self):
+        """A compressed packet one byte short (the Rice decoder runs past its
+        end, or the END element is cut), or one byte long, is refused."""
+        pcm = noise(3 * 4096, 2, 24, 4)[:3 * 4096 * 6]
+        tone = (np.sin(np.arange(3 * 4096) / 9.0)[:, None] * 10000 * [1, 1]).astype("<i2").tobytes()
+        cookie, packets = alac.encode_pcm(tone, 44100, 2, 16)
+        self.assertEqual(packets[0][2] & 0x02, 0)          # compressed
+        short = "Decode failed|packet ends before its END element"
+        self.refused([packets[0][:-1]], cookie, short)
+        self.refused([packets[0] + b"\x00"], cookie, "packet longer than its elements")
+        cookie, packets = alac.encode_pcm(pcm, 48000, 2, 24)
+        self.refused([packets[1][:-1]], cookie, short)
+
+
 class Cookie(unittest.TestCase):
     def test_parse(self):
         b = struct.pack(">IBBBBBBHIII", 4096, 0, 24, 40, 10, 14, 2, 255, 17719, 12418987, 384000)

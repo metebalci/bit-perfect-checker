@@ -161,6 +161,29 @@ class Pcm(unittest.TestCase):
             self.assertEqual(r["verdict"], "NOT_BIT_PERFECT")
             self.assertEqual(r["why"], "the R-headers' block counts disagree")
 
+    def test_rhdr_second_chip(self):
+        """Each bit as it is read (12.6, R-header rule): the second chip is
+        compared with the opposite of the first, unit by unit, and a pair
+        that is not opposite is found before a later chip that is neither
+        value. bpc1_checker.c does the same (tests/test_bpc1_checker.py)."""
+        L = spec.chip_len(self.cfg.rate)
+        a3, a27 = chip_unit(self.cfg, RHDR, R56 + 3), chip_unit(self.cfg, RHDR, R56 + 27)
+        for name, x in (("count unknown", self.stop_in_tail(self.w)), ("count known", self.w)):
+            with self.subTest(name + ": pair 1 not opposite, chip 27 zeroed"):
+                y = x.copy()
+                y[a3:a3 + L, 0] = -y[a3:a3 + L, 0]
+                y[a27:a27 + L, 0] = 0
+                r = self.fails_at(y, a3)
+                self.assertEqual(r["why"], "an R-header bit's chips are not opposite")
+            with self.subTest(name + ": the second chip's first unit at the first chip's value"):
+                y = x.copy()
+                y[a3, 0] = -y[a3, 0]
+                self.fails_at(y, a3)
+            with self.subTest(name + ": the second chip neither value from its unit 5"):
+                y = x.copy()
+                y[a3 + 5:a3 + L, 1] = 0
+                self.fails_at(y, a3 + 5)
+
     def set_r5(self, x, k, r5):
         """Write r5 and its CRC r6 into the chips of R-header block k."""
         L, V = spec.chip_len(self.cfg.rate), 1 << 29

@@ -474,79 +474,142 @@ class AlacTrack:
         self.cookie, self.packets, self.tags = cookie, packets, tags
 
 
+def _box_header(head, pos, end):
+    """(type, header length, box length) of the box at pos whose first 16
+    bytes (fewer at the end) are head, in a span ending at end; ValueError
+    unless the header and the box lie inside the span."""
+    if pos + 8 > end:
+        raise ValueError("MP4: truncated box header")
+    size, kind = struct.unpack_from(">I4s", head)
+    hlen = 8
+    if size == 1:
+        if pos + 16 > end:
+            raise ValueError("MP4: truncated box header")
+        size, hlen = struct.unpack_from(">Q", head, 8)[0], 16
+    elif size == 0:                                     # to the end of the span
+        size = end - pos
+    if size < hlen or size > end - pos:
+        raise ValueError(f"MP4: bad size of box {kind!r}")
+    return kind, hlen, size
+
+
 def _boxes(b, start, end):
     """Yield (type, body start, body end) of the boxes in b[start:end]."""
     pos = start
-    while pos + 8 <= end:
-        size, kind = struct.unpack_from(">I4s", b, pos)
-        head = 8
-        if size == 1:
-            size, head = struct.unpack_from(">Q", b, pos + 8)[0], 16
-        elif size == 0:
-            size = end - pos
-        if size < head or pos + size > end:
-            raise ValueError("bad MP4 box size")
-        yield kind, pos + head, pos + size
+    while pos < end:
+        kind, hlen, size = _box_header(b[pos:pos + 16], pos, end)
+        yield kind, pos + hlen, pos + size
         pos += size
 
 
+def _find(b, start, end, kind):
+    """(body start, body end) of the first box of the type in b[start:end]."""
+    for k, bs, be in _boxes(b, start, end):
+        if k == kind:
+            return bs, be
+    raise ValueError(f"MP4: no {kind.decode('latin-1')} box")
+
+
+def _table(body, at, count, fmt, what):
+    """count entries of the struct format fmt at body[at:], after checking
+    that the box holds them."""
+    n = struct.calcsize(fmt)
+    if at + count * n > len(body):
+        raise ValueError(f"MP4: {what} box shorter than its entry count")
+    return list(struct.iter_unpack(fmt, body[at:at + count * n]))
+
+
+def _u32(body, at, what):
+    if at + 4 > len(body):
+        raise ValueError(f"MP4: {what} box too short")
+    return struct.unpack_from(">I", body, at)[0]
+
+
 def read_alac_track(m4a_path):
-    """The first ALAC track of an MP4 file (generator side; the checker has its
-    own reader). Reads every box but mdat."""
+    """The first ALAC track of an MP4 file, read by the generator's own check
+    of its files and by the checker (checker/readers.py). Reads every box but
+    mdat, checks every size and count against the file and raises ValueError
+    on a damaged or unexpected file. Of the ilst tags it keeps the UTF-8 text
+    ones; binary data such as cover art is skipped."""
     with open(m4a_path, "rb") as f:
-        top, end = {}, os.fstat(f.fileno()).st_size
-        pos = 0
-        while pos + 8 <= end:
+        end = os.fstat(f.fileno()).st_size
+        moov, pos = None, 0
+        while pos < end:
             f.seek(pos)
-            size, kind = struct.unpack(">I4s", f.read(8))
-            if size == 1:
-                size = struct.unpack(">Q", f.read(8))[0]
-            elif size == 0:
-                size = end - pos
-            if kind == b"moov":
+            kind, hlen, size = _box_header(f.read(16), pos, end)
+            if kind == b"moov" and moov is None:
                 f.seek(pos)
-                top[kind] = f.read(size)
+                moov, moov_hlen = f.read(size), hlen
             pos += size
-    moov = top[b"moov"]
-    find = lambda s, e, kind: next((bs, be) for k, bs, be in _boxes(moov, s, e) if k == kind)
+    if moov is None:
+        raise ValueError("MP4: no moov box")
     tags = {}
-    for kind, s, e in _boxes(moov, 8, len(moov)):
+    for kind, s, e in _boxes(moov, moov_hlen, len(moov)):
         if kind == b"udta":
-            ms, me = find(s, e, b"meta")
-            ls, le = find(ms + 4, me, b"ilst")
-            for key, ks, ke in _boxes(moov, ls, le):
-                ds, de = find(ks, ke, b"data")
-                tags[key] = moov[ds + 8:de].decode("utf-8")
-    for kind, s, e in _boxes(moov, 8, len(moov)):
+            metas = [(ms + 4, me) for k, ms, me in _boxes(moov, s, e) if k == b"meta"]
+            ilsts = [(ls, le) for ms, me in metas for k, ls, le in _boxes(moov, ms, me)
+                     if k == b"ilst"]
+            for ls, le in ilsts:
+                for key, ks, ke in _boxes(moov, ls, le):
+                    for k, ds, de in _boxes(moov, ks, ke):
+                        if k == b"data" and de - ds >= 8 and _u32(moov, ds, "data") == 1:
+                            # type 1, UTF-8 text; the checker reads no tag
+                            tags[key] = moov[ds + 8:de].decode("utf-8", "replace")
+    for kind, s, e in _boxes(moov, moov_hlen, len(moov)):
         if kind != b"trak":
             continue
-        st = find(*find(*find(s, e, b"mdia"), b"minf"), b"stbl")
-        boxes = {k: moov[bs:be] for k, bs, be in _boxes(moov, *st)}
+        st = _find(moov, *_find(moov, *_find(moov, s, e, b"mdia"), b"minf"), b"stbl")
+        boxes = {}
+        for k, bs, be in _boxes(moov, *st):
+            boxes.setdefault(k, moov[bs:be])
+        for k in (b"stsd", b"stsz", b"stsc"):
+            if k not in boxes:
+                raise ValueError(f"MP4: no {k.decode()} box")
         stsd = boxes[b"stsd"]
+        if len(stsd) < 16 or _u32(stsd, 4, "stsd") < 1:
+            raise ValueError("MP4: empty stsd box")
         if stsd[12:16] != b"alac":
             continue
-        entry_end = 8 + struct.unpack_from(">I", stsd, 8)[0]
-        cookie = next(stsd[bs + 4:be] for k, bs, be in _boxes(stsd, 8 + 36, entry_end) if k == b"alac")
-        count = struct.unpack_from(">I", boxes[b"stsz"], 8)[0]
-        fixed = struct.unpack_from(">I", boxes[b"stsz"], 4)[0]
-        sizes = [fixed] * count if fixed else list(struct.unpack_from(f">{count}I", boxes[b"stsz"], 12))
-        if b"co64" in boxes:
-            nc = struct.unpack_from(">I", boxes[b"co64"], 4)[0]
-            offsets = struct.unpack_from(f">{nc}Q", boxes[b"co64"], 8)
+        _, _, entry = _box_header(stsd[8:24], 8, len(stsd))
+        if entry < 36:
+            raise ValueError("MP4: alac sample entry too short")
+        cookie = next((stsd[bs + 4:be] for k, bs, be in _boxes(stsd, 8 + 36, 8 + entry)
+                       if k == b"alac"), None)
+        if cookie is None:
+            raise ValueError("MP4: no ALAC magic cookie")
+        stsz = boxes[b"stsz"]
+        fixed, count = _u32(stsz, 4, "stsz"), _u32(stsz, 8, "stsz")
+        if fixed:
+            if count > end // fixed:                    # the packets must fit in the file
+                raise ValueError("MP4: stsz packet count exceeds the file")
+            sizes = [fixed] * count
         else:
-            nc = struct.unpack_from(">I", boxes[b"stco"], 4)[0]
-            offsets = struct.unpack_from(f">{nc}I", boxes[b"stco"], 8)
-        ne = struct.unpack_from(">I", boxes[b"stsc"], 4)[0]
-        stsc = [struct.unpack_from(">III", boxes[b"stsc"], 8 + 12 * i) for i in range(ne)]
+            sizes = [v for v, in _table(stsz, 12, count, ">I", "stsz")]
+        if b"co64" in boxes:
+            offsets = [v for v, in _table(boxes[b"co64"], 8, _u32(boxes[b"co64"], 4, "co64"),
+                                          ">Q", "co64")]
+        elif b"stco" in boxes:
+            offsets = [v for v, in _table(boxes[b"stco"], 8, _u32(boxes[b"stco"], 4, "stco"),
+                                          ">I", "stco")]
+        else:
+            raise ValueError("MP4: no stco or co64 box")
+        stsc = _table(boxes[b"stsc"], 8, _u32(boxes[b"stsc"], 4, "stsc"), ">III", "stsc")
+        if sizes and (not stsc or stsc[0][0] != 1
+                      or any(a[0] >= b[0] for a, b in zip(stsc, stsc[1:]))):
+            raise ValueError("MP4: bad stsc box")
         packets, k = [], 0
         for c, off in enumerate(offsets, 1):
             per = [count_ for first, count_, _ in stsc if first <= c][-1]
             for _ in range(per):
                 if k == len(sizes):
                     break
+                if off + sizes[k] > end:
+                    raise ValueError("MP4: packet beyond the end of the file")
                 packets.append((off, sizes[k]))
                 off += sizes[k]
                 k += 1
+        if k != len(sizes):
+            raise ValueError("MP4: chunk tables hold fewer packets than stsz")
         return AlacTrack(cookie, packets, tags)
     raise ValueError(f"{m4a_path}: no ALAC track")
 

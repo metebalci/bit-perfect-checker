@@ -342,11 +342,13 @@ def _chips(sig, dsd, k0):
 
 
 def _chip_rule(sig, dsd, rx, eq, L, n, count):
-    """The chips of r5 and r6 in the body's R-header blocks: every unit of a
-    chip one of its two values, the same through the chip; the two chips of a
-    bit opposite; r6 = crc16(r0..r5) with r0-r4 of the block; r5 = count (the
-    LAST block's index + 1), or the same in every body R-header. Marks the
-    chip units as compared in eq; returns the failures in body units."""
+    """The chips of r5 and r6 in the body's R-header blocks, in order, as
+    bpc1_checker.c reads them: a bit's first chip one of its two values, the
+    same through the chip; its second chip the opposite value, unit by unit;
+    r6 = crc16(r0..r5) with r0-r4 of the block; r5 = count (the LAST block's
+    index + 1), or the same in every body R-header. Marks the chip units as
+    compared in eq; returns the failures in body units, at most one per
+    channel and R-header block."""
     U = sig.units_per_block
     fails, seen = [], None
     for k in range(L, L + -(-n // U)):
@@ -358,22 +360,25 @@ def _chip_rule(sig, dsd, rx, eq, L, n, count):
         whole = len(chips) == len(R56) and chips[-1][0] + chips[-1][1] <= len(rx)
         for c in range(sig.nch):
             bits = []
-            for a, m, plus, minus in chips:
+            for j, (a, m, plus, minus) in enumerate(chips):
                 seg = rx[a:a + m, c]       # a chip cut by the body's end: the units that arrived
-                if seg[0] not in (plus, minus) or not (seg == seg[0]).all():
-                    bad = 0 if seg[0] not in (plus, minus) else int(np.nonzero(seg != seg[0])[0][0])
-                    fails.append((a + bad, "an R-header chip is neither of its values"))
+                if j % 2 == 0:             # a bit's first chip: taken as received, if a value
+                    if seg[0] not in (plus, minus):
+                        fails.append((a, "an R-header chip is neither of its values"))
+                        break
+                    want, why = seg[0], "an R-header chip is neither of its values"
+                    bits.append(1 if want == plus else 0)
+                else:                      # its second chip: the opposite, unit by unit
+                    want, why = (minus if bits[-1] else plus), "an R-header bit's chips are not opposite"
+                off = np.nonzero(seg != want)[0]
+                if len(off):
+                    fails.append((a + int(off[0]), why))
                     break
-                bits.append(1 if seg[0] == plus else 0)
             else:
-                pair = [i for i in range(0, len(bits) - 1, 2) if bits[i] == bits[i + 1]]
-                if pair:
-                    fails.append((chips[pair[0] + 1][0], "an R-header bit's chips are not opposite"))
-                    continue
                 if not whole:
                     continue       # the CRC and count need every chip; the cut fails anyway
-                r5 = int("".join(map(str, bits[0:32:2])), 2)
-                r6 = int("".join(map(str, bits[32:64:2])), 2)
+                r5 = int("".join(map(str, bits[0:16])), 2)
+                r6 = int("".join(map(str, bits[16:32])), 2)
                 if model.crc16_words(sig.words(c, k) + [r5]) != r6:
                     fails.append((chips[0][0], "an R-header CRC fails"))
                 elif count is not None and r5 != count & 0xFFFF:

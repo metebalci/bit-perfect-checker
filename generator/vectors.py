@@ -222,6 +222,8 @@ VERDICT_FILES = {
                              tail_blocks=10),
     "pcm48_24_lead10": dict(kind=spec.KIND_PCM, rate=48000, depth=24, lead_blocks=10, body_blocks=4,
                             tail_blocks=2),
+    "pcm48_24_10_16_2": dict(kind=spec.KIND_PCM, rate=48000, depth=24, lead_blocks=10, body_blocks=16,
+                             tail_blocks=2),
 }
 OPS = {
     "xor": "XOR value into the words of frames [frame, frame + count) (count 1), in channels "
@@ -281,6 +283,11 @@ ENDS = {
     "the X-syncs of tail blocks 12 to 20 erased, the lead-in R-header's first Barker chip erased":
         ["STOP"],
     "the X-syncs of tail blocks 12 to 20 erased, the lead-in R-header intact": ["STOP"],
+    "the LAST X-sync erased, the lead-in R-header's count 40, the body R-header's 28, "
+    "5 blocks of zeros after": ["STOP"],
+    "the LAST X-sync erased, the lead-in R-header's count 20, the body R-header's 28, "
+    "a block of zeros after": ["STOP"],
+    "the LAST X-sync erased, both R-headers' count 28, a block of zeros after": ["STOP"],
 }
 
 
@@ -474,6 +481,13 @@ def verdict_cases():
         ("an r5 chip unit changed, the stream stops 50 chips later", one,
          [{"op": "xor", "frame": r5(8, 0, 30), "channels": [0], "value": "0x00000100"},
           {"op": "stop", "frame": r5(8) + 50 * chip}], [(nbp, _diff(r5(8, 0, 30), R))]),
+        # The R-header rule reads each bit as it comes: bit 1's second chip
+        # (r5 chip 3) at its first chip's value, then r5 chip 27 zeroed: the
+        # pair fails first, at its second chip
+        ("an r5 bit's chips not opposite, then a later r5 chip zeroed", one,
+         [{"op": "xor", "frame": r5(8, 3), "count": chip, "channels": [0], "value": "0xC0000000"},
+          {"op": "and", "frame": r5(8, 27), "count": chip, "channels": [0], "value": "0x00000000"}],
+         [(nbp, _diff(r5(8, 3), R))]),
         ("the stream starts at the last lead-in block", one, [{"op": "start", "frame": B}],
          [(bp, None)]),
         ("the stream stops right after the first tail X-sync", one,
@@ -529,7 +543,25 @@ def verdict_cases():
          [{"file": "pcm48_24_lead10"}, {"zeros": 3 * B}],
          [{"op": "xor", "frame": 15 * B + 3, "value": "0x00100000"}]
          + _rhdr_bits(8, {1: 0x0008, 5: 0x0002}), [(bp, None), (unk, None)]),
-        # A reserved flag bit in one channel's X-sync (a valid CRC): that
+        # Several R-headers give a count: the first sets the extent (12.6). The
+    # file has 28 blocks, its LAST X-sync (block 27) is erased, the last
+    # X-sync is block 26's. The lead-in R-header (block 8, not compared) is
+    # changed to spell 40 with a valid CRC: the extent covers the zeros; the
+    # body R-header's 28 does not replace it. Spelling 20, no greater than
+    # 26, it gives no count: the extent ends a block after block 26, and the
+    # body R-header's 28 does not replace that either.
+    ("the LAST X-sync erased, the lead-in R-header's count 40, the body R-header's 28, "
+     "5 blocks of zeros after", [{"file": "pcm48_24_10_16_2"}, {"zeros": 5 * B}],
+     [{"op": "and", "frame": 27 * B, "count": 8, "value": "0x00000000"}]
+     + _rhdr_bits(8, {5: 28 ^ 40}), [(bp, None)]),
+    ("the LAST X-sync erased, the lead-in R-header's count 20, the body R-header's 28, "
+     "a block of zeros after", [{"file": "pcm48_24_10_16_2"}, {"zeros": B}],
+     [{"op": "and", "frame": 27 * B, "count": 8, "value": "0x00000000"}]
+     + _rhdr_bits(8, {5: 28 ^ 20}), [(bp, None), (unk, None)]),
+    ("the LAST X-sync erased, both R-headers' count 28, a block of zeros after",
+     [{"file": "pcm48_24_10_16_2"}, {"zeros": B}],
+     [{"op": "and", "frame": 27 * B, "count": 8, "value": "0x00000000"}], [(bp, None)]),
+    # A reserved flag bit in one channel's X-sync (a valid CRC): that
         # channel's X-sync is not used, the other channel's is (12.6 b)
         ("a reserved flag bit in channel 0's last lead-in X-sync", one, _xsync_flags(1, 0, 0x0008),
          [(bp, None)]),

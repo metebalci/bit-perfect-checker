@@ -125,6 +125,15 @@ class ExitCodeTest(unittest.TestCase):
                          EXIT_FAIL)
         self.assertEqual(exit_code(results("UNKNOWN_SIGNAL", "DEVICE_OVERRUN")), EXIT_FAIL)
 
+    def test_incomplete_reporting(self):
+        # results lost, fewer than announced or a stream unfinished: 4, after 1
+        self.assertEqual(exit_code(results("BIT_PERFECT"), incomplete=True), EXIT_OVERRUN)
+        self.assertEqual(exit_code(results("BIT_PERFECT", "NOT_BIT_PERFECT"), incomplete=True),
+                         EXIT_FAIL)
+        self.assertEqual(exit_code(results("BIT_PERFECT"), expect=2, incomplete=True), EXIT_FAIL)
+        self.assertEqual(exit_code(results("BIT_PERFECT"), expect=1, incomplete=True), EXIT_OVERRUN)
+        self.assertEqual(exit_code([], incomplete=True), EXIT_NO_RESULT)
+
     def test_expect(self):
         self.assertEqual(exit_code(results("BIT_PERFECT", "BIT_PERFECT"), expect=2), EXIT_PASS)
         self.assertEqual(exit_code(results("BIT_PERFECT"), expect=2), EXIT_FAIL)
@@ -302,13 +311,64 @@ class RunTest(unittest.TestCase):
         self.assertEqual(code, EXIT_OVERRUN)
         self.assertEqual(len(out), 2)
 
-    def test_missing_results_warned(self):
+    def test_missing_results_not_judged(self):
+        """Fewer result lines than the stop line's results=: exit 4, play
+        again, unless a result fails."""
         code, _, err = self.run_with(
             "1.0 stream start id=4",
             "2.0 result seq=8 stream=4 file=1 verdict=BIT_PERFECT units=100",
             "3.0 stream stop id=4 reason=idle results=2")
-        self.assertEqual(code, EXIT_PASS)
+        self.assertEqual(code, EXIT_OVERRUN)
         self.assertIn("stream 4: 1 of 2 results arrived", err)
+        code, _, _ = self.run_with(
+            "1.0 stream start id=4",
+            "2.0 result seq=8 stream=4 file=1 verdict=NOT_BIT_PERFECT units=100",
+            "3.0 stream stop id=4 reason=idle results=2")
+        self.assertEqual(code, EXIT_FAIL)
+
+    def test_results_lost_not_judged(self):
+        """A stream whose results the device dropped (results_lost above 0):
+        exit 4, unless a result fails or --expect is not met."""
+        lines = ("1.0 stream start id=4",
+                 "2.0 result seq=8 stream=4 file=1 verdict=BIT_PERFECT units=100",
+                 "3.0 stream stop id=4 reason=idle results=1 results_lost=2")
+        code, _, err = self.run_with(*lines)
+        self.assertEqual(code, EXIT_OVERRUN)
+        self.assertIn("stream 4: the device dropped 2 results", err)
+        self.assertEqual(self.run_with(*lines, expect=2)[0], EXIT_FAIL)
+        self.assertEqual(self.run_with(*lines[:2], "3.0 stream stop id=4 reason=idle results=1 "
+                                       "results_lost=0")[0], EXIT_PASS)
+        code, _, _ = self.run_with(
+            "1.0 stream start id=4",
+            "2.0 result seq=8 stream=4 file=1 verdict=UNKNOWN_SIGNAL units=100",
+            "3.0 stream stop id=4 reason=idle results=1 results_lost=1")
+        self.assertEqual(code, EXIT_FAIL)
+
+    def test_unfinished_stream_not_judged(self):
+        """The timeout ends the wait with a stream that did not stop: exit 4."""
+        code, out, err = self.run_with(
+            "1.0 stream start id=4",
+            "2.0 result seq=8 stream=4 file=1 verdict=BIT_PERFECT units=100")
+        self.assertEqual((code, len(out)), (EXIT_OVERRUN, 1))
+        self.assertIn("stream 4 did not stop", err)
+        code, _, _ = self.run_with(
+            "1.0 stream start id=4",
+            "2.0 result seq=8 stream=4 file=1 verdict=BIT_PERFECT units=100",
+            "3.0 stream stop id=4 reason=idle results=1",
+            "4.0 stream start id=5")
+        self.assertEqual(code, EXIT_OVERRUN)
+
+    def test_precedence(self):
+        """3 (the player failed) before 2 (no result) before 1 before 4 before 0."""
+        fail = ("1.0 stream start id=4",
+                "2.0 result seq=8 stream=4 file=1 verdict=NOT_BIT_PERFECT units=100",
+                "3.0 stream stop id=4 reason=idle results=1")
+        self.assertEqual(self.run_with(*fail, player="raise SystemExit(5)")[0], EXIT_COMMAND)
+        self.assertEqual(self.run_with(player="raise SystemExit(5)")[0], EXIT_COMMAND)
+        self.assertEqual(self.run_with("1.0 stream start id=4",
+                                       "3.0 stream stop id=4 reason=idle results=1 results_lost=1")[0],
+                         EXIT_NO_RESULT)
+        self.assertEqual(self.run_with(*fail)[0], EXIT_FAIL)
 
     def test_no_result(self):
         code, _, err = self.run_with("1.0 stream start id=4",

@@ -14,7 +14,9 @@
  *     Reads lines "<offset> <size>" from stdin, one per packet of IN, decodes
  *     each with Apple's decoder and the cookie (hex), and writes the PCM,
  *     interleaved little-endian (16 bits in 2 bytes, 20 and 24 bits in 3, 32
- *     in 4), to OUT. Prints "frames <n>".
+ *     in 4), to OUT. Prints "frames <n>". The cookie and every packet are
+ *     checked first, so that a damaged or crafted file fails instead of
+ *     overrunning the decoder's buffers or decoding past a packet's end.
  *
  * Errors go to stderr with exit status 1. One or two channels only. The
  * encoder prints notes (an escape packet: "compressed frame too big") to
@@ -46,6 +48,8 @@
 
 static const uint32_t kFrames = kALACDefaultFramesPerPacket;    /* 4096, as afconvert */
 static const uint32_t kMaxFrameLength = 16384;                   /* ReadMe.txt: no more */
+static const uint32_t kMinFrameLength = 32;                      /* the largest order (31) + 1 */
+static const uint32_t kReadSlack = 16;                           /* see decode() */
 static FILE *results;                                            /* the real stdout */
 
 static int fail(const char *what)
@@ -184,28 +188,149 @@ static bool parse_hex(const char *s, std::vector<uint8_t> *out)
     return true;
 }
 
-/* Apple's decoder trusts the packet: a partial-frame count above the cookie's
-   frame length, or an extra element, overruns its buffers. With one or two
-   channels it stops after the first audio element, so check that one: its
-   tag must be the element of the channel count (SCE for one, CPE for two) and
-   its count must fit the frame length. */
-static const char *check_packet(const uint8_t *p, uint32_t size, uint32_t nch, uint32_t frame_length)
+/* Apple's decoder trusts its input. Init() allocates its buffers from the
+   cookie's frame length, and unpc_block() writes out[0..numU] whatever the
+   sample count (codec/dp_dec.c), so a small frame length overruns them; an
+   escape packet's PCM is read without a length check (ALACDecoder.cpp), so a
+   truncated one decodes from the bytes behind it and reports success. The
+   helper therefore checks the cookie before Init(), and the header of each
+   packet before Decode(), and afterwards that the element and the END tag
+   behind it end exactly at the packet's end. */
+
+/* The cookie's ALACSpecificConfig after the optional 'frma' and 'alac' atoms
+   that Init() skips, checked: version 0, a frame length within ReadMe.txt's
+   limit and no smaller than the predictor's largest order (31) plus one, the
+   bit depths of the decoder's output code, one or two channels, and a Rice
+   limit kb the decoder's bit reads assume (ag_dec.c: k <= 14; kb 0 shifts by
+   32). pb and mb only tune the Rice history: any value decodes the bits it is
+   given. Writes the 24 bytes to pass to Init(). */
+static const char *check_cookie(const std::vector<uint8_t> &cookie, uint8_t out[24])
 {
-    if (size < 3)
+    size_t at = 0;
+    if (cookie.size() >= 8 && !memcmp(&cookie[4], "frma", 4))
+        at += 12;
+    if (cookie.size() >= at + 8 && !memcmp(&cookie[at + 4], "alac", 4))
+        at += 12;
+    if (cookie.size() < at + sizeof(ALACSpecificConfig))
+        return "bad cookie: too short";
+    memcpy(out, &cookie[at], sizeof(ALACSpecificConfig));
+    const uint32_t frame_length = (uint32_t)out[0] << 24 | (uint32_t)out[1] << 16 |
+                                  (uint32_t)out[2] << 8 | out[3];
+    const uint8_t version = out[4], depth = out[5], kb = out[8], nch = out[9];
+    if (version != 0)
+        return "bad cookie: compatible version";
+    if (frame_length < kMinFrameLength || frame_length > kMaxFrameLength)
+        return "bad cookie: frames per packet";
+    if (depth != 16 && depth != 20 && depth != 24 && depth != 32)
+        return "bad cookie: bit depth";
+    if (nch < 1 || nch > 2)
+        return "bad cookie: one or two channels only";
+    if (kb < 1 || kb > 14)
+        return "bad cookie: Rice limit kb";
+    return nullptr;
+}
+
+/* A bounds-checked reader of a packet's bits, most significant first. */
+struct PacketBits {
+    const uint8_t *p;
+    uint64_t end, pos;          /* in bits */
+    bool take(uint32_t n, uint32_t *v)
+    {
+        if (end - pos < n)
+            return false;
+        uint32_t r = 0;
+        for (uint32_t i = 0; i < n; i++, pos++)
+            r = r << 1 | ((p[pos >> 3] >> (7 - (pos & 7))) & 1);
+        *v = r;
+        return true;
+    }
+    bool skip(uint64_t n)
+    {
+        if (end - pos < n)
+            return false;
+        pos += n;
+        return true;
+    }
+};
+
+/* The header of a packet's first element, which Apple's decoder decodes and
+   stops after with one or two channels: the element of the channel count (SCE
+   for one, CPE for two), the unused bits 0, a sample count from 1 to the
+   frame length, and for a compressed element predictor orders below the
+   sample count (Apple's encoder escapes a packet that short: its coefficients
+   alone cost as much as the PCM) and bytes shifted below the bit depth, with
+   the shifted bytes inside the packet. Sets *escape_end to the bit position
+   at which an escape (uncompressed) element ends, else to 0. */
+static const char *check_packet(const uint8_t *p, uint32_t size, uint32_t nch, uint32_t depth,
+                                uint32_t frame_length, uint64_t *escape_end)
+{
+    PacketBits b = {p, (uint64_t)size * 8, 0};
+    uint32_t tag, instance, unused, head, count, mix, coef;
+    if (!b.take(3, &tag) || !b.take(4, &instance) || !b.take(12, &unused) || !b.take(4, &head))
         return "packet too short";
-    uint32_t tag = p[0] >> 5;
     if (tag != (nch == 2 ? (uint32_t)ID_CPE : (uint32_t)ID_SCE))
         return "packet does not start with the element for the channel count";
-    if (p[2] & 0x10) {              /* partial frame: a 32-bit count after bit 23 */
-        if (size < 7)
+    if (unused)
+        return "packet header: unused bits set";
+    const uint32_t partial = head >> 3, shifted = (head >> 1) & 3, escape = head & 1;
+    uint32_t samples = frame_length;
+    if (partial) {
+        if (!b.take(32, &count))
             return "packet too short";
-        uint64_t w = 0;
-        for (int i = 0; i < 7; i++)
-            w = (w << 8) | p[i];
-        uint32_t count = (uint32_t)(w >> (56 - 23 - 32));
         if (count > frame_length)
             return "partial-frame count exceeds the cookie's frames per packet";
+        if (count == 0)
+            return "partial-frame count 0";
+        samples = count;
     }
+    *escape_end = 0;
+    if (escape) {
+        /* The decoder reads bitDepth bits per sample of a CPE, and bitDepth
+           less the shifted bytes of an SCE; the encoder shifts none here. */
+        if (shifted)
+            return "escape packet with shifted bytes";
+        if (!b.skip((uint64_t)samples * nch * depth))
+            return "escape packet shorter than its samples";
+        *escape_end = b.pos;
+        return nullptr;
+    }
+    const uint32_t chan_bits = depth - shifted * 8 + (nch == 2);
+    if (shifted * 8 >= depth || chan_bits > 32)
+        return "packet header: bytes shifted do not fit the bit depth";
+    if (!b.take(16, &mix))
+        return "packet too short";
+    for (uint32_t ch = 0; ch < nch; ch++) {
+        uint32_t mode, filter;
+        if (!b.take(8, &mode) || !b.take(8, &filter))
+            return "packet too short";
+        const uint32_t order = filter & 0x1f;
+        if (order >= samples)
+            return "packet header: predictor order not below the sample count";
+        for (uint32_t i = 0; i < order; i++)
+            if (!b.take(16, &coef))
+                return "packet too short";
+    }
+    if (!b.skip((uint64_t)shifted * 8 * nch * samples))
+        return "packet shorter than its shifted bytes";
+    return nullptr;
+}
+
+/* After Decode(): the element must end where the decoder stopped (an escape
+   element where its header says), followed by the END tag and the padding to
+   the packet's last byte. */
+static const char *check_end(const BitBuffer &bb, const uint8_t *p, uint32_t size, uint64_t escape_end)
+{
+    const uint64_t pos = (uint64_t)(bb.cur - p) * 8 + bb.bitIndex;
+    if (escape_end && pos != escape_end)
+        return "escape packet decoded to the wrong length";
+    PacketBits b = {p, (uint64_t)size * 8, pos};
+    uint32_t tag;
+    if (pos > b.end || !b.take(3, &tag))
+        return "packet ends before its END element";
+    if (tag != ID_END)
+        return "packet: no END element after the audio element";
+    if ((b.pos + 7) / 8 != size)
+        return "packet longer than its elements";
     return nullptr;
 }
 
@@ -214,23 +339,15 @@ static int decode(int argc, char **argv)
     std::vector<uint8_t> cookie;
     if (argc != 5 || !parse_hex(argv[2], &cookie))
         return fail("usage: decode COOKIE IN OUT");
-    if (cookie.size() < sizeof(ALACSpecificConfig) + 24)
-        cookie.resize(sizeof(ALACSpecificConfig) + 24, 0);   /* Init peeks at 8 bytes */
+    uint8_t config[sizeof(ALACSpecificConfig)];
+    const char *bad = check_cookie(cookie, config);
+    if (bad)
+        return fail(bad);
     ALACDecoder dec;
-    if (dec.Init(cookie.data(), (uint32_t)strlen(argv[2]) / 2))
+    if (dec.Init(config, sizeof config))
         return fail("bad cookie");
     const ALACSpecificConfig &c = dec.mConfig;
-    uint32_t width;
-    switch (c.bitDepth) {
-    case 16: width = 2; break;
-    case 20: case 24: width = 3; break;
-    case 32: width = 4; break;
-    default: return fail("bad cookie: bit depth");
-    }
-    if (c.numChannels < 1 || c.numChannels > 2)
-        return fail("bad cookie: one or two channels only");
-    if (c.frameLength < 1 || c.frameLength > kMaxFrameLength)
-        return fail("bad cookie: frames per packet");
+    const uint32_t width = c.bitDepth == 16 ? 2 : c.bitDepth == 32 ? 4 : 3;
 
     FILE *fi = fopen(argv[3], "rb");
     if (!fi)
@@ -239,11 +356,14 @@ static int decode(int argc, char **argv)
     if (!fo)
         return fail("cannot create the output");
 
-    /* A packet is at most the escape (uncompressed) form plus headers. The
-       read buffer has as much again of zeros behind it, so that the decoder's
-       reads stay inside it even on a damaged packet. */
+    /* A packet is at most the escape (uncompressed) form plus headers. Behind
+       it the read buffer has as many zero bytes again plus kReadSlack: the
+       Rice decoder checks its position against the packet's size counted
+       from where its channel starts, so it may read up to a packet's length
+       beyond the end before it fails (ag_dec.c dyn_decomp), plus a few bytes
+       of look-ahead. */
     const uint32_t limit = c.frameLength * c.numChannels * 4 + 64;
-    std::vector<uint8_t> rd(2 * limit), wr((size_t)c.frameLength * c.numChannels * 4);
+    std::vector<uint8_t> wr((size_t)c.frameLength * c.numChannels * 4);
     uint64_t frames = 0;
     unsigned long long offset;
     unsigned long size;
@@ -251,10 +371,12 @@ static int decode(int argc, char **argv)
     while ((got = scanf("%llu %lu", &offset, &size)) == 2) {
         if (size > limit)
             return fail("packet larger than the cookie's format allows");
-        memset(rd.data(), 0, rd.size());
+        std::vector<uint8_t> rd(2 * (size_t)size + kReadSlack);
         if (fseeko(fi, (off_t)offset, SEEK_SET) || fread(rd.data(), 1, size, fi) != size)
             return fail("short read from the input");
-        const char *bad = check_packet(rd.data(), (uint32_t)size, c.numChannels, c.frameLength);
+        uint64_t escape_end;
+        bad = check_packet(rd.data(), (uint32_t)size, c.numChannels, c.bitDepth, c.frameLength,
+                           &escape_end);
         if (bad)
             return fail(bad);
         BitBuffer bb;
@@ -262,6 +384,9 @@ static int decode(int argc, char **argv)
         uint32_t n = 0;
         if (dec.Decode(&bb, wr.data(), c.frameLength, c.numChannels, &n) || n > c.frameLength)
             return fail("Decode failed");
+        bad = check_end(bb, rd.data(), (uint32_t)size, escape_end);
+        if (bad)
+            return fail(bad);
         size_t out = (size_t)n * c.numChannels * width;
         if (fwrite(wr.data(), 1, out, fo) != out)
             return fail("write failed");

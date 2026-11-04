@@ -197,7 +197,7 @@ typedef struct {
   uint64_t end_u;
   bool last_known;   // the block count from the LAST block
   uint16_t total;
-  bool rcount_known; // the block count from a decoded R-header
+  bool rcount_known; // the block count from the file's first decoded R-header
   uint16_t rcount;
   bool tail_seen;
   bool E_known;      // the last body block

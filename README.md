@@ -151,9 +151,14 @@ partial. The generator then writes the MP4 container itself, with no times
 `moov`, `mdat`. The tags are `©nam` (the title), `©too` (the encoder, `Apple
 ALAC encoder, macosforge/alac c38887c`) and `©cmt` (the comment); there is
 no artist or album tag. Finally the generator decodes the file with Apple's
-decoder and compares the samples with the WAV's. The bytes of an ALAC file
-depend only on the pinned codec; the packets are byte-identical to those of
-`afconvert` on macOS (signal format, section 9.7).
+decoder and compares the samples with the WAV's. Built with GCC 15.2, the
+helper writes the same bytes on every run, and its packets are
+byte-identical to those of `afconvert` on macOS (signal format, section
+9.7). Other compilers were not measured: Apple's encoder has undefined
+behaviour (left shifts of negative values in `codec/dp_enc.c`, lines 109,
+137 and 230, and misaligned 32-bit accesses in `codec/ag_enc.c`, lines 196
+to 246), so a helper built by another compiler or version may write other
+bytes. The decode and compare still checks the samples.
 
 Apple's own ALAC decoders refuse ALAC above 384 kHz (the one in macOS does,
 and so presumably does iOS's built-in playback), so the ALAC files at 705.6
@@ -178,10 +183,10 @@ encoded and decoded with Apple's codec only.
 
 The bytes of the FLAC files depend on the `flac` version, and the bytes of
 the WAV zip, the only deflated one, on the zlib version. The bytes of the
-ALAC files depend only on the codec commit. The compiler is part of the key
-under which the helper is cached (`generator/alac.py`), so another compiler
-builds its own helper. The signal format (section 9.7) says the ALAC files
-depend only on the pinned codec.
+ALAC files depend on the codec commit and, through the encoder's undefined
+behaviour, possibly on the compiler: they were measured with GCC 15.2 only.
+The compiler is part of the key under which the helper is cached
+(`generator/alac.py`), so another compiler builds its own helper.
 
 ### Determinism
 
@@ -313,15 +318,15 @@ bpcctl run` plays a file and reads the results. For example, on Linux:
 python3 -m bpcctl run -- aplay -D hw:CARD=Checker bpc1_pcm_096k_24bit.wav
 ```
 
-Its exit status:
+Its exit status is the first of these that holds:
 
 | Exit | When |
 |---|---|
-| 1 | any result is `NOT_BIT_PERFECT` or `UNKNOWN_SIGNAL`, or, with `--expect <n>`, fewer than n results are `BIT_PERFECT` or `DEVICE_OVERRUN` (a file that did not arrive at all) |
-| 4 | else any result is `DEVICE_OVERRUN`: the device could not judge the file, play it again |
-| 0 | else, at least one result arrived and all are `BIT_PERFECT` |
-| 2 | no result: the device did not answer, or no stream arrived |
 | 3 | the player command failed |
+| 2 | no result: the device did not answer, or no stream arrived |
+| 1 | any result is `NOT_BIT_PERFECT` or `UNKNOWN_SIGNAL`, or, with `--expect <n>`, fewer than n results are `BIT_PERFECT` or `DEVICE_OVERRUN` (a file that did not arrive at all) |
+| 4 | not fully judged, play again: any result is `DEVICE_OVERRUN` (the device's receive buffer overflowed), or the reporting is incomplete: a stream's `results_lost` is above 0, fewer result lines arrived than its `stream stop` line's `results=`, or the timeout ended the wait before a stream stopped |
+| 0 | at least one result arrived and all are `BIT_PERFECT` |
 
 The device prints one result line per file and per stretch of unknown signal
 (fields in the [firmware README](firmware/README.md#result-lines)); `--json`

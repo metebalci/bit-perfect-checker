@@ -201,7 +201,12 @@ Apple's `afconvert`.
   `afconvert` on macOS). The ALAC files at 705.6 and 768 kHz and DSD256 as DoP
   are therefore for players with their own ALAC decoder; the WAV and AIFF files
   of the same name hold the same samples.
-- The bytes of an ALAC file depend only on the pinned codec.
+- The bytes of an ALAC file depend on the pinned codec, as measured with GCC
+  15.2. Apple's encoder has undefined behaviour (left shifts of negative
+  values in `codec/dp_enc.c`, lines 109, 137 and 230, and misaligned 32-bit
+  accesses in `codec/ag_enc.c`, lines 196 to 246), so a helper built by
+  another compiler or version may write other bytes; the generator's decode
+  and compare still checks the samples.
 
 ### AIFF
 
@@ -416,7 +421,10 @@ firmware README.
   read the verdict without looking at the LEDs (`bpcctl run`).
 - **The result queue holds 16 reports,** and the `stream stop` line ends with
   `results_lost=<n>`, so a dropped result can never pass for a file that did
-  not arrive (`BPC1_MAX_REPORTS` in `firmware/bpc1/bpc1_checker.h`).
+  not arrive (`BPC1_MAX_REPORTS` in `firmware/bpc1/bpc1_checker.h`): `bpcctl
+  run` exits 4 (not fully judged, play again) when `results_lost` is above
+  0, when fewer result lines arrived than `results=`, or when a stream has
+  not stopped by its timeout, unless a result failed (exit 1).
 - **`lost` and `ovf` are charged by frame position.** Each loss and each overflow
   goes to the result line of the file whose frames it falls in, and the lines
   add up to the `stream stop` line. A result line is printed once the checker

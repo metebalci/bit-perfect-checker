@@ -654,8 +654,13 @@ the rate / the frames), as afconvert fills them (afconvert's value also
 counts its trailing packet).
 
 The generator writes the MP4 itself, with no times (creation and
-modification 0), so the file is byte-identical on every run and depends
-only on the pinned codec. It holds, in this order:
+modification 0), so the file is byte-identical on every run. Its bytes
+depend on the pinned codec, as measured with the helper built by GCC 15.2:
+the encoder has undefined behaviour (left shifts of negative values in
+`codec/dp_enc.c`, lines 109, 137 and 230, and misaligned 32-bit accesses in
+`codec/ag_enc.c`, lines 196 to 246), so a helper built by another compiler
+may write other bytes, which must still decode to the WAV's samples. It
+holds, in this order:
 
 - `ftyp`: major brand `M4A `, minor version 0, compatible brands `M4A `,
   `mp42`, `isom`;
@@ -792,14 +797,14 @@ release of the file set: a fix to the files under the same format becomes r2.
 
 | Archive | Contents | Method | Size |
 |---|---|---|---|
-| `bpc1-r1-wav.zip` | every PCM WAV (20), every DSD file (DSF, DFF and DoP-WAV, 9) and the negative WAVs (6) | deflate, level 9 | 402 025 174 bytes (about 402 MB; 64.9 % of its entries' 619 680 548 bytes) |
-| `bpc1-r1-flac.zip` | every FLAC: PCM (20), DoP (3) and negative (6) | stored | 310 569 886 bytes (about 311 MB) |
-| `bpc1-r1-aiff.zip` | every AIFF: PCM (20), DoP (3) and negative (6) | stored | 494 900 028 bytes (about 495 MB) |
-| `bpc1-r1-alac.zip` | every ALAC (`.m4a`): PCM (20), DoP (3) and negative (6) | stored | 324 316 234 bytes (about 324 MB) |
-| `bpc1-r1-sweep-wav.zip` | the sweep WAVs (20) and the negative sweep WAVs (2) | stored | 1 383 697 421 bytes (about 1.38 GB) |
-| `bpc1-r1-sweep-flac.zip` | the sweep FLACs (20) and the negative sweep FLACs (2) | stored | 1 312 253 121 bytes (about 1.31 GB) |
-| `bpc1-r1-sweep-aiff.zip` | the sweep AIFFs (20) and the negative sweep AIFFs (2) | stored | 1 383 696 123 bytes (about 1.38 GB) |
-| `bpc1-r1-sweep-alac.zip` | the sweep ALACs (20) and the negative sweep ALACs (2) | stored | 1 338 566 117 bytes (about 1.34 GB) |
+| `bpc1-r1-wav.zip` | every PCM WAV (20), every DSD file (DSF, DFF and DoP-WAV, 9) and the negative WAVs (6) | deflate, level 9 | 402 025 169 bytes (about 402 MB; 64.9 % of its entries' 619 680 530 bytes) |
+| `bpc1-r1-flac.zip` | every FLAC: PCM (20), DoP (3) and negative (6) | stored | 310 569 868 bytes (about 311 MB) |
+| `bpc1-r1-aiff.zip` | every AIFF: PCM (20), DoP (3) and negative (6) | stored | 494 900 010 bytes (about 495 MB) |
+| `bpc1-r1-alac.zip` | every ALAC (`.m4a`): PCM (20), DoP (3) and negative (6) | stored | 324 316 216 bytes (about 324 MB) |
+| `bpc1-r1-sweep-wav.zip` | the sweep WAVs (20) and the negative sweep WAVs (2) | stored | 1 383 697 403 bytes (about 1.38 GB) |
+| `bpc1-r1-sweep-flac.zip` | the sweep FLACs (20) and the negative sweep FLACs (2) | stored | 1 312 253 103 bytes (about 1.31 GB) |
+| `bpc1-r1-sweep-aiff.zip` | the sweep AIFFs (20) and the negative sweep AIFFs (2) | stored | 1 383 696 105 bytes (about 1.38 GB) |
+| `bpc1-r1-sweep-alac.zip` | the sweep ALACs (20) and the negative sweep ALACs (2) | stored | 1 338 566 099 bytes (about 1.34 GB) |
 
 FLAC data does not compress further (deflate saves 1.0 %), so the FLAC archive
 is stored, and so are the AIFF and ALAC archives; the WAV and DSD files
@@ -1207,15 +1212,17 @@ from the start of its block 0 to the end of its last block, at the positions
 its X-syncs imply: block 0 starts k x B units before its first X-sync, which
 is that of block k (B as in 5.1); its last block ends (count - k) x B units
 after its last X-sync, that of block k. The count is the block index + 1 of
-an intact X-sync flagged LAST, or r5 of an R-header read in a channel whose
-X-sync of that block is intact. Each of its 237 chips is read at its centre
-unit: in PCM frame 512M + qL + floor(L/2) of the block (7.6), +1 for a
-positive word, -1 for a negative one; in DSD byte (512M + qL) / 8 +
-floor(L/16) (8.5), +1 for 0xEE, -1 for 0x11. Any other value, a Barker chip
-of the other sign or two chips of a bit that are not opposite gives no
-count. The words, from each bit's first chip, must pass section 6, with r0
-to r4 equal to h0 to h4 of that channel's X-sync. Without a count, the
-extent ends at the end of the last block that has an X-sync. Each end extends
+an intact X-sync flagged LAST, or else r5 of the first R-header of the file
+that gives a count, read in a channel whose X-sync of that block is intact.
+Each of its 237 chips is read at its centre unit: in PCM frame 512M + qL +
+floor(L/2) of the block (7.6), +1 for a positive word, -1 for a negative
+one; in DSD byte (512M + qL) / 8 + floor(L/16) (8.5), +1 for 0xEE, -1 for
+0x11. Any other value, a Barker chip of the other sign or two chips of a bit
+that are not opposite gives no count. The words, from each bit's first chip,
+must pass section 6, with r0 to r4 equal to h0 to h4 of that channel's
+X-sync. A later R-header does not change the count, and a count no greater
+than the block index of the file's last X-sync gives no count. Without a
+count, the extent ends at the end of the last block that has an X-sync. Each end extends
 by one more block, for units dropped or inserted in the lead-in or tail. The
 extent never reaches before the stream's start, after its end, or into the
 next file (placed as in Files in a stream).
@@ -1286,15 +1293,18 @@ the first of these that holds:
      bit-perfect.
 
 **R-header rule.** Chips 173 to 236 of the chip sequence (section 7.6; r5, the
-block count, and r6, the CRC) match when every unit of a chip is one of its
-two values, the same through the chip; the two chips of each bit are
-opposite; r6 = crc16(r0 to r5), with r0 to r4 equal to h0 to h4 of the
-block's own X-sync; and r5 is the block index + 1 of the file's intact X-sync
-flagged LAST or, where none arrived, r5 is the same in every R-header block of
-the body. Where the two chips of a bit are not opposite, `diff` is the
-position of that bit's second chip. All other chips are compared as expected
-units. A checker that knows the count compares the chips directly; one that does not records one
-bit per chip.
+block count, and r6, the CRC) match when each bit's first chip is one of its
+two values in every unit, the same through the chip, and its second chip is
+the opposite value in every unit; r6 = crc16(r0 to r5), with r0 to r4 equal
+to h0 to h4 of the block's own X-sync; and r5 is the block index + 1 of the
+file's intact X-sync flagged LAST or, where none arrived, r5 is the same in
+every R-header block of the body. The bits are checked in order, each as it
+is read, and `diff` is the first unit that breaks this: in a bit's first
+chip, its first unit if that is neither value, else the first unit that
+differs from it; in its second chip, the first unit that is not the opposite
+of the first chip's value. A chip that is neither value after such a unit
+does not move `diff`. This holds whether or not the checker knows the count
+yet. All other chips are compared as expected units.
 
 **Lead-in and tail.** They are not compared, except that (b) needs the last
 lead-in X-sync and the first tail X-sync: a stream that starts after the

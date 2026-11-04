@@ -2630,6 +2630,16 @@
     "tail_blocks": 2,
     "seed": "0x42504331",
     "channels": 2
+   },
+   "pcm48_24_10_16_2": {
+    "kind": 1,
+    "rate": 48000,
+    "depth": 24,
+    "lead_blocks": 10,
+    "body_blocks": 16,
+    "tail_blocks": 2,
+    "seed": "0x42504331",
+    "channels": 2
    }
   },
   "parts": {
@@ -3414,6 +3424,32 @@
     ]
    },
    {
+    "case": "an r5 bit's chips not opposite, then a later r5 chip zeroed",
+    "allow_silence": false,
+    "stream": [
+     {"file": "pcm48_24"}
+    ],
+    "change": [
+     {
+      "op": "xor",
+      "frame": 35392,
+      "count": 12,
+      "channels": [0],
+      "value": "0xC0000000"
+     },
+     {
+      "op": "and",
+      "frame": 35680,
+      "count": 12,
+      "channels": [0],
+      "value": "0x00000000"
+     }
+    ],
+    "results": [
+     {"verdict": "NOT_BIT_PERFECT", "end": "LAST", "diff": "0.737"}
+    ]
+   },
+   {
     "case": "the stream starts at the last lead-in block",
     "allow_silence": false,
     "stream": [
@@ -3698,6 +3734,67 @@
     "results": [
      {"verdict": "BIT_PERFECT", "end": "STOP", "diff": "-"},
      {"verdict": "UNKNOWN_SIGNAL", "end": "STOP", "diff": "-"}
+    ]
+   },
+   {
+    "case": "the LAST X-sync erased, the lead-in R-header's count 40, the body R-header's 28, 5 blocks of zeros after",
+    "allow_silence": false,
+    "stream": [
+     {"file": "pcm48_24_10_16_2"},
+     {"zeros": 20480}
+    ],
+    "change": [
+     {"op": "and", "frame": 110592, "count": 8, "value": "0x00000000"},
+     {"op": "xor", "frame": 35596, "count": 24, "value": "0xC0000000"},
+     {"op": "xor", "frame": 35620, "count": 24, "value": "0xC0000000"},
+     {"op": "xor", "frame": 35668, "count": 24, "value": "0xC0000000"},
+     {"op": "xor", "frame": 35764, "count": 24, "value": "0xC0000000"},
+     {"op": "xor", "frame": 35788, "count": 24, "value": "0xC0000000"},
+     {"op": "xor", "frame": 35812, "count": 24, "value": "0xC0000000"},
+     {"op": "xor", "frame": 35860, "count": 24, "value": "0xC0000000"},
+     {"op": "xor", "frame": 35884, "count": 24, "value": "0xC0000000"},
+     {"op": "xor", "frame": 35932, "count": 24, "value": "0xC0000000"},
+     {"op": "xor", "frame": 35956, "count": 24, "value": "0xC0000000"},
+     {"op": "xor", "frame": 36004, "count": 24, "value": "0xC0000000"},
+     {"op": "xor", "frame": 36052, "count": 24, "value": "0xC0000000"},
+     {"op": "xor", "frame": 36076, "count": 24, "value": "0xC0000000"},
+     {"op": "xor", "frame": 36100, "count": 24, "value": "0xC0000000"}
+    ],
+    "results": [
+     {"verdict": "BIT_PERFECT", "end": "STOP", "diff": "-"}
+    ]
+   },
+   {
+    "case": "the LAST X-sync erased, the lead-in R-header's count 20, the body R-header's 28, a block of zeros after",
+    "allow_silence": false,
+    "stream": [
+     {"file": "pcm48_24_10_16_2"},
+     {"zeros": 4096}
+    ],
+    "change": [
+     {"op": "and", "frame": 110592, "count": 8, "value": "0x00000000"},
+     {"op": "xor", "frame": 35644, "count": 24, "value": "0xC0000000"},
+     {"op": "xor", "frame": 35740, "count": 24, "value": "0xC0000000"},
+     {"op": "xor", "frame": 35908, "count": 24, "value": "0xC0000000"},
+     {"op": "xor", "frame": 36028, "count": 24, "value": "0xC0000000"}
+    ],
+    "results": [
+     {"verdict": "BIT_PERFECT", "end": "STOP", "diff": "-"},
+     {"verdict": "UNKNOWN_SIGNAL", "end": "STOP", "diff": "-"}
+    ]
+   },
+   {
+    "case": "the LAST X-sync erased, both R-headers' count 28, a block of zeros after",
+    "allow_silence": false,
+    "stream": [
+     {"file": "pcm48_24_10_16_2"},
+     {"zeros": 4096}
+    ],
+    "change": [
+     {"op": "and", "frame": 110592, "count": 8, "value": "0x00000000"}
+    ],
+    "results": [
+     {"verdict": "BIT_PERFECT", "end": "STOP", "diff": "-"}
     ]
    },
    {

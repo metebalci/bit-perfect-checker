@@ -499,6 +499,11 @@ class Checker(unittest.TestCase):
             a, b = chip_frame(cfg, 8, 180), chip_frame(cfg, 8, 181)
             x[b:b + (b - a)] = x[a:b]
             self.assert_fail(x, 48000)
+        with self.subTest("a bit's second chip, its first unit at the first chip's value"):
+            b = chip_frame(cfg, 8, CHIP_R5 + 9)
+            x = w.copy()
+            x[b, 0] = -x[b, 0]
+            self.assert_fail(x, 48000, b)
 
     def test_r_header_count(self):
         """r5 and r6 spelled correctly for another count (a valid CRC): with
@@ -861,6 +866,13 @@ class Checker(unittest.TestCase):
         y[q0 + 30, 0] ^= np.int32(1 << 8)
         cases.append(("an r5 chip unit, then a stop in the r6 chips", y[:q0 + 50 * 12],
                       [("NOT_BIT_PERFECT", "STOP", "0.737", "24")]))
+        # A pair not opposite (chip r5+3 at the first chip's value), then an r5
+        # chip zeroed (r5+27): the pair is found first, at its second chip
+        q3, q27 = chip_frame(cfg, 8, CHIP_R5 + 3), chip_frame(cfg, 8, CHIP_R5 + 27)
+        y = a.copy()
+        y[q3:q3 + 12, 0] = -y[q3:q3 + 12, 0]
+        y[q27:q27 + 12, 0] = 0
+        cases.append(("a pair not opposite, then a chip zeroed", y, [("NOT_BIT_PERFECT", "LAST", "0.737", "24")]))
         # diff at an exact half millisecond: 61944 / 48000 = 1.2905 s
         cases.append(("diff at an exact half millisecond", flip(a, 61944, 0, 8),
                       [("NOT_BIT_PERFECT", "LAST", "1.291", "24")]))
@@ -1001,6 +1013,35 @@ class Checker(unittest.TestCase):
             with self.subTest(name):
                 res = self.results(w, 48000, overruns=(over,))
                 self.assertEqual([(r["verdict"], r["diff"]) for r in res], want)
+
+    def test_overrun_beyond_the_extent(self):
+        """An overrun is assigned by the files' extents as they end (12.6): one
+        after a file's extent is the stretch's after it, one inside the
+        extent the file's, also where a later X-sync extended the extent."""
+        cfg, a = words(spec.KIND_PCM, 48000, 24, dict(lead_blocks=2, body_blocks=8, tail_blocks=2))
+        B = cfg.block_len
+        x = a.copy()
+        x[11 * B:11 * B + 8] = 0  # the LAST X-sync: the extent ends a block after block 11 (count 12)
+        y = np.concatenate([x, zeros(4 * B)])  # silence through block 15
+        for name, over, sil, want in (
+                ("at block 14, after the extent", 14 * B + 100, False,
+                 [("BIT_PERFECT", "STOP"), ("DEVICE_OVERRUN", "STOP")]),
+                ("at block 14, silence allowed", 14 * B + 100, True,
+                 [("BIT_PERFECT", "STOP"), ("DEVICE_OVERRUN", "STOP")]),
+                ("at the extent's last frame", 13 * B - 1, False,
+                 [("DEVICE_OVERRUN", "STOP"), ("UNKNOWN_SIGNAL", "STOP")]),
+                ("at the extent's end", 13 * B, False,
+                 [("BIT_PERFECT", "STOP"), ("DEVICE_OVERRUN", "STOP")])):
+            with self.subTest(name):
+                res = self.results(y, 48000, overruns=(over,), silence=sil)
+                self.assertEqual([(r["verdict"], r["end"]) for r in res], want)
+        cfg, b = words(spec.KIND_PCM, 48000, 24, dict(lead_blocks=10, body_blocks=4, tail_blocks=2))
+        z = b.copy()
+        for k in range(3, 9):
+            z[k * B:k * B + 8] = 0  # lead-in X-syncs 3 to 8: the extent grows at block 9's
+        with self.subTest("in the lead-in, where block 9's X-sync extends the extent"):
+            res = self.results(z, 48000, overruns=(6 * B + 100,))
+            self.assertEqual([(r["verdict"], r["end"]) for r in res], [("DEVICE_OVERRUN", "LAST")])
 
     def test_frames_end_at_the_extent(self):
         """A file's received frames (dur) end with its extent, where the

@@ -19,8 +19,9 @@ negative/ with the deliberately faulty files and a README.txt about them.
 Determinism: entries sorted by name, one fixed timestamp, Unix permissions
 0644 (files) and 0755 (the folder), no comments or extra fields. The WAV
 archive is deflated (level 9), so its bytes depend on the zlib version as
-FLAC files depend on the flac version (ALAC files depend only on the pinned
-ALAC codec); the other archives are stored.
+FLAC files depend on the flac version (ALAC files on the pinned ALAC codec,
+measured with GCC 15.2: README.md, ALAC); the other archives are
+stored.
 
 GitHub takes release files under 2 GiB only: a zip of ASSET_LIMIT bytes or
 more is an error and is not written, and the dist folder keeps any earlier
@@ -312,7 +313,7 @@ SHA256SUMS lists the SHA-256 of every file.
 How to use them
 ---------------
 
-1. With a bit-perfect-checker device (a USB audio receiver): select it as
+1. With a Bit-Perfect Checker device (a USB audio receiver): select it as
    the audio output, play a file in your player and read the device's
    verdict.
    Use the player's exclusive or bit-perfect mode, 100 % volume and no
@@ -380,7 +381,7 @@ How to use them
 ---------------
 
 Use them as the regular files ({RELEASE_NAME}-wav.zip): play a file into a
-bit-perfect-checker device and read its verdict, or check a file or a raw
+Bit-Perfect Checker device and read its verdict, or check a file or a raw
 recording with the software checker of the bit-perfect-checker repository:
 
   python3 -m checker FILE...
