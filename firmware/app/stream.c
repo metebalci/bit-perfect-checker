@@ -534,8 +534,9 @@ static uint32_t fifo_read_n(tu_fifo_t *ff, uint32_t n) {
   return n;
 }
 
-// Reads the receive FIFO; in a stream, the frames go to the checker too,
-// those of the stream's segment only. True if it read anything.
+// Reads the receive FIFO, up to where the interrupt began a segment after
+// the stream's; in a stream, the frames go to the checker too. True if it
+// read anything.
 static bool drain(bool check) {
   uint32_t fb = frame_bytes();
   bool any = false;
@@ -559,8 +560,9 @@ static bool drain(bool check) {
       continue;
     }
     uint64_t limit = f.count;
-    if (check && f.next != UINT64_MAX) {
-      // The interrupt began the next segment: this stream's bytes end there
+    if (f.next != UINT64_MAX) {
+      // The interrupt began the next segment: this stream's bytes end there.
+      // Outside a stream too, the next one's first packet stays for it.
       limit = f.next > f.at ? f.next - f.at : 0;
     }
     uint32_t n = f.count < limit ? f.count : (uint32_t) limit;

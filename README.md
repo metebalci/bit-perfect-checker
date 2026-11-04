@@ -392,6 +392,12 @@ Before a release, all of these hold:
   the [firmware README](firmware/README.md#tinyusb-patch)). The hosts tested
   so far never sent one, so the patch is checked against the code and the
   specification only.
+- **A bus reset during a stream is not tested on hardware.** A USB bus
+  reset closes the audio function without telling the firmware, which then
+  ends the stream itself with `reason=reset`. The Linux host used for tests
+  sets alt setting 0 before it resets the port, so the stream has always
+  ended before the reset arrives; the guard is checked against the code
+  only.
 - **A rate change during a stream is not tested on hardware.** The tested
   hosts close a stream (alt setting 0) before they set a new rate. If a host
   sets a new rate while its stream stays open, the firmware feeds the
