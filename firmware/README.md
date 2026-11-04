@@ -267,17 +267,17 @@ and 0 in the file's fields. The fields:
 
 The limits of `lost`, `ovf` and the frames checked:
 
-- The device keeps 64 loss events not yet charged to a result, and its USB
-  interrupt 8 not yet taken by the main loop. When a queue is full, later
-  events merge into its newest one, so their counts can land on the result
-  line of an earlier file.
-- A doubled microframe takes back the hole before it. When that hole was
-  already charged to an earlier result line, the doubled microframe shows
-  as `lost=-1` on a later line.
-- In a long overflow, when the data written and not read would reach twice
-  the receive FIFO's depth, TinyUSB's FIFO moves its write index back so
-  that the FIFO is just full, and the packet that does this does not count
-  as an overflow: `ovf` can be one less than the packets that overflowed.
+- The device keeps up to 1024 loss events not yet charged to a result, and
+  its USB interrupt up to 64 not yet taken by the main loop. Only when one
+  queue is full, which takes more than 64 holes while the main loop is held
+  up (as by `stall`) or more than 1024 in files not yet finished, do later
+  events merge into the newest one of their stream, so that their counts
+  can land on the result line of an earlier file.
+- A doubled microframe takes back the hole before it: the USB interrupt
+  keeps a hole until its microframe has passed, so the two always meet. A
+  stream whose first packet is read in the next microframe has no hole
+  before the doubled microframe that follows, which then shows as
+  `lost=-1`, on the stream's first result line and its `stream stop` line.
 - When the host selects another alt setting, alt 0 included, TinyUSB clears
   the receive FIFO before the firmware hears of it
   (`lib/tinyusb/src/class/audio/audio_device.c:1123`), so the frames still
