@@ -18,8 +18,7 @@ system, USB audio stack) delivers a file bit-perfect. It consists of:
 You play a test file to the board with any player on any operating system,
 and the board gives a verdict per file. A pass proves that every sample
 arrived unchanged. A fail almost always means a real change; rarely, a USB
-packet the device missed fails a file the host sent intact. It does not say
-what changed when a file did not.
+packet the device missed fails a file the host sent intact.
 
 The board shows its verdicts on its LEDs and in a serial log, with one result
 line per file; see [firmware](firmware/README.md).

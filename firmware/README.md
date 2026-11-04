@@ -48,8 +48,7 @@ gets every frame as 32-bit left-justified words, with the host's rate and the
 slot's bits, and starts over with each stream. It finds each BPC1 file in the
 stream by its X-syncs, PCM or DoP, and gives each file its own verdict: hosts
 such as iOS join files of the same rate into one stream. It proves that a
-file arrived bit-perfect and does not say what changed: a file that did not
-is `NOT_BIT_PERFECT`, and audio that belongs to no file, silence included, is
+file arrived bit-perfect: a file that did not is `NOT_BIT_PERFECT`, and audio that belongs to no file, silence included, is
 `UNKNOWN_SIGNAL`. It has no robust layer.
 
 The USB controller runs in DMA mode. Its isochronous OUT endpoint holds one
@@ -278,7 +277,7 @@ their order of precedence; only `BIT_PERFECT` is a pass:
 | `UNKNOWN_SIGNAL` | the units belong to no file: outside every file's extent, silence included unless [allowed](#allowed-silence) (a DoP file received without markers has no readable X-sync and gives it) |
 | `DEVICE_OVERRUN` | the device's own receive FIFO overflowed between the file's first received unit and its end (or, with no file open, over the stretch), which overwrites frames not read yet, and no difference of the file came before the overflow: the file is not judged; play it again. A file whose first difference came before the overflow is `NOT_BIT_PERFECT`, with that difference's `diff` |
 | `BIT_PERFECT` | the received rate and channel count are the file's, the body arrived as one run of consecutive units, every unit equal to the expected one in every channel, and the X-syncs before and after the body arrived intact (12.6 a to d) |
-| `NOT_BIT_PERFECT` | the file was found and 12.6 (a), (b), (c) or (d) does not hold; `diff` says where the first difference was. The result does not say what changed. Packets lost on the bus show here, with `lost` above 0 |
+| `NOT_BIT_PERFECT` | the file was found and 12.6 (a), (b), (c) or (d) does not hold; `diff` says where the first difference was. Packets lost on the bus show here, with `lost` above 0 |
 
 The device does not search for inverted X-syncs, so an inverted, rounded,
 dithered or resampled stream may give `UNKNOWN_SIGNAL`.
