@@ -1,24 +1,28 @@
 # Firmware
 
 Firmware for the hardware checker: a USB Audio Class 2 device that receives
-the BPC1 test signal and reports whether it arrived bit-perfect. The first board is the
-NUCLEO-U5A5ZJ-Q.
+the BPC1 test signal and reports whether it arrived bit-perfect. The boards
+are the NUCLEO-U5A5ZJ-Q, the STM32F723E-DISCO and the STM32U5G9J-DK2
+([Boards](#boards)); the last two have a screen.
 
 ## Layout
 
 | Path | Contents |
 |---|---|
-| `app/` | everything that is the same on every board: USB descriptors and audio class requests, the stream probe and checker, the log and console, LED patterns, load figures, the status a display shows |
+| `app/` | everything that is the same on every board: USB descriptors and audio class requests, the stream probe and checker, the log and console, LED patterns, load figures, the status, and the status screen's content and drawing |
 | `bpc1/` | the BPC1 signal and the online checker engine in portable C, which host tests also build |
 | `include/` | what `app/` needs from a board ([`board.h`](include/board.h)) and from a display ([`display.h`](include/display.h)) |
 | `families/<family>/` | one MCU family: CPU flags, ST's CMSIS and HAL modules, HAL configuration, linker scripts, and the code all boards of the family share (USB controller and PHY, log UART, tick) |
-| `boards/<board>/` | one board: `board.cmake` (family, MCU, crystal, linker script, sources) and `board.c` (clock tree, LEDs, which UART is the log) |
+| `boards/<board>/` | one board: `board.cmake` (family, MCU, crystal, linker script, sources) and `board.c` (clock tree, LEDs, button, VBUS, which UART is the log), and for a board with a display its panel driver, screen layout and touch driver |
 | `shields/<shield>/` | an add-on for a board, such as a display shield; none yet |
-| `lib/` | pinned submodules: [TinyUSB](https://github.com/hathach/tinyusb) 0.21.0, ST's [CMSIS device files](https://github.com/STMicroelectronics/cmsis_device_u5) and [HAL](https://github.com/STMicroelectronics/stm32u5xx_hal_driver) for the STM32U5, Arm's [CMSIS 5](https://github.com/ARM-software/CMSIS_5) core headers, at the commits TinyUSB 0.21.0 tests with; `patches/` holds our fix to TinyUSB ([below](#tinyusb-patch)) |
+| `tools/` | `fontgen.py`, which turns [Spleen](https://github.com/fcambus/spleen) bitmap fonts into C arrays at build time |
+| `lib/` | pinned submodules: [TinyUSB](https://github.com/hathach/tinyusb) 0.21.0, ST's CMSIS device files ([STM32U5](https://github.com/STMicroelectronics/cmsis_device_u5), [STM32F7](https://github.com/STMicroelectronics/cmsis_device_f7)) and HAL ([STM32U5](https://github.com/STMicroelectronics/stm32u5xx_hal_driver), [STM32F7](https://github.com/STMicroelectronics/stm32f7xx_hal_driver)), Arm's [CMSIS 5](https://github.com/ARM-software/CMSIS_5) core headers, at the commits TinyUSB 0.21.0 tests with, and Spleen 2.2.0 for the screens' fonts; `patches/` holds our fix to TinyUSB ([below](#tinyusb-patch)) |
 
 | Board | Family | Display |
 |---|---|---|
 | `nucleo_u5a5zj_q` | `stm32u5` | none |
+| `stm32f723e_disco` | `stm32f7` | 1.54" 240x240 with touch |
+| `stm32u5g9j_dk2` | `stm32u5` | 5" 800x480 with touch |
 
 ## What it does
 
@@ -96,6 +100,108 @@ host selected an alt setting again. USB Audio Data Formats 2.0 (2.1 and
 the device must handle it. With the patch, a zero-length packet re-arms the
 endpoint and counts like a microframe without a packet (`lost`).
 
+## Boards
+
+Each board has the ST-LINK's USB port, which flashes it and carries the serial
+log, and a user USB port, which goes to the host under test; connect both.
+The user port is a High-Speed device port with the MCU's on-chip PHY. The
+NUCLEO-U5A5ZJ-Q's user port is a USB-C connector.
+
+### STM32F723E-DISCO
+
+- **Ports:** the user port is CN19 (micro-AB, USB OTG HS). Its VBUS switch
+  stays off, since the board is a device on that port, never a host. The
+  ST-LINK port is CN1, the board's default supply. The log is on USART6
+  (PC6, PC7), behind the ST-LINK's virtual COM port.
+- **LEDs:** red LD5 (PA7), green LD6 (PB1) and blue LD1 (PA5, through the
+  solder bridge SB14), as in [LEDs](#leds).
+- **Button and touch:** B1 (PA0) starts a new run. So does a tap anywhere on
+  the touch screen, a FocalTech FT6x36 or FT3x67 on I2C3 that the firmware
+  finds at start-up; nothing else uses touch.
+- **Screen:** the 1.54" 240x240 panel (ST7789H2, which holds the frame itself)
+  on the FMC's 16-bit bus, drawn by the CPU; see [Screen](#screen). A fault
+  switches its backlight off.
+- **MCU:** a Cortex-M7 at 216 MHz from the board's 25 MHz oscillator. The data
+  cache is off and the instruction cache on, so the USB DMA needs no cache
+  maintenance or special buffer placement. The image is linked at the flash's
+  ITCM alias ([Flash](#flash)).
+
+### STM32U5G9J-DK2
+
+- **Ports:** the user port is CN2 (USB-C, USB OTG HS). The log is on USART1
+  (PA9, PA10), behind the ST-LINK's virtual COM port.
+- **LEDs:** red LD2 (PD2) and green LD3 (PD4), both lit by a low pin. There is
+  no blue LED: its row in [LEDs](#leds) does not apply, red and green show
+  the run as on the other boards, and the screen shows whether the device is
+  connected, waiting or checking. A fault lights red and green steady.
+  The boot LED test prints no line for blue.
+- **Button and touch:** B2 (PC13) starts a new run (B1 is the board's reset).
+  So does a tap anywhere on the touch screen, a Goodix GT911 on I2C2; the
+  firmware only reads the controller and never writes its configuration.
+- **Screen:** the 5" 800x480 panel (RK050HR18, parallel RGB, no command
+  interface) on the LTDC, drawn by the CPU into a frame buffer in SRAM6, a
+  bank that no other bus master uses, so the LTDC's reads never wait for the
+  USB DMA. The buffer has one byte per pixel and a fixed RGB332 palette, so
+  black, white, red, green and blue are exact, which is all the screen uses;
+  see [Screen](#screen). A fault switches its backlight off.
+- **MCU:** the STM32U5G9, with the same clock tree and USB set-up as the
+  NUCLEO-U5A5ZJ-Q.
+- **ST's demonstration firmware** is replaced when the board is flashed;
+  restoring it needs ST's demonstration package for the board.
+
+## Screen
+
+The F723's 240x240 screen and the left 480x480 of the DK2's screen show the
+same, the DK2's at twice the size. The right 320x480 of the DK2's screen is
+reserved and black. The content is built in
+[`app/screen_model.c`](app/screen_model.c) from the [status](app/status.h),
+and [`app/screen.c`](app/screen.c) draws it through the
+[panel interface](include/panel.h). The screen follows the run, as green and
+red do ([LEDs](#leds)). White text on black, in Spleen's fonts:
+
+- **Band:** one line in a thick frame, with a word for what is going on:
+  `NOT CONNECTED` (no host has set the device up, or the cable is out),
+  `WAITING` (connected, no stream) and `CHECKING` (a stream is open).
+- **Frame colour:** blue until the run has a result, green while every
+  result is `BIT_PERFECT`, red as soon as anything failed (a file's first
+  difference, `NOT_BIT_PERFECT`, `UNKNOWN_SIGNAL` or `OVERRUN`). It turns red
+  at once, also while a stream is open. Only blue, green and red are used.
+- **Hourglass:** right of `WAITING` and `CHECKING`, an outline that blinks
+  with the slow blink of the LEDs, so in `WAITING` it lights with the blue
+  LED. In `CHECKING` it blinks while packets arrive and stays lit when none
+  has arrived for 20 ms. `NOT CONNECTED` has none.
+- **Labels:** under the band, in red and steady, each only if it occurred in
+  the run: `UNKNOWN` on the left (for `UNKNOWN_SIGNAL`) and `OVERRUN` on the
+  right. `NOT_BIT_PERFECT` has no label: the red frame shows it.
+- **File lines:** two lines, the file as its header gives it: its kind
+  (`PCM`, `PCM SWEEP` or `DoP`), then its depth and rate in kHz without the
+  unit (`24/96`, `16/44.1`) or, for DoP, its DSD rate (`DSD64`, `DSD128`,
+  `DSD256`). While a stream is open they show the file the checker locked
+  onto; otherwise the last result's file while it belongs to the current run.
+  A new run clears them.
+- **Version:** at the bottom, the firmware version as `fw=` shows it
+  ([Release](#release)), without the label.
+- **Splash:** for about 2 s after start-up, `BIT-PERFECT`, `CHECKER`, the
+  project's web address, the version, and three squares, red, green and blue,
+  that light in the order and timing of the boot LED test and stay lit; then
+  the status screen. The splash does not hold up the USB start.
+- **Fault:** the backlight goes off.
+
+The screen has no counters and no detail rows; the serial log has them.
+
+**Drawing never holds up USB.** The receive FIFO holds about 5 ms of audio at
+768 kHz, and the main loop must empty it. Drawing is cut into small units
+(a strip of the band, one character), and `display_task()` runs on every
+pass of the main loop and starts a unit only if it fits in about 0.2 ms with
+the USB interrupts that come meanwhile. It draws only while the FIFO holds
+less than 0.5 ms of audio, and redraws only the characters that changed.
+Each unit's time is measured once at start-up. The hourglass's blink is one
+such unit.
+
+The build options `-DDISPLAY_LOG=ON` and `-DDISPLAY_STRESS=ON` log a line
+per redraw and redraw the whole screen continuously, to measure this
+([`app/screen.h`](app/screen.h)).
+
 ## USB ID
 
 The device reports the manufacturer "Mete Balci" and the product "Bit-Perfect
@@ -160,7 +266,8 @@ The setting in effect is on the `boot` line, the `status` answer and every
 ## Build
 
 Needs `arm-none-eabi-gcc` with newlib, CMake 3.21 or later, Ninja and
-`patch` ([TinyUSB patch](#tinyusb-patch)). From the repository root:
+`patch` ([TinyUSB patch](#tinyusb-patch)). A board with a display also needs
+Python 3, which converts the fonts at build time. From the repository root:
 
 ```
 git submodule update --init
@@ -168,7 +275,8 @@ cmake -S firmware -B firmware/build/nucleo_u5a5zj_q -G Ninja -DBOARD=nucleo_u5a5
 cmake --build firmware/build/nucleo_u5a5zj_q
 ```
 
-`-DSHIELD=<shield>` adds a shield. The build writes
+`<board>` is a folder in `boards/`: `nucleo_u5a5zj_q`, `stm32f723e_disco` or
+`stm32u5g9j_dk2`. `-DSHIELD=<shield>` adds a shield. The build writes
 `bpc-<board>[-<shield>].elf`, `.bin` and `.hex` to the build folder. It must
 finish without compiler or linker warnings: the firmware's own sources build
 with `-Werror`.
@@ -187,8 +295,16 @@ cmake --build firmware/build/nucleo_u5a5zj_q --target flash
 This runs `STM32_Programmer_CLI -c port=SWD sn=<serial number> mode=UR -w <bin> 0x08000000 -v -rst`.
 Without `STLINK_SN` the target refuses to run, so that it never writes to
 another board that happens to be connected.
-Without STM32CubeProgrammer, copy the `.bin` to the ST-LINK's USB drive
-(`NOD_U5A5ZJ`).
+Without STM32CubeProgrammer, copy the `.bin` to the ST-LINK's USB drive:
+`NOD_U5A5ZJ` on the NUCLEO-U5A5ZJ-Q, `DIS_F723IE` on the STM32F723E-DISCO.
+The STM32U5G9J-DK2's ST-LINK shows no drive, so flash it with
+STM32CubeProgrammer.
+
+Flash the `.bin`, not the `.elf` or `.hex`, on the STM32F723E-DISCO: the
+linker places its image at the flash's ITCM alias, 0x00200000, so the `.elf`
+and the `.hex` carry addresses there, while the `.bin` is the image for the
+flash's address 0x08000000, which the `flash` target writes it to and the
+USB drive writes at the flash's start.
 
 ## Release
 
@@ -207,8 +323,8 @@ test files', do not change the version.
 
 ## Serial log and commands
 
-The log is on the board's debug UART: the ST-LINK virtual COM port on the
-Nucleo, 115200 8N1. It is meant to be read by scripts as well as people.
+The log is on the board's debug UART, the ST-LINK's virtual COM port,
+115200 8N1. It is meant to be read by scripts as well as people.
 
 ### Lines from the device
 
@@ -219,7 +335,7 @@ their meaning.
 | Event | Meaning |
 |---|---|
 | `boot fw=<version> board=<board> usb=<vid>:<pid> allow_silence=<true/false>` | start-up, with the firmware version ([Release](#release)) and the [allowed silence](#allowed-silence) |
-| `led <colour> <pin>` | the LED test at start-up: red, green, blue, each for 0.3 s |
+| `led <colour> <pin>` | the LED test at start-up: red, green, blue, each for 0.3 s; no line for a colour the board lacks |
 | `formats <list>` | the formats offered, as alt settings 1 to n; at boot, and after a `formats` command, with `changed=0` or `changed=1` |
 | `usb mounted speed=high` | enumerated; `speed=full` means the High-Speed link failed |
 | `usb disconnected` | no host has the device set up any more: the cable was pulled (VBUS gone for 50 ms), or the host deconfigured it; once, when the device was connected |
@@ -425,6 +541,9 @@ format conversion.
 
 ## LEDs
 
+The DK2 has no blue LED, so its screen shows what blue shows
+([Boards](#boards)). A fault lights every LED a board has.
+
 | LED | Meaning |
 |---|---|
 | blue, fast blink | not connected: the cable is out, or no host has set the device up |
@@ -435,10 +554,11 @@ format conversion.
 | red, fast blink | the run has an `OVERRUN` result |
 | green, steady | the run's results are all `BIT_PERFECT` |
 | green and red off | nothing judged yet |
-| all three on | fault, stopped |
+| all on | fault, stopped |
 
 Green and red show the current **run**: every result since the last press of
-the user button (B1 on the Nucleo, or a tap on a touch screen), the console
+the user button (B1 on the Nucleo and the F723, B2 on the DK2, or a tap on a
+touch screen), the console
 command `mark`, a pulled USB cable (VBUS gone for 50 ms), or a reset. A pull
 during playback cuts a file: its result stays in the run before, and while
 the cable is out green and red are off.
@@ -471,8 +591,9 @@ Each case builds on the one before.
    the user USB port's VBUS.
 4. Build with `-DBOARD=<board>`.
 
-**A board of another family** (for example the STM32F723E-DISCO, an
-STM32F7): add `families/<family>/` like `families/stm32u5/`, with
+**A board of another family** (the STM32F723E-DISCO's `families/stm32f7/` was
+added this way): add `families/<family>/` like `families/stm32u5/` or
+`families/stm32f7/`, with
 `family.cmake` (CPU flags, TinyUSB's `CFG_TUSB_MCU`, the HAL modules),
 `family.c` (USB controller and PHY start-up, `board_usb_microframe()`, the
 log UART, tick, interrupts), the HAL configuration and linker scripts; add
@@ -490,8 +611,41 @@ list(APPEND DISPLAY_SOURCES ${CMAKE_CURRENT_LIST_DIR}/display.c)
 `display_update()` gets the [status](app/status.h) after every change and
 does not draw. `display_task()` is called on every pass of the main loop and
 draws at most about 0.2 ms at a time, because the receive FIFO holds about
-5 ms of audio at 768 kHz. The fault handler calls `board_fault()` before it
-stops; a board with a display turns its backlight off there.
+5 ms of audio at 768 kHz. `display_led_test()` (optional) is called as the
+start-up LED test lights each LED, for a splash that shows the same colours.
+The fault handler calls `board_fault()` before it stops; a board with a
+display turns its backlight off there. A board without a display builds
+`app/display_none.c` instead.
+
+To use the [status screen](#screen) of the F723 and the DK2, the board's
+folder holds:
+
+1. A panel driver that implements [`panel.h`](include/panel.h):
+   `panel_init()` (bus, reset, controller set-up, screen cleared to black,
+   backlight on; false if no panel answers), `panel_width()` and
+   `panel_height()`, `panel_window()` for the rectangle the next writes fill,
+   `panel_fill()` for pixels of one colour and `panel_bits()` for a bitmap.
+   Colours are `0xRRGGBB`; the driver turns them into the panel's format.
+2. A `screen_layout_t` and a table of `screen_place_t` ([`app/screen.h`](app/screen.h)):
+   where the band, the labels, the file lines and the version go, in which
+   font, and the splash. The DK2's is in `screen_layout.h`, doubled from the
+   F723's.
+3. A `display.c` whose `display_init()` calls `panel_init()` and
+   `screen_init(&layout)`, and whose `display_update()`, `display_task()` and
+   `display_led_test()` call `screen_update()`, `screen_task()` and
+   `screen_splash_led()`.
+4. In `board.cmake`, the sources (`display.c`, the panel driver,
+   `app/screen.c` and `app/screen_model.c`) in `DISPLAY_SOURCES`, and the
+   fonts in `DISPLAY_FONTS`, as `<name>=<file>` pairs naming BDF files in
+   `lib/spleen`:
+   ```
+   set(DISPLAY_FONTS 8x16=spleen-8x16.bdf 12x24=spleen-12x24.bdf 16x32=spleen-16x32.bdf)
+   ```
+   The build converts them and gives the layout `font_<name>` (`font_8x16`)
+   from `fonts.h`. A size Spleen lacks can be made from a smaller one at
+   start-up with `screen_font_double()`, as the DK2 does.
+5. For touch, `board_button()` returns true while a finger is down, besides
+   the button, as the F723's and the DK2's do.
 
 **A board with a display shield** (the Nucleo with an Arduino-header TFT):
 add `shields/<shield>/shield.cmake`, which appends the display driver to
@@ -499,6 +653,18 @@ add `shields/<shield>/shield.cmake`, which appends the display driver to
 `-DBOARD=<board> -DSHIELD=<shield>`. The shield uses the bus and pins the
 board's Arduino header provides; the board names them in its `board.c` or a
 header next to it.
+
+## Licences
+
+The firmware is MIT. Third-party code comes through the pinned submodules,
+under their own licences. The two panel drivers,
+`boards/stm32f723e_disco/panel_st7789h2.c` and
+`boards/stm32u5g9j_dk2/panel_rk050hr18.c`, each hold a table taken from
+ST's code (the ST7789H2 set-up, the RK050HR18 timing and LTDC settings)
+under ST's BSD-3-Clause notice in the file; their SPDX identifier is
+`MIT AND BSD-3-Clause`. The screens' fonts are
+[Spleen](https://github.com/fcambus/spleen) (BSD-2-Clause), converted at
+build time.
 
 ## How it was written
 

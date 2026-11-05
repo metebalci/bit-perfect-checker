@@ -38,7 +38,8 @@ while a Linux PC lost a few at the highest rates. A missed packet shows as
 `lost` in the result, so it is told apart from an altered sample.
 
 The board shows its verdicts on its LEDs and in a serial log, with one result
-line per file; see [firmware](firmware/README.md).
+line per file; the STM32F723E-DISCO and the STM32U5G9J-DK2 also show the state
+and the verdict on their screens. See [firmware](firmware/README.md).
 
 To use the checker, see <https://bpc.metebalci.com>: what it is, the
 downloads, how to play the files and read the LEDs, the serial log and
@@ -56,7 +57,7 @@ rebuilding a release. The design and its reasons are in
 | `docs/design.md` | [design](docs/design.md): the choices behind the project and why |
 | `docs/bpc1.md` | [BPC1 signal format](docs/bpc1.md), the specification |
 | `docs/measurements.md` | [measurements](docs/measurements.md): what was measured on hardware with Linux and an iPad |
-| `firmware/` | firmware for the hardware checker, NUCLEO-U5A5ZJ-Q first; see [firmware](firmware/README.md) |
+| `firmware/` | firmware for the hardware checker on the NUCLEO-U5A5ZJ-Q, the STM32F723E-DISCO and the STM32U5G9J-DK2; see [firmware](firmware/README.md) |
 | `generator/` | test-file generator (Python) |
 | `generator/third_party/alac/` | Apple's ALAC codec, a git submodule |
 | `tests/` | tests for the Python packages and the firmware's portable C checker |
@@ -64,12 +65,15 @@ rebuilding a release. The design and its reasons are in
 
 ## Use
 
-The hardware checker needs a NUCLEO-U5A5ZJ-Q, the firmware on it and the test
-files.
+The hardware checker needs one of three boards, the firmware on it and the
+test files.
 
-1. **The board.** It has two USB connections: the ST-LINK USB port, for power,
-   flashing and the serial log, and the user USB port (USB-C), which goes to
-   the host under test. Connect both. The board's details are in the
+1. **The board.** A NUCLEO-U5A5ZJ-Q (LEDs only), an STM32F723E-DISCO (a
+   1.54" touch screen) or an STM32U5G9J-DK2 (a 5" touch screen). Each has two
+   USB connections: the ST-LINK USB port, for flashing and the serial log,
+   and the user USB port, which goes to the host under test (USB-C on the
+   NUCLEO and the DK2, micro-AB on the F723). Connect both. The boards'
+   details, and what the screens show, are in the
    [firmware README](firmware/README.md).
 2. **The firmware.** Build and flash it yourself with ARM GCC, CMake, Ninja
    and ST's STM32CubeProgrammer, following the Build and Flash sections of the
@@ -550,14 +554,22 @@ The firmware uses:
 - [TinyUSB](https://github.com/hathach/tinyusb) (MIT), by Ha Thach and
   contributors, release 0.21.0 with one local patch for zero-length audio
   packets (see the [firmware README](firmware/README.md))
-- ST's [CMSIS device files for the STM32U5](https://github.com/STMicroelectronics/cmsis_device_u5)
-  (Apache-2.0) and [STM32U5 HAL](https://github.com/STMicroelectronics/stm32u5xx_hal_driver)
-  (BSD-3-Clause)
+- ST's CMSIS device files ([STM32U5](https://github.com/STMicroelectronics/cmsis_device_u5),
+  [STM32F7](https://github.com/STMicroelectronics/cmsis_device_f7); Apache-2.0)
+  and HAL ([STM32U5](https://github.com/STMicroelectronics/stm32u5xx_hal_driver),
+  [STM32F7](https://github.com/STMicroelectronics/stm32f7xx_hal_driver);
+  BSD-3-Clause)
 - Arm's [CMSIS 5](https://github.com/ARM-software/CMSIS_5) core headers
   (Apache-2.0)
+- [Spleen](https://github.com/fcambus/spleen) (BSD-2-Clause), by Frederic
+  Cambus, the bitmap fonts of the screens
+- ST's display code, in two files of `firmware/boards` under ST's
+  BSD-3-Clause notice: the ST7789H2 set-up of the F723's panel and the
+  RK050HR18 timing of the DK2's
 
 `firmware/boards` and `firmware/families` follow TinyUSB's board files for
-the STM32U5.
+the STM32U5; the STM32F723E-DISCO's clock set-up follows ST's STM32CubeF7
+examples for the board.
 
 The payload hash of BPC1 uses the lowbias32 constants published by Chris
 Wellons, and the channel keys are the first output of SplitMix64 (Sebastiano
