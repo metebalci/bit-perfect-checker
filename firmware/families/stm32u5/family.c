@@ -162,7 +162,11 @@ __attribute__((naked)) void HardFault_Handler(void) {
       "b fault_stop\n");
 }
 
+__attribute__((weak)) void board_fault(void) {
+}
+
 void fault_stop(void) {
+  board_fault();
   for (int i = 0; i < LED_COUNT; i++) {
     board_led((led_t) i, true);
   }

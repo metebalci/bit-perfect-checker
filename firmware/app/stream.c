@@ -265,6 +265,8 @@ static struct {
   int32_t held_lost;
   uint32_t held_overflows;
   uint32_t stream_results;  // result lines of this stream
+  uint32_t results_lost;    // results the checker dropped, as far as the run counts know
+  uint64_t diff_file;       // first frame of the file status.file_diff names
 } s;
 
 static bpc1_checker_t ck;
@@ -272,6 +274,7 @@ static uint32_t buf[1024];
 static uint32_t words[2 * 1024];  // buf's frames as the checker takes them
 static uint32_t results;          // result lines since boot
 static char result_text[LOG_LINE_MAX];
+static uint32_t run_starts;       // "run start" lines that wait for the result line before them
 
 static uint32_t frame_bytes(void) {
   return (uint32_t) status.slot * UAC2_CHANNELS;
@@ -663,10 +666,19 @@ static void run_note(uint8_t verdict) {
   }
 }
 
+// The run's results are cleared at once. A result taken before now whose
+// line still waits belongs to the run before: "run start" follows its line.
 void stream_run_start(void) {
   status.run_pass = status.run_fail = status.run_unknown = status.run_overrun = false;
+  memset(status.run_count, 0, sizeof(status.run_count));
+  status.run_results_lost = 0;
   status_changed();
-  log_line("run start");
+  status.last_in_run = false;
+  if (s.held) {
+    run_starts++;
+  } else {
+    log_line_reserved("run start");
+  }
 }
 
 // The line of the result that waits
@@ -690,6 +702,24 @@ static void log_held(void) {
   log_line_reserved("%s", result_text);
   s.stream_results++;
   s.held = false;
+
+  // The last result, as the line gives it; a "run start" that waited for
+  // this line puts it in the run before
+  status.last_known = true;
+  status.last_in_run = run_starts == 0;
+  status.last_verdict = s.held_r.verdict;
+  status.last_end = s.held_r.end;
+  status.last_lost = s.held_lost;
+  status.last_overflows = s.held_overflows;
+  bpc1_diff_text(&s.held_r, status.last_diff, sizeof(status.last_diff));
+  if (status.file_diff_known && s.held_r.first_frame == s.diff_file) {
+    status.file_diff_known = false;
+  }
+  status_changed();
+
+  for (; run_starts > 0; run_starts--) {
+    log_line_reserved("run start");
+  }
 }
 
 // Each finished result takes the events before its end frame. Its line
@@ -706,6 +736,22 @@ static void pop_results(bool all) {
     charge(r.first_frame + r.frames, &s.held_lost, &s.held_overflows);
     s.held = true;
     run_note(r.verdict);
+    if (r.verdict < TU_ARRAY_SIZE(status.run_count)) {
+      status.run_count[r.verdict]++;
+      status_changed();
+    }
+    // A result for a later file than the one with the difference: that
+    // file's result was dropped, or is this one
+    if (status.file_diff_known && r.first_frame > s.diff_file) {
+      status.file_diff_known = false;
+      status_changed();
+    }
+  }
+  uint32_t dropped = bpc1_checker_results_lost(&ck);
+  if (dropped != s.results_lost) {
+    status.run_results_lost += dropped - s.results_lost;
+    s.results_lost = dropped;
+    status_changed();
   }
 }
 
@@ -715,6 +761,17 @@ static void release(void) {
   if (s.held && s.fed > bpc1_checker_covered(&ck)) {
     log_held();
   }
+}
+
+uint32_t stream_backlog_us(void) {
+  uint32_t per_s = frame_bytes() * status.rate;
+  if (!s.active || per_s == 0) {
+    return 0;
+  }
+  board_irq_disable();
+  uint64_t waiting = fifo_written - fifo_skipped - fifo_read_all;
+  board_irq_enable();
+  return (uint32_t) (waiting * 1000000u / per_s);
 }
 
 void stream_log_result(void) {
@@ -748,6 +805,12 @@ static void watch(void) {
   }
   if (r.verdict == BPC1_NOT_BIT_PERFECT) {
     run_note(r.verdict);  // red from the file's first difference on
+    if (!status.file_diff_known || s.diff_file != r.first_frame) {
+      status.file_diff_known = true;
+      s.diff_file = r.first_frame;
+      bpc1_diff_text(&r, status.file_diff, sizeof(status.file_diff));
+      status_changed();
+    }
   }
 }
 
@@ -782,6 +845,7 @@ static void start(const counters_t *c, uint32_t now) {
   s.held = false;
   s.locked = false;
   s.stream_results = 0;
+  s.results_lost = 0;
   s.ck_cycles = 0;
   s.ck_frames = 0;
 
@@ -838,6 +902,9 @@ static void stop(const char *reason) {
            (unsigned long) bpc1_checker_results_lost(&ck));
 
   s.active = false;
+  status.lost = (uint32_t) (net_lost(c) > 0 ? net_lost(c) : 0);
+  status.overflows = c->overflows;
+  status.file_diff_known = false;
   // The interrupt may have begun the next segment already (a host gap just
   // over the idle time): a restart now would cut that segment short.
   board_irq_disable();

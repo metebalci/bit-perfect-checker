@@ -25,14 +25,27 @@ typedef struct {
   uint32_t stream_id;   // counts streams since boot, from 1
   uint8_t bits;         // bits in use, over the last second
   bool dop;
-  uint32_t lost;        // packets lost in this stream
-  uint32_t overflows;   // receive FIFO overflows in this stream
+  uint32_t lost;        // packets lost in this stream, the last one once it stopped
+  uint32_t overflows;   // receive FIFO overflows in this stream, likewise
   bool allow_silence;   // silence outside every file gives no result
   // The results of the run: since the user button, the mark command or reset
   bool run_pass;        // a BIT_PERFECT result
   bool run_fail;        // a NOT_BIT_PERFECT result, or a file's first difference
   bool run_unknown;     // an UNKNOWN_SIGNAL result
   bool run_overrun;     // a DEVICE_OVERRUN result
+  uint32_t run_count[4];      // the run's results by verdict, indexed by bpc1_verdict_t
+  uint32_t run_results_lost;  // the run's results the checker dropped (its queue was full)
+  // The last result line, as the "result" command repeats it
+  bool last_known;
+  bool last_in_run;           // it belongs to the run that runs now
+  uint8_t last_verdict;       // bpc1_verdict_t
+  uint8_t last_end;           // bpc1_end_t
+  int32_t last_lost;
+  uint32_t last_overflows;
+  char last_diff[12];         // seconds with 3 decimals, or "-"
+  // The file being checked, from its first difference until its result line
+  bool file_diff_known;
+  char file_diff[12];
 } status_t;
 
 extern status_t status;

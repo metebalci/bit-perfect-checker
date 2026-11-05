@@ -129,6 +129,12 @@ const char *board_led_name(led_t led) {
   return leds[led].name;
 }
 
+// A fault: the display's backlight off (PH11, panel_st7789h2.c), so that the
+// screen does not keep showing a result while the LEDs show the fault
+void board_fault(void) {
+  GPIOH->BSRR = (uint32_t) GPIO_PIN_11 << 16;
+}
+
 // B1, or a finger anywhere on the touch panel
 bool board_button(void) {
   return HAL_GPIO_ReadPin(GPIOA, GPIO_PIN_0) == GPIO_PIN_SET || touch_down();

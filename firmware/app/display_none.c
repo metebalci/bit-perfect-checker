@@ -8,3 +8,6 @@ void display_init(void) {
 void display_update(const status_t *s) {
   (void) s;
 }
+
+void display_task(void) {
+}

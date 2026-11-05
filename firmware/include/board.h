@@ -40,6 +40,12 @@ uint32_t board_cpu_hz(void);
 // advances every 125 us. Called from the USB interrupt.
 uint32_t board_usb_microframe(void);
 
+// The fault handler calls this before it lights every LED and stops: a board
+// turns off here what must not keep showing a state, such as a display's
+// backlight. Interrupts are off and the stack may be gone; no waiting. The
+// family's default does nothing.
+void board_fault(void);
+
 // Mask all interrupts around a short copy of data an interrupt writes.
 void board_irq_disable(void);
 void board_irq_enable(void);

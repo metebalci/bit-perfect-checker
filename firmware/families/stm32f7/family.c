@@ -211,7 +211,11 @@ __attribute__((naked)) void HardFault_Handler(void) {
 // escalating to HardFault: the same handler.
 void MemManage_Handler(void) __attribute__((alias("HardFault_Handler")));
 
+__attribute__((weak)) void board_fault(void) {
+}
+
 void fault_stop(void) {
+  board_fault();
   for (int i = 0; i < LED_COUNT; i++) {
     board_led((led_t) i, true);
   }

@@ -57,6 +57,7 @@ int main(void) {
     uac2_task();
     button_task();
     leds_task();
+    display_task();
     if (status.version != shown) {
       shown = status.version;
       display_update(&status);

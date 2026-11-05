@@ -222,13 +222,13 @@ their meaning.
 | `result seq=<n> stream=<n> file=<n> verdict=<verdict> kind=<kind> ...` | **the outcome of one file**: see [Result lines](#result-lines) |
 | `stream stop id=<n> reason=<why> dur=<s> frames=<n> pkts=<n> rate=<Hz> fpp=<min>-<max> lost=<n> missed=<n> holes=<n> maxhole=<n> doubled=<n> ovf=<n> outside=<frames> silent=<frames> results=<n> results_lost=<n>` | end of a stream, after its last `result` line: `alt` (alt setting changed), `idle` (no packet for 50 ms), `rate` (the host set another rate during the stream), `reset` or `pause`; `fpp` is frames per packet; `holes` counts the runs of microframes without a packet and `maxhole` is the longest; `outside` is the number of frames of the stream outside every file's extent ([12.6](../docs/bpc1.md#126-verdicts)), so host padding can be measured; `silent` is the number of those frames that were allowed silence, which gave no result (0 unless `allow_silence` is `true`); `results` is the number of result lines of the stream, and `results_lost` the number of results of the stream the checker dropped because its queue of finished results was full |
 | `stall <ms>` | the [`stall` command](#commands-to-the-device) started its busy-wait of `<ms>` milliseconds |
-| `run start` | a new run begins: the user button was pressed, the `mark` command arrived, or the board reset; green and red go off ([LEDs](#leds)) |
+| `run start` | a new run begins: the user button was pressed, the `mark` command arrived, or the board reset; green and red go off ([LEDs](#leds)). It follows any `result` line still waiting at that moment, whose result belongs to the run before |
 | `usb unsupported get/set entity=<id> ctrl=<n> req=<n>` | a class request the device does not answer |
 | `log lost=<n>` | log lines dropped because the queue was full |
 
 `lock` comes from the checker four times a second at most. The log keeps
-room in its queue that only `result` and `stream stop` lines may use, so
-these are never dropped when other lines fill it.
+room in its queue that only `result`, `stream stop` and `run start` lines may
+use, so these are never dropped when other lines fill it.
 
 ### Result lines
 
@@ -360,9 +360,9 @@ One command per line, ended by CR or LF. Each answer is one line:
 
 | Command | Answer |
 |---|---|
-| `status` | `status usb=<state> speed=<high/full> rate=<Hz> alt=<n> slot=<bytes> res=<bits> streaming=<0/1> id=<n> lost=<n> ovf=<n> formats=<list> allow_silence=<true/false>` |
+| `status` | `status usb=<state> speed=<high/full> rate=<Hz> alt=<n> slot=<bytes> res=<bits> streaming=<0/1> id=<n> lost=<n> ovf=<n> formats=<list> allow_silence=<true/false>`; `lost` and `ovf` are those of stream `id`: as on its last `stat` line while the stream runs, as on its `stream stop` line once it stopped, with a negative `lost` shown as 0 |
 | `result` | the last `result` line again, or `result none` |
-| `mark <text>` | `mark <text>`, to tie a script's steps to the log; it also starts a new run (`run start`, [LEDs](#leds)) |
+| `mark <text>` | `mark <text>`, to tie a script's steps to the log; it also starts a new run (`run start`, [LEDs](#leds)). The echo comes at once, so a `result` line still waiting from the run before can come between `mark` and `run start`; `bpcctl` follows stream ids and is not affected |
 | `formats [<list> \| default]` | `formats <list>`; with a list, offer those formats from now on (`changed=1`, then the device reconnects) |
 | `allow_silence true\|false` | `allow_silence <value>`; sets the [allowed silence](#allowed-silence) for the next stream |
 | `version` | `version fw=<version> board=<board> usb=<vid>:<pid>` |
@@ -428,7 +428,9 @@ first of these that holds, from red steady down. Once red is on, it stays red
 until the next run; it can only change from blinking to steady. With
 `allow_silence` `true` a file muted to zeros gives no result, so green can
 stay on; only `bpcctl run --expect` catches it. A new run is
-logged as `run start` and turns green and red off. A stack that grows past
+logged as `run start` and turns green and red off. A `result` line that is
+still waiting when the run starts comes before `run start`, since its result
+belongs to the run before. A stack that grows past
 its 16 KB also stops the firmware as a fault.
 
 ## Adding a board
@@ -462,9 +464,11 @@ TinyUSB's `tools/get_deps.py` lists. Then add the board as above.
 list(APPEND DISPLAY_SOURCES ${CMAKE_CURRENT_LIST_DIR}/display.c)
 ```
 
-`display_update()` gets the [status](app/status.h) after every change; it
-runs in the main loop and must return within a millisecond or so, because the
-receive FIFO holds about 5 ms of audio at 768 kHz.
+`display_update()` gets the [status](app/status.h) after every change and
+does not draw. `display_task()` is called on every pass of the main loop and
+draws at most about 0.2 ms at a time, because the receive FIFO holds about
+5 ms of audio at 768 kHz. The fault handler calls `board_fault()` before it
+stops; a board with a display turns its backlight off there.
 
 **A board with a display shield** (the Nucleo with an Arduino-header TFT):
 add `shields/<shield>/shield.cmake`, which appends the display driver to

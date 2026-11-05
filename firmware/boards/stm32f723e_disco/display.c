@@ -1,7 +1,7 @@
 // The STM32F723E-DISCO's display, for now a test pattern: display_init()
 // brings up the panel and the touch controller, times a full-screen fill and
 // draws colour bars, a marker in the top-left corner and every character of
-// both fonts. display_update() draws nothing yet.
+// both fonts. display_update() and display_task() do nothing yet.
 
 #include "display.h"
 
@@ -86,4 +86,7 @@ void display_init(void) {
 
 void display_update(const status_t *s) {
   (void) s;
+}
+
+void display_task(void) {
 }

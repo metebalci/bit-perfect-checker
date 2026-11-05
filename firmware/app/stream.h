@@ -33,7 +33,11 @@ void stream_task(void);
 // Log the last result line again ("result none" before the first).
 void stream_log_result(void);
 
-// A new run: logs "run start" and clears the run's results.
+// A new run: clears the run's results and logs "run start", after the line
+// of a result taken before it if that line still waits.
 void stream_run_start(void);
+
+// Audio waiting in the receive FIFO, in microseconds; 0 outside a stream.
+uint32_t stream_backlog_us(void);
 
 #endif
