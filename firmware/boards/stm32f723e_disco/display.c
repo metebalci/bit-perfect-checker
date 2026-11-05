@@ -21,10 +21,10 @@
 // lines of the large font, centred between the errors and the version (24
 // lines above and below); the firmware version at the bottom
 static const screen_place_t places[] = {
-  {SCREEN_TEXT_LABELS, 78, &font_12x24, SCREEN_RED, false},
-  {SCREEN_TEXT_FILE0, 126, &font_16x32, SCREEN_WHITE, false},
-  {SCREEN_TEXT_FILE1, 164, &font_16x32, SCREEN_WHITE, false},
-  {SCREEN_TEXT_FW, 220, &font_8x16, SCREEN_WHITE, false},
+  {SCREEN_TEXT_LABELS, 78, &font_12x24, SCREEN_RED, false, 0, 0},
+  {SCREEN_TEXT_FILE0, 126, &font_16x32, SCREEN_WHITE, false, 0, 0},
+  {SCREEN_TEXT_FILE1, 164, &font_16x32, SCREEN_WHITE, false, 0, 0},
+  {SCREEN_TEXT_FW, 220, &font_8x16, SCREEN_WHITE, false, 0, 0},
 };
 
 static const screen_layout_t layout = {

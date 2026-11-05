@@ -4,8 +4,10 @@
 // at a time from the main loop. A board's display.c gives the layout and
 // calls these from display_init(), display_update() and display_task().
 //
-// A layout places the band and the texts it chooses: a small panel the
-// labels, the file and the version, a large one the detail rows too.
+// A layout places the band and the texts it chooses in an area of the panel,
+// the whole panel or a part of it: a small panel the labels, the file and the
+// version, a large one the detail rows too. A text may have an area of its
+// own, for example beside the layout's.
 //
 // screen_task() draws only while the USB receive FIFO holds less than
 // SCREEN_BACKLOG_US of audio, and for at most about SCREEN_SLICE_US per
@@ -50,22 +52,27 @@ typedef enum {
 
 typedef struct {
   uint8_t text;              // screen_text_t
-  uint16_t y;                // its top; centred across
+  uint16_t y;                // its top; centred across its area
   const font_t *font;
   uint32_t colour;           // the text's, on black
   bool blink;                // with screen_blink_lit()
+  uint16_t x;                // its area: from x, width pixels wide; width 0
+  uint16_t width;            // for the layout's area
 } screen_place_t;
 
 typedef struct {
-  uint16_t band_h;           // the band: from the top, the full width
+  uint16_t x;                // the screen's area: from x, width pixels wide, the
+  uint16_t width;            // panel's height high; width 0 for the whole panel
+  uint16_t band_h;           // the band: from the top, the area's width
   uint16_t band_frame;       // the frame's width
   uint16_t band_margin;      // between the frame and the word, on each side; a
                              // word wider than that leaves breaks at its first
                              // space onto two lines, centred both ways
   const font_t *band_font;
+  uint8_t hourglass_scale;   // the hourglass (16x32) at 1x (0 or 1) or 2x (2)
   const screen_place_t *places;  // the texts under the band
   uint8_t n_places;              // at most SCREEN_PLACES_MAX
-  // The splash at start-up, centred across: BIT-PERFECT and CHECKER in the
+  // The splash at start-up, centred in the area: BIT-PERFECT and CHECKER in the
   // band's font from splash_y, the project's address in splash_font at
   // splash_url_y, three squares (red, green, blue) of splash_square pixels
   // at splash_squares_y, and the version where the status screen has it
@@ -77,6 +84,15 @@ typedef struct {
 } screen_layout_t;
 
 #define SCREEN_SPLASH_MS 2000u
+
+// The bytes a font at twice the size of src takes: SCREEN_FONT_DOUBLE_BYTES(12,
+// 24, 95) for Spleen's 12x24
+#define SCREEN_FONT_DOUBLE_BYTES(w, h, count) (((2u * (w) + 7u) / 8u) * 2u * (h) * (count))
+
+// dst becomes src at twice the size, each pixel two wide and two high, its
+// glyphs in bits (SCREEN_FONT_DOUBLE_BYTES): for a size that Spleen lacks,
+// such as 24x48. Once, before screen_init() with a layout that uses dst.
+void screen_font_double(const font_t *src, font_t *dst, uint8_t *bits);
 
 // After panel_init(), with the panel cleared to black: draws the splash,
 // which stays SCREEN_SPLASH_MS before screen_task() draws the status.

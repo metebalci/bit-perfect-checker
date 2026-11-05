@@ -68,7 +68,7 @@ typedef struct {
   // The file being checked, as its header gives it, in two lines centred in
   // SCREEN_BAND_COLS (PCM / 24/96, DoP / DSD128, PCM SWEEP / 16/44.1): while
   // a stream is open the file the checker locked onto, else the last
-  // result's file; blank without one
+  // result's file if it belongs to the run that runs now; blank without one
   char file[2][SCREEN_BAND_COLS + 1];
   // The firmware version, centred, without a label
   char fw[SCREEN_COLS + 1];

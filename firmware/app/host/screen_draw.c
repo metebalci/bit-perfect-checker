@@ -1,10 +1,15 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) 2026 Mete Balci
 // Host tool for tests/test_screen_draw.py: draws the status screen with
-// app/screen.c on a 240x240 panel in memory that follows panel.h (a window,
-// then pixels left to right and top to bottom; panel_bits() reads n bits, the
-// most significant bit of each byte first), in the STM32F723E-DISCO's layout,
-// and prints glyphs as the panel shows them. Not part of the firmware.
+// app/screen.c on a panel in memory that follows panel.h (a window, then
+// pixels left to right and top to bottom; panel_bits() reads n bits, the
+// most significant bit of each byte first), and prints glyphs as the panel
+// shows them. Not part of the firmware. By default a 240x240 panel in the
+// STM32F723E-DISCO's layout; built with -DDRAW_W=<w> -DDRAW_H=<h>
+// -DDRAW_LAYOUT=<header>, a board's panel size and its layout header
+// (one that defines `layout` and screen_layout_init(), as
+// boards/stm32u5g9j_dk2/screen_layout.h); -DDRAW_AREA_X=<x> moves that
+// layout's area to x, for tests of the area's offset.
 //
 //   glyph <x> <y> <w> <h>   -> h lines of w characters: 1 where the pixel is
 //                              not black, else 0
@@ -12,7 +17,10 @@
 //
 // The status it draws, after the splash's time: mounted, a run with an
 // UNKNOWN_SIGNAL result and the last result's file PCM 48 kHz 24-bit. With
-// the argument "splash": the splash, with all three squares lit.
+// the argument "splash": the splash, with all three squares lit; with
+// "not-connected": the same with no host (the band's NOT CONNECTED, which
+// has no hourglass); with "old-run": the same, but the last result belongs
+// to the run before (a run started since it).
 
 #include <stdbool.h>
 #include <stdio.h>
@@ -28,8 +36,12 @@
 #include "status.h"
 #include "stream.h"
 
-#define W 240u
-#define H 240u
+#ifndef DRAW_W
+#define DRAW_W 240u
+#define DRAW_H 240u
+#endif
+#define W DRAW_W
+#define H DRAW_H
 
 status_t status;
 
@@ -104,12 +116,15 @@ void panel_bits(const uint8_t *bits, uint32_t n, uint32_t fg, uint32_t bg) {
   }
 }
 
+#ifdef DRAW_LAYOUT
+#include DRAW_LAYOUT
+#else
 // The F723's places (boards/stm32f723e_disco/display.c)
 static const screen_place_t places[] = {
-  {SCREEN_TEXT_LABELS, 78, &font_12x24, SCREEN_RED, false},
-  {SCREEN_TEXT_FILE0, 126, &font_16x32, SCREEN_WHITE, false},
-  {SCREEN_TEXT_FILE1, 164, &font_16x32, SCREEN_WHITE, false},
-  {SCREEN_TEXT_FW, 220, &font_8x16, SCREEN_WHITE, false},
+  {SCREEN_TEXT_LABELS, 78, &font_12x24, SCREEN_RED, false, 0, 0},
+  {SCREEN_TEXT_FILE0, 126, &font_16x32, SCREEN_WHITE, false, 0, 0},
+  {SCREEN_TEXT_FILE1, 164, &font_16x32, SCREEN_WHITE, false, 0, 0},
+  {SCREEN_TEXT_FW, 220, &font_8x16, SCREEN_WHITE, false, 0, 0},
 };
 
 static const screen_layout_t layout = {
@@ -125,18 +140,32 @@ static const screen_layout_t layout = {
   .splash_squares_y = 164,
   .splash_square = 32,
 };
+#endif
 
 int main(int argc, char **argv) {
   bool splash = argc > 1 && strcmp(argv[1], "splash") == 0;
-  status.usb = USB_MOUNTED;
+  bool not_connected = argc > 1 && strcmp(argv[1], "not-connected") == 0;
+  bool old_run = argc > 1 && strcmp(argv[1], "old-run") == 0;
+  status.usb = not_connected ? USB_NOT_MOUNTED : USB_MOUNTED;
   status.high_speed = true;
   status.run_unknown = true;
   status.last_known = true;
+  status.last_in_run = !old_run;
   status.last_kind = 1;  // BPC1_KIND_PCM
   status.last_rate = 48000;
   status.last_depth = 24;
   now_ms = 500;
+#ifdef DRAW_LAYOUT
+  screen_layout_init();
+#endif
+#ifdef DRAW_AREA_X
+  static screen_layout_t moved;
+  moved = layout;
+  moved.x = DRAW_AREA_X;
+  screen_init(&moved);
+#else
   screen_init(&layout);
+#endif
   if (splash) {
     screen_splash_led(LED_RED);
     screen_splash_led(LED_GREEN);

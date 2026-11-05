@@ -182,7 +182,8 @@ class ScreenModel(unittest.TestCase):
         """The small screen's texts: the file as its header gives it, its kind
         as it arrives over depth/rate in kHz or the DSD rate, centred in 15
         columns (32/705.6 is the widest, 8); while a stream is open the locked file, else the last
-        result's; the version centred in 30."""
+        result's if it belongs to the run that runs now (blank after a run start); the version
+        centred in 30."""
         pcm, dsd, sweep = 1, 2, 5
         cases = [
             ({"streaming": 1, "file_kind": pcm, "file_rate": 96000, "file_depth": 24}, ("PCM", "24/96")),
@@ -193,12 +194,15 @@ class ScreenModel(unittest.TestCase):
             ({"streaming": 1, "file_kind": sweep, "file_rate": 44100, "file_depth": 16}, ("PCM SWEEP", "16/44.1")),
             # open, not locked yet: nothing, not the last result's file
             ({"streaming": 1, "last": 1, "last_kind": pcm, "last_rate": 48000, "last_depth": 16}, ("", "")),
-            # no stream: the last result's file
-            ({"last": 1, "last_kind": dsd, "last_rate": 2822400, "last_depth": 1, "file_kind": pcm,
-              "file_rate": 48000, "file_depth": 16}, ("DoP", "DSD64")),
-            ({"last": 1, "last_kind": pcm, "last_rate": 48000, "last_depth": 16}, ("PCM", "16/48")),
+            # no stream: the last result's file, if it belongs to the run
+            ({"last": 1, "last_in_run": 1, "last_kind": dsd, "last_rate": 2822400, "last_depth": 1,
+              "file_kind": pcm, "file_rate": 48000, "file_depth": 16}, ("DoP", "DSD64")),
+            ({"last": 1, "last_in_run": 1, "last_kind": pcm, "last_rate": 48000, "last_depth": 16}, ("PCM", "16/48")),
+            # a run started since (B1, a tap, mark, a pulled cable): nothing
+            ({"last": 1, "last_in_run": 0, "last_kind": pcm, "last_rate": 48000, "last_depth": 16}, ("", "")),
+            ({"last": 1, "last_in_run": 0, "last_kind": dsd, "last_rate": 2822400, "last_depth": 1}, ("", "")),
             # the last result was UNKNOWN_SIGNAL (no file), or there is none
-            ({"last": 1, "last_kind": 0}, ("", "")),
+            ({"last": 1, "last_in_run": 1, "last_kind": 0}, ("", "")),
             ({}, ("", "")),
         ]
         statuses = [dict(usb=1, hs=1, **st) for st, _ in cases]
@@ -259,17 +263,21 @@ class ScreenModel(unittest.TestCase):
 
     def test_run_counts_and_last(self):
         _, rows, _ = self.screen(usb=1, hs=1, count1=17, count2=1, count0=2, count3=3, results_lost=5, last=1,
-                                 last_verdict=NOT_BIT_PERFECT, last_end=END_STOP, last_lost=3, last_ovf=0,
+                                 last_in_run=1, last_verdict=NOT_BIT_PERFECT, last_end=END_STOP, last_lost=3, last_ovf=0,
                                  last_diff="2.048")
         self.assertEqual(rows[2], "lost 0  ovf 0   results_lost 5")
         self.assertEqual(rows[3:7], ["BIT-PERFECT".ljust(28) + "17", "NOT BIT-PERFECT".ljust(29) + "1",
                                      "UNKNOWN SIGNAL".ljust(29) + "2", "OVERRUN".ljust(29) + "3"])
         self.assertEqual(rows[7], "last NOT BIT-PERFECT end STOP ")
         self.assertEqual(rows[8], "lost 3  ovf 0  diff 2.048".ljust(COLS))
-        _, rows, _ = self.screen(usb=1, hs=1, last=1, last_verdict=BIT_PERFECT, last_end=END_LAST, last_lost=-2,
-                                 last_diff="-")
+        _, rows, _ = self.screen(usb=1, hs=1, last=1, last_in_run=1, last_verdict=BIT_PERFECT, last_end=END_LAST,
+                                 last_lost=-2, last_diff="-")
         self.assertEqual(rows[7], "last BIT-PERFECT end LAST".ljust(COLS))
         self.assertEqual(rows[8], "lost -2  ovf 0  diff -".ljust(COLS))
+        # The last result is from the run before (a run started since): blank
+        _, rows, _ = self.screen(usb=1, hs=1, last=1, last_in_run=0, last_verdict=BIT_PERFECT, last_end=END_LAST,
+                                 last_lost=-2, last_diff="-")
+        self.assertEqual(rows[7:9], [" " * COLS, " " * COLS])
         # The file with a difference comes before the last result
         _, rows, _ = self.screen(usb=1, hs=1, streaming=1, fail=1, last=1, last_verdict=BIT_PERFECT,
                                  last_end=END_LAST, last_diff="-", file_diff="123.456")
@@ -283,7 +291,7 @@ class ScreenModel(unittest.TestCase):
         big = 4294967295
         band, rows, _ = self.screen(usb=2, hs=1, streaming=1, id=big, dop=1, rate=705600, alt=4, slot=3, res=24, bits=24,
                                     lost=big, ovf=big, results_lost=big, count1=big, count2=big, count0=big,
-                                    count3=big, last=1, last_verdict=OVERRUN, last_end=END_STOP,
+                                    count3=big, last=1, last_in_run=1, last_verdict=OVERRUN, last_end=END_STOP,
                                     last_lost=-2147483648, last_ovf=big, last_diff="1234.567", fail=1)
         for r in rows:
             self.assertEqual(len(r), COLS, r)

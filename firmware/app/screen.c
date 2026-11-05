@@ -22,7 +22,7 @@
 #define STRIP_LINES 4u  // band lines per unit
 
 typedef enum {
-  UNIT_CLEAR,  // a strip of the whole screen, after the splash
+  UNIT_CLEAR,  // a strip of the whole panel, after the splash
   UNIT_STRIP,
   UNIT_BAND_GLYPH,
   UNIT_HOURGLASS,
@@ -94,16 +94,25 @@ static uint16_t strip_lines(uint16_t strip) {
   return (uint16_t) (left < STRIP_LINES ? left : STRIP_LINES);
 }
 
+// The layout's area
+static uint16_t area_x(void) {
+  return lay->x;
+}
+
+static uint16_t area_w(void) {
+  return lay->width != 0u ? lay->width : panel_width();
+}
+
 //--------------------------------------------------------------------+
 // Units
 //--------------------------------------------------------------------+
 
 static void draw_strip(const screen_band_t *b, uint16_t strip) {
-  uint16_t w = panel_width();
+  uint16_t w = area_w();
   uint16_t y0 = (uint16_t) (strip * STRIP_LINES);
   uint16_t n = strip_lines(strip);
   uint16_t f = lay->band_frame;
-  panel_window(0, y0, w, n);
+  panel_window(area_x(), y0, w, n);
   for (uint16_t y = y0; y < y0 + n; y++) {
     if (y < f || y >= lay->band_h - f) {
       panel_fill(b->colour, w);
@@ -116,7 +125,7 @@ static void draw_strip(const screen_band_t *b, uint16_t strip) {
 }
 
 #define BAND_LINE_GAP 4u  // between the two lines of a broken word
-#define HOURGLASS_W   16u
+#define HOURGLASS_W   16u  // at 1x
 #define HOURGLASS_H   32u
 #define STALLED_MS    20u  // CHECKING without a packet this long: the hourglass stops blinking
                             // (the stream stops after STREAM_IDLE_MS, 50 ms)
@@ -129,6 +138,50 @@ static const uint8_t hourglass[HOURGLASS_H * 2u] = {
   0x01, 0x80, 0x01, 0x80, 0x03, 0xC0, 0x03, 0xC0, 0x06, 0x60, 0x06, 0x60, 0x0C, 0x30, 0x0C, 0x30,
   0x18, 0x18, 0x18, 0x18, 0x30, 0x0C, 0x30, 0x0C, 0x60, 0x06, 0x60, 0x06, 0xFF, 0xFF, 0xFF, 0xFF,
 };
+
+// The hourglass as drawn: at the layout's scale, made by screen_init()
+static uint8_t hourglass_2x[HOURGLASS_H * 2u * 2u * 2u];
+static const uint8_t *hourglass_bits;
+
+static uint32_t hourglass_scale(void) {
+  return lay->hourglass_scale == 2u ? 2u : 1u;
+}
+
+static uint16_t hourglass_w(void) {
+  return (uint16_t) (HOURGLASS_W * hourglass_scale());
+}
+
+static uint16_t hourglass_h(void) {
+  return (uint16_t) (HOURGLASS_H * hourglass_scale());
+}
+
+// A bitmap of w x h pixels at twice its size, each pixel two wide and two
+// high; rows of both padded to whole bytes, the most significant bit first
+// (as fonts.h lays out glyphs)
+static void double_bits(const uint8_t *src, uint32_t w, uint32_t h, uint8_t *dst) {
+  uint32_t src_stride = (w + 7u) / 8u;
+  uint32_t dst_stride = (2u * w + 7u) / 8u;
+  for (uint32_t r = 0; r < h; r++) {
+    uint8_t *out = &dst[2u * r * dst_stride];
+    memset(out, 0, dst_stride);
+    for (uint32_t i = 0; i < w; i++) {
+      if ((src[r * src_stride + i / 8u] & (0x80u >> (i % 8u))) != 0u) {
+        out[(2u * i) / 8u] |= (uint8_t) (0xC0u >> ((2u * i) % 8u));
+      }
+    }
+    memcpy(out + dst_stride, out, dst_stride);
+  }
+}
+
+void screen_font_double(const font_t *src, font_t *dst, uint8_t *bits) {
+  uint32_t src_bytes = src->glyph_bytes;
+  uint32_t dst_bytes = (2u * src->width + 7u) / 8u * 2u * src->height;
+  for (uint32_t g = 0; g < src->count; g++) {
+    double_bits(src->bits + g * src_bytes, src->width, src->height, bits + g * dst_bytes);
+  }
+  *dst = (font_t) {.width = (uint8_t) (2u * src->width), .height = (uint8_t) (2u * src->height),
+                   .first = src->first, .count = src->count, .glyph_bytes = (uint16_t) dst_bytes, .bits = bits};
+}
 
 // A glyph into the window just set. A font pads each row to whole bytes
 // (fonts.h), panel_bits() reads one run of bits: a width that is not a
@@ -153,21 +206,21 @@ static uint32_t inside_left(void) {
 }
 
 static uint32_t group_width(const screen_band_t *b) {
-  return (strlen(b->word) + 1u) * lay->band_font->width + HOURGLASS_W;  // the word, a space, the hourglass
+  return (strlen(b->word) + 1u) * lay->band_font->width + hourglass_w();  // the word, a space, the hourglass
 }
 
 static uint32_t hourglass_word_x(const screen_band_t *b) {
-  uint32_t room = panel_width() - 2u * inside_left();
+  uint32_t room = area_w() - 2u * inside_left();
   uint32_t g = group_width(b);
-  return g <= room ? (panel_width() - g) / 2u : inside_left();
+  return area_x() + (g <= room ? (area_w() - g) / 2u : inside_left());
 }
 
 static uint16_t hourglass_x(const screen_band_t *b) {
-  uint32_t room = panel_width() - 2u * inside_left();
+  uint32_t room = area_w() - 2u * inside_left();
   if (group_width(b) <= room) {
-    return (uint16_t) (hourglass_word_x(b) + group_width(b) - HOURGLASS_W);
+    return (uint16_t) (hourglass_word_x(b) + group_width(b) - hourglass_w());
   }
-  return (uint16_t) (panel_width() - inside_left() - HOURGLASS_W);
+  return (uint16_t) (area_x() + area_w() - inside_left() - hourglass_w());
 }
 
 // Where character i of the band's word goes: false for a space, which the
@@ -175,7 +228,7 @@ static uint16_t hourglass_x(const screen_band_t *b) {
 static bool band_glyph_at(const screen_band_t *b, uint16_t i, uint16_t *x, uint16_t *y) {
   const font_t *font = lay->band_font;
   uint32_t n = strlen(b->word);
-  uint32_t fits = (panel_width() - 2u * (lay->band_frame + lay->band_margin)) / font->width;
+  uint32_t fits = (area_w() - 2u * (lay->band_frame + lay->band_margin)) / font->width;
   const char *space = strchr(b->word, ' ');
   uint32_t first = (n > fits && space != NULL) ? (uint32_t) (space - b->word) : n;  // the first line's length
   if (b->word[i] == ' ') {
@@ -186,7 +239,7 @@ static bool band_glyph_at(const screen_band_t *b, uint16_t i, uint16_t *x, uint1
   uint32_t line = i < first ? 0u : 1u;
   uint32_t col = i < first ? i : i - first - 1u;
   uint32_t len = i < first ? first : n - first - 1u;
-  uint32_t left = b->hourglass ? hourglass_word_x(b) : (panel_width() - len * font->width) / 2u;
+  uint32_t left = b->hourglass ? hourglass_word_x(b) : area_x() + (area_w() - len * font->width) / 2u;
   *x = (uint16_t) (left + col * font->width);
   *y = (uint16_t) (top + line * (font->height + BAND_LINE_GAP));
   return true;
@@ -195,9 +248,9 @@ static bool band_glyph_at(const screen_band_t *b, uint16_t i, uint16_t *x, uint1
 // The hourglass, right of the band's one-line word, in white or black
 static void draw_hourglass(const screen_band_t *b, bool on) {
   uint16_t x = hourglass_x(b);
-  uint16_t y = (uint16_t) ((lay->band_h - HOURGLASS_H) / 2u);
-  panel_window(x, y, HOURGLASS_W, HOURGLASS_H);
-  panel_bits(hourglass, HOURGLASS_W * HOURGLASS_H, on ? SCREEN_WHITE : SCREEN_BLACK, SCREEN_BLACK);
+  uint16_t y = (uint16_t) ((lay->band_h - hourglass_h()) / 2u);
+  panel_window(x, y, hourglass_w(), hourglass_h());
+  panel_bits(hourglass_bits, (uint32_t) hourglass_w() * hourglass_h(), on ? SCREEN_WHITE : SCREEN_BLACK, SCREEN_BLACK);
 }
 
 // Whether the hourglass is to be on now: blinking, but during CHECKING only
@@ -240,7 +293,9 @@ static void draw_cell(uint8_t place, uint32_t col, char c, uint32_t fg) {
   uint32_t width;
   (void) text_of(p->text, &width);
   uint16_t w = p->font->width;
-  uint16_t x0 = (uint16_t) ((panel_width() - width * w) / 2u);
+  uint16_t ax = p->width != 0u ? p->x : area_x();
+  uint16_t aw = p->width != 0u ? p->width : area_w();
+  uint16_t x0 = (uint16_t) (ax + (aw - width * w) / 2u);
   panel_window((uint16_t) (x0 + col * w), p->y, w, p->font->height);
   glyph_bits(p->font, c, fg, SCREEN_BLACK);
 }
@@ -319,12 +374,12 @@ static uint32_t draw(const unit_t *u) {
   if (u->kind == UNIT_STRIP) {
     draw_strip(&band_target, u->index);
     band_step++;
-    return (uint32_t) panel_width() * strip_lines(u->index);
+    return (uint32_t) area_w() * strip_lines(u->index);
   }
   if (u->kind == UNIT_HOURGLASS) {
     hourglass_shown = !hourglass_shown;
     draw_hourglass(&band_shown, hourglass_shown);
-    return HOURGLASS_W * HOURGLASS_H;
+    return (uint32_t) hourglass_w() * hourglass_h();
   }
   if (u->kind == UNIT_BAND_GLYPH) {
     draw_band_glyph(&band_target, u->index);
@@ -424,11 +479,11 @@ static void redraw_done(void) {
 //--------------------------------------------------------------------+
 
 // A line of text at y, white on black, centred in cols columns centred
-// across (as the status screen centres its texts)
+// in the area (as the status screen centres its texts)
 static void splash_text(const font_t *font, uint16_t y, const char *t, uint32_t cols) {
   uint32_t n = strlen(t);
   n = n < cols ? n : cols;
-  uint16_t x = (uint16_t) ((panel_width() - cols * font->width) / 2u + (cols - n) / 2u * font->width);
+  uint16_t x = (uint16_t) (area_x() + (area_w() - cols * font->width) / 2u + (cols - n) / 2u * font->width);
   for (uint32_t i = 0; i < n; i++, x = (uint16_t) (x + font->width)) {
     panel_window(x, y, font->width, font->height);
     glyph_bits(font, t[i], SCREEN_WHITE, SCREEN_BLACK);
@@ -459,13 +514,19 @@ void screen_splash_led(uint8_t led) {
     return;
   }
   uint16_t side = lay->splash_square;
-  uint16_t x0 = (uint16_t) ((panel_width() - 5u * side) / 2u);
+  uint16_t x0 = (uint16_t) (area_x() + (area_w() - 5u * side) / 2u);
   panel_window((uint16_t) (x0 + 2u * side * slot[led]), lay->splash_squares_y, side, side);
   panel_fill(colours[led], (uint32_t) side * side);
 }
 
 void screen_init(const screen_layout_t *layout) {
   lay = layout;
+  if (hourglass_scale() == 2u) {
+    double_bits(hourglass, HOURGLASS_W, HOURGLASS_H, hourglass_2x);
+    hourglass_bits = hourglass_2x;
+  } else {
+    hourglass_bits = hourglass;
+  }
   cycles_per_us = board_cpu_hz() / 1000000u;
   memset(cells, ' ', sizeof(cells));  // the panel is black
   band_valid = false;

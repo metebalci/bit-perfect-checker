@@ -186,9 +186,12 @@ void screen_model(const status_t *s, const char *fw, screen_t *out) {
   // The run's errors
   row_in(out->labels, SCREEN_LABEL_COLS, s->run_unknown ? " UNKNOWN" : "", s->run_overrun ? "OVERRUN " : "");
 
+  // The file: the open stream's, else the last result's while it belongs to
+  // the run that runs now, so that any run start (B1, a tap, mark, a pulled
+  // cable) clears it
   if (s->streaming) {
     file_lines(s->file_kind, s->file_rate, s->file_depth, out->file);
-  } else if (s->last_known) {
+  } else if (s->last_known && s->last_in_run) {
     file_lines(s->last_kind, s->last_rate, s->last_depth, out->file);
   } else {
     file_lines(0, 0, 0, out->file);
@@ -263,7 +266,8 @@ void screen_model(const status_t *s, const char *fw, screen_t *out) {
     row(out->rows[3 + i], verdict_word(order[i]), count.buf);
   }
 
-  // 7-8: the file with a difference, else the last result line
+  // 7-8: the file with a difference, else the last result line while it
+  // belongs to the run that runs now (as the file lines)
   {
     TEXT(r7, 48);
     TEXT(r8, 48);
@@ -272,7 +276,7 @@ void screen_model(const status_t *s, const char *fw, screen_t *out) {
       put(&r7, verdict_word(BPC1_NOT_BIT_PERFECT));
       put(&r8, "diff ");
       put(&r8, s->file_diff);
-    } else if (s->last_known) {
+    } else if (s->last_known && s->last_in_run) {
       put(&r7, "last ");
       put(&r7, verdict_word(s->last_verdict));
       put(&r7, " end ");
