@@ -16,7 +16,7 @@ system, USB audio stack) delivers a file bit-perfect. It consists of:
 - `bpcctl`, a client for test automation.
 
 Checking that a player delivers audio bit-perfect is usually hard. A USB
-protocol analyzer (from about $1,300) captures what the host sends, but
+protocol analyzer (from about $200) captures what the host sends, but
 comparing it with the file is left to you. A digital loopback recording
 needs an audio interface with digital inputs, and the recording software's
 own conversions can hide or cause changes. A few DACs, such as RME's ADI-2
