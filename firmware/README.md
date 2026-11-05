@@ -15,7 +15,7 @@ are the NUCLEO-U5A5ZJ-Q, the STM32F723E-DISCO and the STM32U5G9J-DK2
 | `families/<family>/` | one MCU family: CPU flags, ST's CMSIS and HAL modules, HAL configuration, linker scripts, and the code all boards of the family share (USB controller and PHY, log UART, tick) |
 | `boards/<board>/` | one board: `board.cmake` (family, MCU, crystal, linker script, sources) and `board.c` (clock tree, LEDs, button, VBUS, which UART is the log), and for a board with a display its panel driver, screen layout and touch driver |
 | `shields/<shield>/` | an add-on for a board, such as a display shield; none yet |
-| `tools/` | `fontgen.py`, which turns [Spleen](https://github.com/fcambus/spleen) bitmap fonts into C arrays at build time |
+| `tools/` | `fontgen.py`, which turns [Spleen](https://github.com/fcambus/spleen) bitmap fonts into C arrays at build time, and `package.py`, which builds the release zip ([Release](#release)) |
 | `lib/` | pinned submodules: [TinyUSB](https://github.com/hathach/tinyusb) 0.21.0, ST's CMSIS device files ([STM32U5](https://github.com/STMicroelectronics/cmsis_device_u5), [STM32F7](https://github.com/STMicroelectronics/cmsis_device_f7)) and HAL ([STM32U5](https://github.com/STMicroelectronics/stm32u5xx_hal_driver), [STM32F7](https://github.com/STMicroelectronics/stm32f7xx_hal_driver)), Arm's [CMSIS 5](https://github.com/ARM-software/CMSIS_5) core headers, at the commits TinyUSB 0.21.0 tests with, and Spleen 2.2.0 for the screens' fonts; `patches/` holds our fix to TinyUSB ([below](#tinyusb-patch)) |
 
 | Board | Family | Display |
@@ -145,8 +145,11 @@ NUCLEO-U5A5ZJ-Q's user port is a USB-C connector.
   interface) on the LTDC, drawn by the CPU into a frame buffer in SRAM6, a
   bank that no other bus master uses, so the LTDC's reads never wait for the
   USB DMA. The buffer has one byte per pixel and a fixed RGB332 palette, so
-  black, white, red, green and blue are exact, which is all the screen uses;
-  see [Screen](#screen). A fault switches its backlight off.
+  black, white, red and blue are exact; see [Screen](#screen). The panel
+  shows full green lighter than the F723's panel does, so the palette scales
+  its pure greens: full green is (0, 208, 0). The build option
+  `PANEL_GREEN_MAX` sets the 208 (0 to 255; 255 is no correction), and a
+  build with a correction logs `display green=<n>` at start-up. A fault switches its backlight off.
 - **MCU:** the STM32U5G9, with the same clock tree and USB set-up as the
   NUCLEO-U5A5ZJ-Q.
 - **ST's demonstration firmware** is replaced when the board is flashed;
@@ -241,8 +244,8 @@ look like a 24-bit DAC with packed samples, and offering `16/2` alone like a
   `16/2,24/4,32/4,24/3`).
 - At run time, until the next reset: the console command
   `formats 24/3,16/2`, or `python3 -m bpcctl formats 24/3,16/2`. The device
-  disconnects for 0.3 s and reconnects, so the host enumerates the new alt
-  settings; `bpcctl` returns once a host has mounted it again.
+  disconnects for 0.3 s and reconnects (not without VBUS), so the host
+  enumerates the new alt settings; `bpcctl` returns once a host has mounted it again.
   `formats default` goes back to the build's list.
 
 ## Allowed silence
@@ -321,8 +324,11 @@ images, and a `SHA256SUMS` of the `.bin` files.
 [`tools/package.py`](tools/package.py) writes it. It clones the repository
 at a commit or tag into a scratch folder, with the firmware's submodules at
 their pinned commits, builds every board with the build's defaults, and
-stops on a build warning, on a `-dirty` or `-unknown` version, and on an
-image that holds a path of the machine it ran on. NOTICES.txt takes the
+stops on a build warning, on a `-dirty` or `-unknown` version, on boards
+built with different USB IDs or serial number prefixes, on a file of the zip
+that holds a path of the machine it ran on, and on a file in a build folder
+that has copyright lines. README.txt's paragraph on the USB ID comes from the
+builds' `USB_VID`, `USB_PID` and `USB_SERIAL_PREFIX`. NOTICES.txt takes the
 copyright lines from the files the builds read (Ninja's dependency log) and
 each licence text from its submodule's own licence file. For the routines
 the images take from the toolchain's C library, newlib, it names each one
@@ -336,7 +342,11 @@ sources at the release the toolchain was built from: `--newlib-source`
 names a folder that holds `COPYING.NEWLIB` and each routine's source file
 at its path in the
 [newlib repository](https://sourceware.org/git/newlib-cygwin.git), and
-`--newlib-tag` names that release. From the repository root:
+`--newlib-tag` names that release as `newlib-X.Y.Z`, where X.Y.Z must begin
+the version of the toolchain's newlib package. `--newlib-sha256 <file>`
+(optional) names a `sha256sum` list of that folder's files: every file in the
+list must match, and every file the script reads must be in it. From the
+repository root:
 
 ```
 python3 -I firmware/tools/package.py --rev firmware-v1.1.0 --work <empty folder> \
@@ -356,7 +366,10 @@ Firmware releases are tagged `firmware-v<major>.<minor>.<patch>`, the first
 hash), each with `-dirty` when the tree has uncommitted changes, and
 `1.1.0-unknown` for source outside git. At a firmware tag whose number is not
 the one in `firmware/VERSION`, the configure stops. Other tags, such as the
-test files', do not change the version.
+test files', and pre-release tags `firmware-v<version>-<suffix>` do not
+change the version: a build at a pre-release tag reports `<version>-<hash>`. Right after tagging a release, raise
+`firmware/VERSION` to the next version; until then every later commit
+reports itself as a pre-release of the version just released.
 
 ## Serial log and commands
 
@@ -373,12 +386,18 @@ their meaning.
 |---|---|
 | `boot fw=<version> board=<board> usb=<vid>:<pid> allow_silence=<true/false>` | start-up, with the firmware version ([Release](#release)) and the [allowed silence](#allowed-silence) |
 | `led <colour> <pin>` | the LED test at start-up: red, green, blue, each for 0.3 s; no line for a colour the board lacks |
+| `display st7789h2 id=0x<hex> fill_us=<n>` | STM32F723E-DISCO, at start-up: the panel answered and the screen was cleared in `fill_us` microseconds; `display st7789h2 id=0x<hex> missing` if the panel did not answer (no screen is drawn) |
+| `display ltdc <w>x<h> l8 fb=0x<hex> fill_us=<n>` | STM32U5G9J-DK2, at start-up: the panel runs at that size from an 8-bit frame buffer at that address, and the screen was cleared in `fill_us` microseconds; `display ltdc missing` if the panel did not start (no screen is drawn); `display sram6 clock was off` if the frame buffer's RAM bank had no clock and the firmware switched it on |
+| `display green=<n>` | STM32U5G9J-DK2, after its `display ltdc` line: the panel's full green is (0, `<n>`, 0) (`PANEL_GREEN_MAX`, [Boards](#stm32u5g9j-dk2)); not logged when it is 255 |
+| `touch <controller> id=0x<hex> g_mode=0x<hex>` | STM32F723E-DISCO, at start-up: the touch controller found, `ft6x36` or `ft3x67`; `touch none id=0x<hex> g_mode=0x<hex>` if no controller was found. STM32U5G9J-DK2: `touch gt911 id=<text> cfg=0x<hex> sw1=0x<hex> rate=<n> int=<0/1>`, the registers read from the controller, or `touch none` |
+| `display drawn ...`, `display units strip_us=<n> band_glyph_us=<n> text_glyph_us=<n> clear_us=<n>`, `display hourglass ...`, `display ltdc fuif=<n> terrif=<n> touch_reads=<n>` | only in a build with `-DDISPLAY_LOG=ON` ([Screen](#screen)): what drawing cost, and on the DK2 the LTDC's FIFO underruns and transfer errors |
+| `touch off after errors` | STM32U5G9J-DK2: three failed transfers to the touch controller in a row; touch stays off until the next reset. After a failed transfer the firmware waits 1 s before the next, and it reads the controller only while the receive FIFO holds less than 0.5 ms of audio |
 | `formats <list>` | the formats offered, as alt settings 1 to n; at boot, and after a `formats` command, with `changed=0` or `changed=1` |
-| `usb mounted speed=high` | enumerated; `speed=full` means the High-Speed link failed |
+| `usb mounted speed=high` | a host has set the device up; `speed=full` means the High-Speed link failed |
 | `usb disconnected` | the cable was pulled (VBUS gone for 50 ms): once per pull, after the lines of a stream it cut and before `run start`, also when a host reset the bus first (`usb reset`) or never set the device up; or the host deconfigured the device while it was set up |
-| `usb suspended`, `usb resumed` | the host suspended or resumed the bus; with VBUS still present the device stays connected |
-| `usb reset` | the host reset the bus while a stream ran or an alt setting was open: the stream stops (`reason=reset`), and the host enumerates the device again |
-| `usb disconnected`, `usb connecting` | the device leaves the bus to change its formats, and comes back |
+| `usb suspended`, `usb resumed` | the host suspended or resumed the bus; with VBUS still present the device stays connected. A pulled cable logs `usb suspended` first, since the USB controller sees only the bus going idle, and `usb disconnected` once VBUS has been gone for 50 ms: measured 45 to 49 ms later on the NUCLEO-U5A5ZJ-Q and the STM32U5G9J-DK2, about 0.3 s later on the STM32F723E-DISCO. The stream the pull cut stops with `reason=idle` before `usb disconnected` |
+| `usb reset` | the host reset the bus while the device was set up: an open stream stops (`reason=reset`), and the host enumerates the device again |
+| `usb disconnected`, `usb connecting` | the device leaves the bus to change its formats (the D+ pull-up goes off for 0.3 s), and comes back when that time has passed and VBUS is present |
 | `usb connecting` | VBUS is back for 50 ms after a pull, or after a boot without VBUS: the device turns its D+ pull-up on, and the host enumerates it (`usb mounted`) |
 | `rate <Hz>` | the host set the sample rate; at boot, the rate the device reports before a host sets one (48000) |
 | `rate unsupported=<Hz>` | the host asked for a rate that is not offered (stalled) |
@@ -391,10 +410,13 @@ their meaning.
 | `lost packets=<n> total=<n>` | microframes passed without a packet (a zero-length packet counts as none) |
 | `overflow packets=<n> total=<n>` | the receive FIFO was full, so data was overwritten |
 | `result seq=<n> stream=<n> file=<n> verdict=<verdict> kind=<kind> ...` | **the outcome of one file**: see [Result lines](#result-lines) |
-| `stream stop id=<n> reason=<why> dur=<s> frames=<n> pkts=<n> rate=<Hz> fpp=<min>-<max> lost=<n> missed=<n> holes=<n> maxhole=<n> doubled=<n> ovf=<n> outside=<frames> silent=<frames> results=<n> results_lost=<n>` | end of a stream, after its last `result` line: `alt` (alt setting changed), `idle` (no packet for 50 ms), `rate` (the host set another rate during the stream), `reset` or `pause`; `fpp` is frames per packet; `holes` counts the runs of microframes without a packet and `maxhole` is the longest; `outside` is the number of frames of the stream outside every file's extent ([12.6](../docs/bpc1.md#126-verdicts)), so host padding can be measured; `silent` is the number of those frames that were allowed silence, which gave no result (0 unless `allow_silence` is `true`); `results` is the number of result lines of the stream, and `results_lost` the number of results of the stream the checker dropped because its queue of finished results was full |
+| `stream stop id=<n> reason=<why> dur=<s> frames=<n> pkts=<n> rate=<Hz> fpp=<min>-<max> lost=<n> missed=<n> holes=<n> maxhole=<n> doubled=<n> ovf=<n> outside=<frames> silent=<frames> results=<n> results_lost=<n>` | end of a stream, after its last `result` line: `alt` (alt setting changed), `idle` (no packet for 50 ms, as after a cable pull), `rate` (the host set another rate during the stream), `reset` (the device stopped being set up: a bus reset, the host deconfiguring the device, a cable pull judged before the 50 ms of idle have passed, or a `formats` change) or `pause`; `fpp` is frames per packet; `holes` counts the runs of microframes without a packet and `maxhole` is the longest; `outside` is the number of frames of the stream outside every file's extent ([12.6](../docs/bpc1.md#126-verdicts)), so host padding can be measured; `silent` is the number of those frames that were allowed silence, which gave no result (0 unless `allow_silence` is `true`); `results` is the number of result lines of the stream, and `results_lost` the number of results of the stream the checker dropped because its queue of finished results was full |
 | `stall <ms>` | the [`stall` command](#commands-to-the-device) started its busy-wait of `<ms>` milliseconds |
 | `run start` | a new run begins: the user button was pressed or the touch screen tapped, the `mark` command arrived, the USB cable was pulled (after `usb disconnected`), or the board reset; green and red go off ([LEDs](#leds)). It follows any `result` line still waiting at that moment, whose result belongs to the run before |
 | `usb unsupported get/set entity=<id> ctrl=<n> req=<n>` | a class request the device does not answer |
+| `error formats=<text>` | the list given to the `formats` command is not valid; the offered formats stay as they were |
+| `error allow_silence=<text>` | the argument of the `allow_silence` command is neither `true` nor `false`; the setting stays |
+| `error formats-default=<list>` | at boot: the build's `UAC2_FORMATS` is not valid, so the device offers all four formats |
 | `log lost=<n>` | log lines dropped because the queue was full |
 
 `lock` comes from the checker four times a second at most. The log keeps
@@ -511,9 +533,10 @@ From the CPU's cycle counter (DWT), in every `stat` line for that second:
 | `loop_max` | microseconds of the longest main-loop iteration, interrupts included |
 | `fifo_max` | the fullest the receive FIFO got, as microseconds of audio |
 
-The CPU runs at 160 MHz. The receive FIFO holds 32 760 bytes, 5.3 ms at
-768 kHz in 4-byte slots; `fifo_max` near that means the main loop is close
-to falling behind.
+The CPU runs at 160 MHz on the NUCLEO-U5A5ZJ-Q and the STM32U5G9J-DK2 and at
+216 MHz on the STM32F723E-DISCO; `isr_max` and `ck_cpf` count CPU cycles. The
+receive FIFO holds 32 760 bytes, 5.3 ms at 768 kHz in 4-byte slots;
+`fifo_max` near that means the main loop is close to falling behind.
 
 The average rate is measured against the host's microframe clock, so it
 shows the rate the host actually sends at. The bits in use are counted from
@@ -531,11 +554,11 @@ One command per line, ended by CR or LF. Each answer is one line:
 
 | Command | Answer |
 |---|---|
-| `status` | `status usb=<mounted/suspended/not-connected> speed=<high/full> rate=<Hz> alt=<n> slot=<bytes> res=<bits> streaming=<0/1> id=<n> lost=<n> ovf=<n> formats=<list> allow_silence=<true/false>`; `usb=not-connected` while no host has the device set up or the cable is out (no VBUS); `lost` and `ovf` are those of stream `id`: as on its last `stat` line while the stream runs, as on its `stream stop` line once it stopped, with a negative `lost` shown as 0 |
+| `status` | `status usb=<mounted/suspended/not-connected> speed=<high/full> rate=<Hz> alt=<n> slot=<bytes> res=<bits> streaming=<0/1> id=<n> lost=<n> ovf=<n> formats=<list> allow_silence=<true/false>`; `usb=not-connected` while no host has the device set up or the cable is out (no VBUS); `lost` and `ovf` are those of stream `id`: as on its last `stat` line while the stream is open, as on its `stream stop` line once it stopped, with a negative `lost` shown as 0 |
 | `result` | the last `result` line again, or `result none` |
 | `mark <text>` | `mark <text>`, to tie a script's steps to the log; it also starts a new run (`run start`, [LEDs](#leds)). The echo comes at once, so a `result` line still waiting from the run before can come between `mark` and `run start`; `bpcctl` follows stream ids and is not affected |
-| `formats [<list> \| default]` | `formats <list>`; with a list, offer those formats from now on (`changed=1`, then the device reconnects) |
-| `allow_silence true\|false` | `allow_silence <value>`; sets the [allowed silence](#allowed-silence) for the next stream |
+| `formats [<list> \| default]` | `formats <list>`; with a list, offer those formats from now on (`changed=1`, then the device reconnects; `changed=0` if they are the formats already offered); a list that is not valid answers `error formats=<text>` |
+| `allow_silence [true\|false]` | `allow_silence <value>`; with an argument, sets the [allowed silence](#allowed-silence) for the next stream; without one, only shows the setting; another argument answers `error allow_silence=<text>` |
 | `version` | `version fw=<version> board=<board> usb=<vid>:<pid>` |
 | `stall <ms>` | test command: `stall <ms>` and then the main loop busy-waits for `<ms>` milliseconds (1 to 2000) with interrupts on, so the USB interrupt keeps filling the receive FIFO while nothing drains it; used to force `OVERRUN` on purpose. Other values answer `error stall=<value>` |
 | `help` | `help commands=status,result,mark,formats,allow_silence,version,help test=stall` |
@@ -585,8 +608,8 @@ The DK2 has no blue LED, so its screen shows what blue shows
 | LED | Meaning |
 |---|---|
 | blue, fast blink | not connected: the cable is out, or no host has set the device up |
-| blue, slow blink | enumerated, waiting for a stream |
-| blue, steady | a stream runs |
+| blue, slow blink | set up by a host (mounted or suspended), waiting for a stream |
+| blue, steady | a stream is open |
 | red, steady | a file of the run is `NOT_BIT_PERFECT`, from its first difference on |
 | red, slow blink | the run has an `UNKNOWN_SIGNAL` result |
 | red, fast blink | the run has an `OVERRUN` result |
@@ -595,9 +618,8 @@ The DK2 has no blue LED, so its screen shows what blue shows
 | all on | fault, stopped |
 
 Green and red show the current **run**: every result since the last press of
-the user button (B1 on the Nucleo and the F723, B2 on the DK2, or a tap on a
-touch screen), the console
-command `mark`, a pulled USB cable (VBUS gone for 50 ms), or a reset. A pull
+the user button (B1 on the NUCLEO-U5A5ZJ-Q and the F723, B2 on the DK2, or
+a tap on a touch screen), the console command `mark`, a pulled USB cable (VBUS gone for 50 ms), or a reset. A pull
 during playback cuts a file: its result stays in the run before, and while
 the cable is out green and red are off.
 They do not depend on how the host splits files into streams, and they keep
@@ -685,7 +707,7 @@ folder holds:
 5. For touch, `board_button()` returns true while a finger is down, besides
    the button, as the F723's and the DK2's do.
 
-**A board with a display shield** (the Nucleo with an Arduino-header TFT):
+**A board with a display shield** (the NUCLEO-U5A5ZJ-Q with an Arduino-header TFT):
 add `shields/<shield>/shield.cmake`, which appends the display driver to
 `DISPLAY_SOURCES` the same way, and build with
 `-DBOARD=<board> -DSHIELD=<shield>`. The shield uses the bus and pins the

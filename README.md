@@ -78,8 +78,9 @@ test files.
 2. **The firmware.** Build and flash it yourself with ARM GCC, CMake, Ninja
    and ST's STM32CubeProgrammer, following the Build and Flash sections of the
    [firmware README](firmware/README.md): a few commands, ending in the
-   `flash` target. Copying the binary to the ST-LINK's USB drive works too. A
-   ready-made binary is to be published with firmware 1.1.0. The device uses
+   `flash` target. Copying the binary to the ST-LINK's USB drive works too,
+   except on the DK2, whose ST-LINK shows no drive. A ready-made binary is to
+   be published with firmware 1.1.0. The device uses
    Objective Development's shared USB ID for audio class devices, 16C0:27E0
    ([USB ID](firmware/README.md#usb-id)).
 3. **The test files.** Download them from the project's releases, one zip
@@ -418,6 +419,10 @@ Its exit status is the first of these that holds:
 | 4 | not fully judged, play again: any result is `OVERRUN` (the device's receive buffer overflowed), or the reporting is incomplete: a stream's `results_lost` is above 0, fewer result lines arrived than its `stream stop` line's `results=`, or the timeout ended the wait before a stream stopped |
 | 0 | at least one result arrived and all are `BIT_PERFECT` |
 
+`bpcctl` expects firmware 1.1.0 or later. Firmware 1.0.0 names the verdict
+`OVERRUN` `DEVICE_OVERRUN`, which `bpcctl` does not know, so with that
+firmware an overrun exits 1, not 4.
+
 The device prints one result line per file and per stretch of unknown signal
 (fields in the [firmware README](firmware/README.md#result-lines)); `--json`
 prints each as a JSON object. A file that does not arrive at all gives no
@@ -518,12 +523,12 @@ files find them.
   the [firmware README](firmware/README.md#tinyusb-patch)). The hosts tested
   so far never sent one, so the patch is checked against the code and the
   specification only.
-- **A bus reset during a stream is not tested on hardware.** A USB bus
+- **A bus reset during a stream was seen once on hardware.** A USB bus
   reset closes the audio function without telling the firmware, which then
-  ends the stream itself with `reason=reset`. The Linux host used for tests
-  sets alt setting 0 before it resets the port, so the stream has always
-  ended before the reset arrives; the guard is checked against the code
-  only.
+  ends the stream itself with `reason=reset` and logs `usb reset`. It
+  happened once, on an iPad, when the cable was pulled during a stream. The
+  Linux host used for tests sets alt setting 0 before it resets the port, so
+  there the stream has always ended before the reset arrives.
 - **A rate change during a stream is not tested on hardware.** The tested
   hosts close a stream (alt setting 0) before they set a new rate. If a host
   sets a new rate while its stream stays open, the firmware feeds the

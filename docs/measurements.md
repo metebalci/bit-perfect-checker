@@ -12,7 +12,8 @@ stage it was made with, because the device changed during the work:
 |---|---|
 | First receive path | counted packets and frames and had no checker; its `result` line said `UNCHECKED` |
 | With the checker | gave a verdict per file |
-| 1.0.0 release candidate | the firmware as in the README, `fw=1.0.0` |
+| 1.0.0 release candidate | `fw=1.0.0`, before the tag `firmware-v1.0.0` |
+| After 1.0.0 | builds made after the tag `firmware-v1.0.0` (section 2.8) |
 
 Verdicts are named as the spec names them now. Firmware 1.0.0 logged the
 `OVERRUN` verdict under an earlier, longer name.
@@ -253,7 +254,7 @@ run, firmware of the 1.0.0 release candidate or the build just before it:
 | Linux, 24/3 (alt 4) | 7.9 | 1291 to 1296 | 71 to 73 | 34.1 to 35.4 | 456 to 464 | 250 to 375 |
 | iPad, 32/4 (alt 3) | 8.4 | 1988 | 78 | 37.7 | 448 | 375 |
 
-The Linux rows are the range of two runs. The CPU runs at 160 MHz.
+The Linux rows are the range of two runs. The CPU of the NUCLEO-U5A5ZJ-Q runs at 160 MHz.
 
 - The longest main-loop iteration was under 0.5 ms, and the receive FIFO got
   at most 0.375 ms full. The FIFO holds 32,760 bytes

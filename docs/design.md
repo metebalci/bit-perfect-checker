@@ -453,7 +453,10 @@ The firmware uses TinyUSB, not ST's own USB middleware.
   (`firmware/app/screen.h`).
 - **The DK2's frame buffer has one byte per pixel and a fixed RGB332
   palette,** 384,000 bytes instead of 768,000 for RGB565; the screen uses only
-  black, white, red, green and blue, which the palette holds exactly. The
+  black, white, red, green and blue. The palette holds black, white, red and
+  blue exactly. The panel shows full green lighter than the F723's panel, so
+  the palette scales its pure greens, and full green is (0, 208, 0)
+  (`PANEL_GREEN_MAX`, `firmware/boards/stm32u5g9j_dk2/clut_rgb332.h`). The
   buffer is alone in a RAM bank that no other bus master uses, so the display
   controller's reads never wait for the USB DMA.
 - **The F723 runs with the data cache off** and the instruction cache on, so
@@ -546,13 +549,13 @@ bytes, 5.3 ms at 768 kHz in 4-byte slots; TinyUSB's FIFO is limited to 32 KB.
 
 ### LEDs
 
-Blue shows the stream: blinking while waiting, steady while a stream plays
+Blue shows the stream: blinking while waiting, steady while a stream is open
 (a board without a blue LED shows this on its screen).
 Green and red show a **run**: every result since the user button was pressed,
 the console command `mark` was sent, the USB cable was pulled or the board
 was reset, whichever came last. A pull during playback cuts a file; its
-result stays in the run before, so a session does not stay red after the
-cable is pulled. They show the first of these that holds: red steady for any
+result stays in the run before, so the run that starts at the pull is not
+red. They show the first of these that holds: red steady for any
 `NOT_BIT_PERFECT`, red blinking slowly for any `UNKNOWN_SIGNAL`, red blinking
 fast for any `OVERRUN`, and green when every result of the run was
 `BIT_PERFECT`. A run is either green or red, and a lower verdict never
@@ -580,8 +583,8 @@ the firmware README.
   add up to the `stream stop` line. A result line is printed once the checker
   has read past the file's extent (about one block after its tail), when the
   next result arrives, or when the stream stops, whichever comes first.
-- The log keeps room in its queue that only `result` and `stream stop` lines
-  may use.
+- The log keeps room in its queue that only `result`, `stream stop` and
+  `run start` lines may use.
 
 ### Versions
 
