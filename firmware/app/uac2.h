@@ -17,9 +17,6 @@ void uac2_init(void);
 // is not a valid list.
 bool uac2_formats(const char *text);
 
-// From the main loop: reconnect after a change of formats.
-void uac2_task(void);
-
 // VBUS has gone (main.c): ends the configuration at once, with the lines
 // of a stream it stops; the caller logs the disconnect.
 void uac2_unplug(void);

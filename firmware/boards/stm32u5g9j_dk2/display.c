@@ -17,6 +17,7 @@
 #include "screen.h"
 #include "screen_layout.h"
 #include "screen_model.h"
+#include "stream.h"
 #include "touch.h"
 
 #define LOG_MS 10000u  // DISPLAY_LOG
@@ -56,7 +57,8 @@ void display_update(const status_t *s) {
 }
 
 void display_task(void) {
-  touch_task();
+  // A touch read blocks the main loop: none while the screen would not draw
+  touch_task(stream_backlog_us() < SCREEN_BACKLOG_US);
   if (!panel_ok) {
     return;
   }

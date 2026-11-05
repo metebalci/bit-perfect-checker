@@ -26,6 +26,13 @@
 // INT's level at that read as the idle level: once the finger has left and
 // its last report is acknowledged, INT rests at its true idle level, and the
 // next read corrects it.
+//
+// A transfer that fails costs up to about 6 ms of the main loop (the
+// time-outs below), more than the USB receive FIFO holds at 768 kHz: after
+// one, touch_task() waits BACKOFF_MS before the next, and FAILS_MAX failures
+// in a row turn touch off until the next reset ("touch off after errors").
+// It does not read while the caller says the FIFO holds too much (the
+// screen's backlog gate).
 
 #include "touch.h"
 
@@ -48,6 +55,8 @@
 #define TIMEOUT_MS 2u     // one byte at 400 kHz takes 25 us
 #define READ_MS    10u    // at most one status read this often
 #define DOWN_MS    1000u  // a finger counts as down this long after its last report
+#define BACKOFF_MS 1000u  // after a failed transfer, no read for this long
+#define FAILS_MAX  3u     // failed transfers in a row that turn touch off
 
 // 400 kHz from the 160 MHz PCLK1 (I2C2's clock after reset): the search in
 // ST's I2C_GetTiming() (stm32u5g9j_discovery_bus.c, Fast-mode limits,
@@ -63,6 +72,7 @@ static bool down;
 static uint32_t last_read_ms;
 static uint32_t last_down_ms;
 static uint32_t reads;
+static uint32_t fails;      // failed transfers in a row
 
 static void i2c_init(void) {
   __HAL_RCC_GPIOF_CLK_ENABLE();
@@ -193,7 +203,21 @@ void touch_init(void) {
            (unsigned) (rate & 0x0Fu), (unsigned) int_level());
 }
 
-void touch_task(void) {
+// After each transfer of touch_task()
+static void transfer_done(bool ok) {
+  if (ok) {
+    fails = 0;
+    return;
+  }
+  fails++;
+  if (fails >= FAILS_MAX) {
+    found = false;
+    down = false;
+    log_line("touch off after errors");
+  }
+}
+
+void touch_task(bool may_read) {
   if (!found) {
     return;
   }
@@ -201,25 +225,26 @@ void touch_task(void) {
   if (down && now - last_down_ms >= DOWN_MS) {
     down = false;  // the safety net: no report for a second
   }
-  if (int_level() == int_idle || now - last_read_ms < READ_MS) {
+  if (!may_read || int_level() == int_idle || now - last_read_ms < (fails != 0u ? BACKOFF_MS : READ_MS)) {
     return;
   }
   last_read_ms = now;
   reads++;
   uint8_t status = 0;
   bool level = int_level();
-  if (!reg_read(REG_STATUS, &status, 1u)) {
-    return;
-  }
-  if ((status & STATUS_READY) == 0u) {
-    int_idle = level;  // no report pending: INT is at rest
+  bool ok = reg_read(REG_STATUS, &status, 1u);
+  if (!ok || (status & STATUS_READY) == 0u) {
+    if (ok) {
+      int_idle = level;  // no report pending: INT is at rest
+    }
+    transfer_done(ok);
     return;
   }
   down = (status & STATUS_TOUCHES) != 0u;
   if (down) {
     last_down_ms = now;
   }
-  (void) reg_write(REG_STATUS, 0);
+  transfer_done(reg_write(REG_STATUS, 0));
 }
 
 bool touch_down(void) {

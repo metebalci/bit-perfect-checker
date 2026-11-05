@@ -1,8 +1,9 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) 2026 Mete Balci
 // The status screen on a panel (screen.h). The work comes in units small
-// enough for a slice: a strip of the band, a glyph of the band's word, a
-// glyph of a placed text. Each unit's time is measured once at start-up; a slice
+// enough for a slice: a strip of the whole panel (the clear after the
+// splash), a strip of the band, a glyph of the band's word, a glyph of a
+// placed text. Each unit's time is measured once at start-up; a slice
 // starts a unit only if it still fits the slice's time, and always draws at
 // least one.
 
@@ -36,7 +37,7 @@ typedef struct {
 
 static const screen_layout_t *lay;  // NULL: no panel
 static uint32_t cycles_per_us;
-static uint32_t strip_cycles, band_glyph_cycles;   // each unit's time, measured
+static uint32_t clear_cycles, strip_cycles, band_glyph_cycles;  // each unit's time, measured
 static uint32_t place_cycles[SCREEN_PLACES_MAX];   // a glyph of each place
 
 static screen_t want;                       // what the panel is to show
@@ -353,6 +354,16 @@ static bool texts_next(unit_t *u) {
   return false;
 }
 
+// A strip of the whole panel in black from line y: STRIP_LINES, fewer at the
+// bottom
+static uint16_t clear_strip(uint16_t y) {
+  uint32_t left = (uint32_t) panel_height() - y;
+  uint16_t n = (uint16_t) (left < STRIP_LINES ? left : STRIP_LINES);
+  panel_window(0, y, panel_width(), n);
+  panel_fill(SCREEN_BLACK, (uint32_t) panel_width() * n);
+  return n;
+}
+
 // The screen's next strip to clear after the splash
 static bool clear_next(unit_t *u) {
   if (clear_line >= panel_height()) {
@@ -364,10 +375,7 @@ static bool clear_next(unit_t *u) {
 
 static uint32_t draw(const unit_t *u) {
   if (u->kind == UNIT_CLEAR) {
-    uint32_t left = (uint32_t) panel_height() - u->index;
-    uint16_t n = (uint16_t) (left < STRIP_LINES ? left : STRIP_LINES);
-    panel_window(0, u->index, panel_width(), n);
-    panel_fill(SCREEN_BLACK, (uint32_t) panel_width() * n);
+    uint16_t n = clear_strip(u->index);
     clear_line = (uint16_t) (u->index + n);
     return (uint32_t) panel_width() * n;
   }
@@ -418,7 +426,10 @@ static bool panel_differs(void) {
 
 // The cycles of the slowest unit kind that might come next
 static uint32_t unit_estimate(const unit_t *u) {
-  if (u->kind == UNIT_STRIP || u->kind == UNIT_CLEAR) {
+  if (u->kind == UNIT_CLEAR) {
+    return clear_cycles;  // the whole panel's width, the band's strip only the area's
+  }
+  if (u->kind == UNIT_STRIP) {
     return strip_cycles;
   }
   if (u->kind == UNIT_BAND_GLYPH || u->kind == UNIT_HOURGLASS) {
@@ -535,7 +546,7 @@ void screen_init(const screen_layout_t *layout) {
   // Each unit's time, drawn in black on the black panel: the longest of a
   // few, and an eighth more
   static const screen_band_t black = {SCREEN_WAITING, SCREEN_BLACK, false, "W"};
-  for (uint32_t k = 0; k < 2u + lay->n_places; k++) {
+  for (uint32_t k = 0; k < 3u + lay->n_places; k++) {
     uint32_t longest = 0;
     for (int i = 0; i < 4; i++) {
       uint32_t t0 = board_cycles();
@@ -543,8 +554,10 @@ void screen_init(const screen_layout_t *layout) {
         draw_strip(&black, 1);
       } else if (k == 1) {
         draw_band_glyph(&black, 0);
+      } else if (k == 2) {
+        (void) clear_strip(0);
       } else {
-        draw_cell((uint8_t) (k - 2u), 0, 'W', SCREEN_BLACK);
+        draw_cell((uint8_t) (k - 3u), 0, 'W', SCREEN_BLACK);
       }
       uint32_t t = board_cycles() - t0;
       longest = t > longest ? t : longest;
@@ -554,14 +567,17 @@ void screen_init(const screen_layout_t *layout) {
       strip_cycles = longest;
     } else if (k == 1) {
       band_glyph_cycles = longest;
+    } else if (k == 2) {
+      clear_cycles = longest;
     } else {
-      place_cycles[k - 2u] = longest;
+      place_cycles[k - 3u] = longest;
     }
   }
 #ifdef DISPLAY_LOG
-  log_line("display units strip_us=%lu band_glyph_us=%lu text_glyph_us=%lu", (unsigned long) (strip_cycles / cycles_per_us),
-           (unsigned long) (band_glyph_cycles / cycles_per_us),
-           (unsigned long) (lay->n_places != 0 ? place_cycles[0] / cycles_per_us : 0u));
+  log_line("display units strip_us=%lu band_glyph_us=%lu text_glyph_us=%lu clear_us=%lu",
+           (unsigned long) (strip_cycles / cycles_per_us), (unsigned long) (band_glyph_cycles / cycles_per_us),
+           (unsigned long) (lay->n_places != 0 ? place_cycles[0] / cycles_per_us : 0u),
+           (unsigned long) (clear_cycles / cycles_per_us));
 #endif
   splash_draw();
   splash = true;

@@ -91,7 +91,13 @@
 #define FRAME_MS   17u  // 820 x 500 pixel clocks at 25 MHz: 16.4 ms
 #define RUN_WAIT_MS 5u  // the LTDC's line counter must move within this
 
-static uint8_t fb[WIDTH * HEIGHT] __attribute__((section(".framebuffer"), aligned(8)));
+// The frame buffer, one byte per pixel, read and written through fb. It is
+// declared as words because fill_bytes() stores words into it: word stores
+// into a uint8_t array would break C's aliasing rule (C11 6.5p7), byte
+// accesses to words do not.
+_Static_assert((WIDTH * HEIGHT) % 4u == 0u, "the frame buffer is whole words");
+static uint32_t fb_words[WIDTH * HEIGHT / 4u] __attribute__((section(".framebuffer"), aligned(8)));
+static uint8_t *const fb = (uint8_t *) fb_words;
 
 static bool sram6_was_off;
 static uint32_t fifo_underruns;
@@ -166,7 +172,7 @@ static void pins_init(void) {
   HAL_GPIO_Init(GPIOE, &gpio);
 }
 
-// n bytes of value v from p: word stores between the unaligned ends, eight
+// n bytes of value v from p, in fb: word stores between the unaligned ends, eight
 // at a time (a one-word loop measured 3.2 ms for the whole screen, about
 // 5 cycles a word)
 static void fill_bytes(uint8_t *p, uint8_t v, uint32_t n) {
@@ -254,7 +260,7 @@ bool panel_init(void) {
   if (sram6_was_off) {
     __HAL_RCC_SRAM6_CLK_ENABLE();
   }
-  fill_bytes(fb, rgb332(0x000000u), sizeof fb);
+  fill_bytes(fb, rgb332(0x000000u), sizeof fb_words);
 
   pins_init();
   if (!clock_init()) {

@@ -41,8 +41,9 @@ static void button_task(void) {
 
 static vbus_t vbus;
 
-// The D+ pull-up: off without VBUS (USB 2.0 7.1.5.1); on again when VBUS is
-// back, and the host's reset and enumeration follow
+// The D+ pull-up: off without VBUS (USB 2.0 7.1.5.1), and for a while when
+// the formats change (vbus_hold_pullup()); on again when VBUS is back or the
+// hold ends, and the host's reset and enumeration follow
 static void pullup(bool on) {
   if (on) {
     tud_connect();
@@ -55,6 +56,10 @@ static void pullup(bool on) {
 // run starts, as the user button does: a pull during playback cuts a file,
 // and that result stays in the run before
 static const vbus_ops_t vbus_ops = {.unplug = uac2_unplug, .run_start = stream_run_start, .pullup = pullup};
+
+void vbus_hold_pullup(uint32_t ms) {
+  vbus_act(vbus_hold(&vbus, board_millis(), ms), &vbus_ops);
+}
 
 int main(void) {
   board_init();
@@ -75,7 +80,6 @@ int main(void) {
     tud_task();
     stream_task();
     console_task();
-    uac2_task();
     button_task();
     vbus_act(vbus_poll(&vbus, board_vbus(), board_millis()), &vbus_ops);
     leds_task();

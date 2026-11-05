@@ -15,8 +15,10 @@
 void touch_init(void);
 
 // On every pass of the main loop: when the controller's INT line is away
-// from its idle level, reads its touch status and acknowledges it.
-void touch_task(void);
+// from its idle level, reads its touch status and acknowledges it. No
+// transfer when may_read is false; after a failed one, none for a second;
+// three in a row turn touch off ("touch off after errors").
+void touch_task(bool may_read);
 
 // A finger is on the screen; false if touch_init() found no controller.
 bool touch_down(void);

@@ -5,7 +5,9 @@ reported once, VBUS_MS after VBUS went away (the device then starts a new
 run), and the D+ pull-up goes off with it; VBUS back for VBUS_MS turns the
 pull-up on again. Without VBUS at start the pull-up goes off at once, and
 the first plug turns it on without reporting a pull. Shorter dips and
-bounces while plugging change nothing. Built with the host tool
+bounces while plugging change nothing. A change of formats holds the
+pull-up off for a while (vbus_hold()); it comes on again after that, once
+VBUS is there, even after a dip too short to count, and only once. Built with the host tool
 firmware/app/host/vbus_tool.c; needs a host C compiler (gcc or cc); skipped
 without one."""
 
@@ -41,6 +43,15 @@ def levels(segments, start=0, step=1):
             polls.append(((t & 0xFFFFFFFF), level))
             t += step
     return polls
+
+
+def hold(polls, t, ms):
+    """polls with a change of formats at t, after that ms's poll: the pull-up off for ms."""
+    i = next(k for k, (at, _) in enumerate(polls) if at == t)
+    return polls[:i + 1] + [(t, f"hold {ms}")] + polls[i + 1:]
+
+
+HOLD_MS = 300  # uac2.c's RECONNECT_MS
 
 
 def pull(ms):
@@ -178,6 +189,67 @@ class Vbus(unittest.TestCase):
         back_seen = next(ms for ms, level in polls if level == 1 and ms > gone)
         back = next(ms for ms, level in polls if level == 1 and ms > gone and ms - back_seen >= VBUS_MS)
         self.assertEqual(self.events(polls), pull(gone) + [("connect", back)])
+
+    def test_hold_reconnects(self):
+        polls = hold(levels([(3000, 1)]), 1000, HOLD_MS)
+        self.assertEqual(self.events(polls), [("disconnect", 1000), ("connect", 1000 + HOLD_MS)])
+        self.assertEqual(self.log(polls), ["pull-up off", "pull-up on", "usb connecting"])
+
+    def test_hold_waits_through_a_short_dip(self):
+        # VBUS dips, too briefly to count, as the hold ends: the pull-up comes
+        # on when VBUS is back, not before and not never
+        back = 1000 + HOLD_MS + 10
+        polls = hold(levels([(1000 + HOLD_MS - 20, 1), (30, 0), (2000, 1)]), 1000, HOLD_MS)
+        self.assertEqual(self.events(polls), [("disconnect", 1000), ("connect", back)])
+
+    def test_hold_with_vbus_gone_does_nothing(self):
+        # Formats changed with the cable out: the pull-up is off already and
+        # comes on when VBUS is back, once
+        polls = hold(levels([(1000, 1), (1000, 0), (2000, 1)]), 1500, HOLD_MS)
+        self.assertEqual(self.events(polls), pull(1000 + VBUS_MS) + [("connect", 2000 + VBUS_MS)])
+        self.assertEqual(self.log(polls).count("usb connecting"), 1)
+
+    def test_pull_during_a_hold(self):
+        # Pulled while held: reported once, and VBUS back connects once, after
+        # its debounce
+        polls = hold(levels([(1100, 1), (1000, 0), (2000, 1)]), 1000, HOLD_MS)
+        self.assertEqual(self.events(polls),
+                         [("disconnect", 1000), ("gone", 1100 + VBUS_MS), ("connect", 2100 + VBUS_MS)])
+        self.assertEqual(self.log(polls), ["pull-up off", "usb disconnected", "run start", "pull-up on",
+                                           "usb connecting"])
+
+    def test_pull_and_bouncing_replug_during_a_hold(self):
+        # Out and back in within the hold: the pull-up waits for the debounce
+        # and comes on once
+        bounce = [(3, 1), (4, 0)] * 5
+        segments = [(1050, 1), (100, 0)] + bounce + [(3000, 1)]
+        plugged = 1050 + 100 + 7 * 5
+        polls = hold(levels(segments), 1000, HOLD_MS)
+        self.assertEqual(self.events(polls),
+                         [("disconnect", 1000), ("gone", 1050 + VBUS_MS), ("connect", plugged + VBUS_MS)])
+
+    def test_unplugged_at_the_hold_end_then_back(self):
+        # VBUS goes as the hold ends and is still out when it would count:
+        # a pull, and the pull-up stays off until VBUS is back
+        out = 1000 + HOLD_MS - 5
+        polls = hold(levels([(out, 1), (500, 0), (1000, 1)]), 1000, HOLD_MS)
+        self.assertEqual(self.events(polls),
+                         [("disconnect", 1000), ("gone", out + VBUS_MS), ("connect", out + 500 + VBUS_MS)])
+
+    def test_second_hold_extends(self):
+        polls = hold(hold(levels([(3000, 1)]), 1000, HOLD_MS), 1200, HOLD_MS)
+        self.assertEqual(self.events(polls), [("disconnect", 1000), ("connect", 1200 + HOLD_MS)])
+
+    def test_hold_across_the_wrap(self):
+        start = (1 << 32) - 1000
+        t = (start + 900) & 0xFFFFFFFF
+        polls = hold(levels([(3000, 1)], start=start), t, HOLD_MS)
+        self.assertEqual(self.events(polls), [("disconnect", t), ("connect", (t + HOLD_MS) & 0xFFFFFFFF)])
+
+    def test_hold_just_after_boot(self):
+        # Within VBUS_MS of boot, before the level counts: still the hold's time
+        polls = hold(levels([(3000, 1)]), 10, HOLD_MS)
+        self.assertEqual(self.events(polls), [("disconnect", 10), ("connect", 10 + HOLD_MS)])
 
 
 if __name__ == "__main__":

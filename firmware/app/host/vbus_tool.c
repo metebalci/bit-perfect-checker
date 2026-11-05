@@ -11,6 +11,8 @@
 //   <ms> stream   a stream opens
 //   <ms> reset    the host reset the bus, as stream.c sees it: the stream
 //                 stops, the device is no longer set up -> "| usb reset"
+//   <ms> hold <n> a change of formats holds the pull-up off for n ms
+//                 (vbus_hold()) -> its action flags and lines, as a level
 //
 // The first level line goes to vbus_start(), the others to vbus_poll().
 // The stand-in for tud_umount_cb() logs the stream's stop and, like uac2.c,
@@ -78,9 +80,18 @@ int main(void) {
       log_line("usb reset");
       continue;
     }
-    bool level = strcmp(word, "0") != 0;
-    uint8_t act = first ? vbus_start(&v, level, (uint32_t) ms) : vbus_poll(&v, level, (uint32_t) ms);
-    first = false;
+    uint8_t act;
+    if (strcmp(word, "hold") == 0) {
+      unsigned long n;
+      if (scanf("%lu", &n) != 1) {
+        return 1;
+      }
+      act = vbus_hold(&v, (uint32_t) ms, (uint32_t) n);
+    } else {
+      bool level = strcmp(word, "0") != 0;
+      act = first ? vbus_start(&v, level, (uint32_t) ms) : vbus_poll(&v, level, (uint32_t) ms);
+      first = false;
+    }
     if (act & VBUS_GONE) {
       printf("gone %lu\n", ms);
     }

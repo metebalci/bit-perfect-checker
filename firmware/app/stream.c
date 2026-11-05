@@ -980,8 +980,11 @@ static void report(void) {
 
 void stream_task(void) {
   // A bus reset closes the audio function and clears its receive FIFO, but
-  // TinyUSB does not call tud_umount_cb() for it: the stream ends here.
-  if (!tud_mounted() && (s.active || status.alt != 0)) {
+  // TinyUSB does not call tud_umount_cb() for it (usbd.c, DCD_EVENT_BUS_RESET):
+  // the stream ends here, and the device is no longer set up, also when no
+  // alt setting was open. tud_mount_cb() sets USB_MOUNTED only once
+  // tud_mounted() holds, so an enumeration never looks like a reset.
+  if (!tud_mounted() && (s.active || status.alt != 0 || status.usb == USB_MOUNTED)) {
     stream_reset();
     status.usb = USB_NOT_MOUNTED;
     status_changed();

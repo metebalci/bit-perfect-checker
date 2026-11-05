@@ -17,6 +17,7 @@
 #include "device/dcd.h"
 #include "tusb.h"
 #include "usb_descriptors.h"
+#include "vbus.h"
 
 static const uint32_t rates[] = {
   44100, 48000, 88200, 96000, 176400, 192000, 352800, 384000, 705600, 768000,
@@ -29,7 +30,6 @@ static uint32_t current_rate = 48000;
 // host notices
 #define RECONNECT_MS 300u
 
-static uint32_t reconnect_at;  // 0: no reconnect pending
 static bool unplugging;         // in uac2_unplug()
 
 static void log_formats(const char *extra) {
@@ -68,28 +68,15 @@ bool uac2_formats(const char *text) {
     return true;
   }
   // The host reads the formats at enumeration: disconnect, change, reconnect
-  tud_disconnect();
+  // (vbus.h: the pull-up comes on again RECONNECT_MS later, once VBUS is there)
+  vbus_hold_pullup(RECONNECT_MS);
   stream_reset();
   status.usb = USB_NOT_MOUNTED;
   status_changed();
   usb_formats_set(alts, n);
   log_formats(" changed=1");
   log_line("usb disconnected");
-  reconnect_at = board_millis() + RECONNECT_MS;
-  if (reconnect_at == 0) {
-    reconnect_at = 1;
-  }
   return true;
-}
-
-void uac2_task(void) {
-  if (reconnect_at != 0 && (int32_t) (board_millis() - reconnect_at) >= 0) {
-    reconnect_at = 0;
-    if (board_vbus()) {  // else main.c connects when VBUS is back
-      tud_connect();
-      log_line("usb connecting");
-    }
-  }
 }
 
 static bool rate_supported(uint32_t rate) {
