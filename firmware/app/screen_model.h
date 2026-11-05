@@ -13,7 +13,7 @@
 // frame's colour is the run's state, as the LEDs show it: blue with no
 // result yet, green while every result is BIT_PERFECT, red as soon as
 // anything failed (a file's first difference, NOT_BIT_PERFECT,
-// UNKNOWN_SIGNAL, DEVICE_OVERRUN). Labels name the run's errors in red:
+// UNKNOWN_SIGNAL, OVERRUN). Labels name the run's errors in red:
 // UNKNOWN and OVERRUN. Verdicts are written without the log's
 // underscores and BIT-PERFECT as in the project's name.
 
@@ -63,7 +63,7 @@ typedef struct {
   screen_band_t band;
   // The run's errors, each only if it occurred, in one line of
   // SCREEN_LABEL_COLS, a column in from each side: UNKNOWN (UNKNOWN_SIGNAL)
-  // left, OVERRUN (DEVICE_OVERRUN) right; a screen shows them in red
+  // left, OVERRUN right; a screen shows them in red
   char labels[SCREEN_LABEL_COLS + 1];
   // The file being checked, as its header gives it, in two lines centred in
   // SCREEN_BAND_COLS (PCM / 24/96, DoP / DSD128, PCM SWEEP / 16/44.1): while

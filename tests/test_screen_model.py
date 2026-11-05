@@ -20,18 +20,18 @@ SOURCES = ["app/host/screen_tool.c", "app/screen_model.c", "app/leds.c", "bpc1/b
 COLS = 30
 
 # bpc1_verdict_t and bpc1_end_t
-UNKNOWN_SIGNAL, BIT_PERFECT, NOT_BIT_PERFECT, DEVICE_OVERRUN = range(4)
+UNKNOWN_SIGNAL, BIT_PERFECT, NOT_BIT_PERFECT, OVERRUN = range(4)
 END_LAST, END_STOP = 1, 4
 
 RED, GREEN, BLUE = 0xFF0000, 0x00FF00, 0x0000FF
 
 
 # The run's highest verdict: the first held, in the LEDs' order
-ORDER = ("NOT_BIT_PERFECT", "UNKNOWN_SIGNAL", "DEVICE_OVERRUN", "BIT_PERFECT")
-FLAG = {"NOT_BIT_PERFECT": "fail", "UNKNOWN_SIGNAL": "unknown", "DEVICE_OVERRUN": "overrun", "BIT_PERFECT": "pass"}
+ORDER = ("NOT_BIT_PERFECT", "UNKNOWN_SIGNAL", "OVERRUN", "BIT_PERFECT")
+FLAG = {"NOT_BIT_PERFECT": "fail", "UNKNOWN_SIGNAL": "unknown", "OVERRUN": "overrun", "BIT_PERFECT": "pass"}
 # The LEDs for each (firmware/README.md, LEDs): (red, green)
 LEDS = {"NOT_BIT_PERFECT": ("on", "off"), "UNKNOWN_SIGNAL": ("blink 500", "off"),
-        "DEVICE_OVERRUN": ("blink 125", "off"), "BIT_PERFECT": ("off", "on"), None: ("off", "off")}
+        "OVERRUN": ("blink 125", "off"), "BIT_PERFECT": ("off", "on"), None: ("off", "off")}
 BLUE_LED = {"streaming": "on", "mounted": "blink 500", "not mounted": "blink 125"}
 
 
@@ -263,7 +263,7 @@ class ScreenModel(unittest.TestCase):
                                  last_diff="2.048")
         self.assertEqual(rows[2], "lost 0  ovf 0   results_lost 5")
         self.assertEqual(rows[3:7], ["BIT-PERFECT".ljust(28) + "17", "NOT BIT-PERFECT".ljust(29) + "1",
-                                     "UNKNOWN SIGNAL".ljust(29) + "2", "DEVICE OVERRUN".ljust(29) + "3"])
+                                     "UNKNOWN SIGNAL".ljust(29) + "2", "OVERRUN".ljust(29) + "3"])
         self.assertEqual(rows[7], "last NOT BIT-PERFECT end STOP ")
         self.assertEqual(rows[8], "lost 3  ovf 0  diff 2.048".ljust(COLS))
         _, rows, _ = self.screen(usb=1, hs=1, last=1, last_verdict=BIT_PERFECT, last_end=END_LAST, last_lost=-2,
@@ -283,7 +283,7 @@ class ScreenModel(unittest.TestCase):
         big = 4294967295
         band, rows, _ = self.screen(usb=2, hs=1, streaming=1, id=big, dop=1, rate=705600, alt=4, slot=3, res=24, bits=24,
                                     lost=big, ovf=big, results_lost=big, count1=big, count2=big, count0=big,
-                                    count3=big, last=1, last_verdict=DEVICE_OVERRUN, last_end=END_STOP,
+                                    count3=big, last=1, last_verdict=OVERRUN, last_end=END_STOP,
                                     last_lost=-2147483648, last_ovf=big, last_diff="1234.567", fail=1)
         for r in rows:
             self.assertEqual(len(r), COLS, r)
@@ -292,7 +292,7 @@ class ScreenModel(unittest.TestCase):
         self.assertEqual(rows[2], "lost 4294967295  ovf 429496729")
         self.assertEqual(rows[3], "BIT-PERFECT".ljust(20) + "4294967295")
         self.assertEqual(rows[4], "NOT BIT-PERFECT     4294967295")
-        self.assertEqual(rows[7], "last DEVICE OVERRUN end STOP".ljust(COLS))
+        self.assertEqual(rows[7], "last OVERRUN end STOP".ljust(COLS))
         self.assertEqual(rows[8], "lost -2147483648  ovf 42949672")
         # A long version: cut at the 30th column
         _, rows, _ = self.screens([{"usb": 1, "hs": 1}], fw="1.1.0-abcdef0-dirty")[0]

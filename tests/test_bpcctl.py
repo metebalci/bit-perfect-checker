@@ -120,12 +120,12 @@ class ExitCodeTest(unittest.TestCase):
         self.assertEqual(exit_code(results("UNKNOWN_SIGNAL")), EXIT_FAIL)
         self.assertEqual(exit_code(results("NO_SIGNAL", "BIT_PERFECT")), EXIT_FAIL)
 
-    def test_fail_before_device_overrun(self):
-        self.assertEqual(exit_code(results("DEVICE_OVERRUN")), EXIT_OVERRUN)
-        self.assertEqual(exit_code(results("BIT_PERFECT", "DEVICE_OVERRUN")), EXIT_OVERRUN)
-        self.assertEqual(exit_code(results("NOT_BIT_PERFECT", "DEVICE_OVERRUN", "BIT_PERFECT")),
+    def test_fail_before_overrun(self):
+        self.assertEqual(exit_code(results("OVERRUN")), EXIT_OVERRUN)
+        self.assertEqual(exit_code(results("BIT_PERFECT", "OVERRUN")), EXIT_OVERRUN)
+        self.assertEqual(exit_code(results("NOT_BIT_PERFECT", "OVERRUN", "BIT_PERFECT")),
                          EXIT_FAIL)
-        self.assertEqual(exit_code(results("UNKNOWN_SIGNAL", "DEVICE_OVERRUN")), EXIT_FAIL)
+        self.assertEqual(exit_code(results("UNKNOWN_SIGNAL", "OVERRUN")), EXIT_FAIL)
 
     def test_incomplete_reporting(self):
         # results lost, fewer than announced or a stream unfinished: 4, after 1
@@ -140,10 +140,10 @@ class ExitCodeTest(unittest.TestCase):
         self.assertEqual(exit_code(results("BIT_PERFECT", "BIT_PERFECT"), expect=2), EXIT_PASS)
         self.assertEqual(exit_code(results("BIT_PERFECT"), expect=2), EXIT_FAIL)
         # an overrun is a file that arrived but was not judged: it counts toward N
-        self.assertEqual(exit_code(results("BIT_PERFECT", "DEVICE_OVERRUN"), expect=2), EXIT_OVERRUN)
-        self.assertEqual(exit_code(results("BIT_PERFECT", "BIT_PERFECT", "DEVICE_OVERRUN"), expect=3),
+        self.assertEqual(exit_code(results("BIT_PERFECT", "OVERRUN"), expect=2), EXIT_OVERRUN)
+        self.assertEqual(exit_code(results("BIT_PERFECT", "BIT_PERFECT", "OVERRUN"), expect=3),
                          EXIT_OVERRUN)
-        self.assertEqual(exit_code(results("BIT_PERFECT", "DEVICE_OVERRUN"), expect=3), EXIT_FAIL)
+        self.assertEqual(exit_code(results("BIT_PERFECT", "OVERRUN"), expect=3), EXIT_FAIL)
         self.assertEqual(exit_code([], expect=2), EXIT_NO_RESULT)
 
 
@@ -304,11 +304,11 @@ class RunTest(unittest.TestCase):
         self.assertEqual(code, EXIT_FAIL)
         self.assertIn("1 of 2", err)
 
-    def test_device_overrun_says_rerun(self):
+    def test_overrun_says_rerun(self):
         code, out, _ = self.run_with(
             "1.0 stream start id=4",
             "2.0 result seq=8 stream=4 file=1 verdict=BIT_PERFECT units=100",
-            "2.1 result seq=9 stream=4 file=2 verdict=DEVICE_OVERRUN units=4000",
+            "2.1 result seq=9 stream=4 file=2 verdict=OVERRUN units=4000",
             "3.0 stream stop id=4 reason=idle results=2")
         self.assertEqual(code, EXIT_OVERRUN)
         self.assertEqual(len(out), 2)

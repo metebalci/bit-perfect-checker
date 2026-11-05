@@ -8,7 +8,7 @@
 // first that holds:
 //   red, steady        a NOT_BIT_PERFECT file (from its first difference on)
 //   red, slow blink    an UNKNOWN_SIGNAL result
-//   red, fast blink    a DEVICE_OVERRUN result
+//   red, fast blink    an OVERRUN result
 //   green              the results are all BIT_PERFECT
 //   neither            nothing judged yet
 //   all three          fault (set by the board's fault handler)

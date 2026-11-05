@@ -93,7 +93,7 @@ static void run(char *cmd) {
   } else if (strcmp(cmd, "stall") == 0) {
     // Test command: busy-waits in the main loop with interrupts on, so the
     // USB interrupt keeps filling the receive FIFO while nothing drains it
-    // (to show DEVICE_OVERRUN on purpose).
+    // (to show OVERRUN on purpose).
     uint32_t ms = 0;
     const char *d = arg;
     while (d != NULL && *d >= '0' && *d <= '9' && ms <= STALL_MAX_MS) {

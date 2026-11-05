@@ -276,7 +276,7 @@ and 0 in the file's fields. The fields:
 | `seq` | counts result lines since boot, from 1 |
 | `stream` | the stream it belongs to: the `id=` of `stream start`, `stat`, `stream stop` and `status` |
 | `file` | the result's place in its stream, from 1 |
-| `verdict` | `BIT_PERFECT`, `NOT_BIT_PERFECT`, `UNKNOWN_SIGNAL` or `DEVICE_OVERRUN`, below |
+| `verdict` | `BIT_PERFECT`, `NOT_BIT_PERFECT`, `UNKNOWN_SIGNAL` or `OVERRUN`, below |
 | `kind` | the file's kind from its X-sync: `PCM`, `SWEEP` (the PCM code sweep, [signal format](../docs/bpc1.md#75-expected-word-pseudocode)), `DSD` (from a DSF, DFF or DoP file alike), or `NONE` |
 | `dop` | 1 when the file came as DoP: a DSD file, DSF, DFF or DoP, played as DoP gives `kind=DSD dop=1` |
 | `seed`, `nch` | the file's seed and channel count, from its X-sync |
@@ -284,8 +284,8 @@ and 0 in the file's fields. The fields:
 | `rate`, `alt`, `slot`, `res` | what the host chose: the frame rate, alt setting, slot bytes, resolution |
 | `bits` | the bits in use of the received words over the file's body, for PCM and DoP alike (DoP in 3- or 4-byte slots: 24 when the padding below it is zero) |
 | `end` | how the file ended: `LAST` (its block flagged last arrived), `NEXT` (another file followed), `BACK` (the block index went back), `STOP` (the stream stopped first) |
-| `diff` | the position in the file of the first body unit that did not arrive as expected, in seconds from the file's start as generated, 3 decimals, rounded half up (PCM: frame index / rate; DSD: byte index x 8 / DSD rate): the earliest of the body's first unit, when the rate or channel count is wrong or the first body block's X-sync or the lead-in X-sync before it is missing; the first body unit that differs or did not arrive (in the R-header chips of r5 and r6, as the R-header rule of [12.6](../docs/bpc1.md#126-verdicts) places it); and the first unit after the body, when the X-sync after the body is missing. Where a limit X-sync is broken or cut off, the body runs from after the last lead-in X-sync received to the first tail X-sync received. `-` for `BIT_PERFECT`, `UNKNOWN_SIGNAL` and `DEVICE_OVERRUN` (12.6) |
-| `lost`, `ovf` | packets lost and receive FIFO overflows that fall in the result's frames, by their place in the stream: a lost packet counts in the result of the first frame after it (a doubled microframe takes back the hole before it), an overflow in the result of the frame where the checker learns of it, normally the one it marks `DEVICE_OVERRUN`. Those between two results count in the later one; the stream's last result line also takes those after every result and those in frames not read before the stream stopped. A stream's result lines add up to its `stream stop` line's `lost` and `ovf`, except with `allow_silence` `true` when the stream ends in allowed silence after its last result: the losses there are on no result line, only on the `stream stop` line. The verdict follows the frames, not these counts |
+| `diff` | the position in the file of the first body unit that did not arrive as expected, in seconds from the file's start as generated, 3 decimals, rounded half up (PCM: frame index / rate; DSD: byte index x 8 / DSD rate): the earliest of the body's first unit, when the rate or channel count is wrong or the first body block's X-sync or the lead-in X-sync before it is missing; the first body unit that differs or did not arrive (in the R-header chips of r5 and r6, as the R-header rule of [12.6](../docs/bpc1.md#126-verdicts) places it); and the first unit after the body, when the X-sync after the body is missing. Where a limit X-sync is broken or cut off, the body runs from after the last lead-in X-sync received to the first tail X-sync received. `-` for `BIT_PERFECT`, `UNKNOWN_SIGNAL` and `OVERRUN` (12.6) |
+| `lost`, `ovf` | packets lost and receive FIFO overflows that fall in the result's frames, by their place in the stream: a lost packet counts in the result of the first frame after it (a doubled microframe takes back the hole before it), an overflow in the result of the frame where the checker learns of it, normally the one it marks `OVERRUN`. Those between two results count in the later one; the stream's last result line also takes those after every result and those in frames not read before the stream stopped. A stream's result lines add up to its `stream stop` line's `lost` and `ovf`, except with `allow_silence` `true` when the stream ends in allowed silence after its last result: the losses there are on no result line, only on the `stream stop` line. The verdict follows the frames, not these counts |
 | `dur` | a received duration, unlike `diff`, which is a position in the file: the file's received frames, from its first X-sync to its end, at most to the end of its extent ([12.6](../docs/bpc1.md#126-verdicts)), divided by `rate`; seconds, 3 decimals |
 
 The limits of `lost`, `ovf` and the frames checked:
@@ -316,7 +316,7 @@ For example, a 24-bit 48 kHz file that overran the receive FIFO after a
 `result` line):
 
 ```
-result seq=30 stream=30 file=1 verdict=DEVICE_OVERRUN kind=PCM dop=0 seed=0x42504331 nch=2 file_rate=48000 depth=24 rate=48000 alt=4 slot=3 res=24 bits=24 end=LAST diff=- lost=0 ovf=684 dur=12.458
+result seq=30 stream=30 file=1 verdict=OVERRUN kind=PCM dop=0 seed=0x42504331 nch=2 file_rate=48000 depth=24 rate=48000 alt=4 slot=3 res=24 bits=24 end=LAST diff=- lost=0 ovf=684 dur=12.458
 stream stop id=30 reason=alt dur=12.649 frames=607164 pkts=101194 rate=48000.00 fpp=6-6 lost=0 missed=0 holes=0 maxhole=0 doubled=0 ovf=684 outside=0 silent=0 results=1 results_lost=0
 ```
 
@@ -327,7 +327,7 @@ their order of precedence; only `BIT_PERFECT` is a pass:
 | Verdict | Meaning |
 |---|---|
 | `UNKNOWN_SIGNAL` | the units belong to no file: outside every file's extent, silence included unless [allowed](#allowed-silence) (a DoP file received without markers has no readable X-sync and gives it) |
-| `DEVICE_OVERRUN` | the device's own receive FIFO overflowed between the file's first received unit and its end (or, with no file open, over the stretch), which overwrites frames not read yet, and no difference of the file came before the overflow: the file is not judged; play it again. A file whose first difference came before the overflow is `NOT_BIT_PERFECT`, with that difference's `diff` |
+| `OVERRUN` | the device's own receive FIFO overflowed between the file's first received unit and its end (or, with no file open, over the stretch), which overwrites frames not read yet, and no difference of the file came before the overflow: the file is not judged; play it again. A file whose first difference came before the overflow is `NOT_BIT_PERFECT`, with that difference's `diff` |
 | `BIT_PERFECT` | the received rate and channel count are the file's, the body arrived as one run of consecutive units, every unit equal to the expected one in every channel, and the X-syncs before and after the body arrived intact (12.6 a to d) |
 | `NOT_BIT_PERFECT` | the file was found and 12.6 (a), (b), (c) or (d) does not hold; `diff` says where the first difference was. Packets lost on the bus show here, with `lost` above 0 |
 
@@ -375,7 +375,7 @@ One command per line, ended by CR or LF. Each answer is one line:
 | `formats [<list> \| default]` | `formats <list>`; with a list, offer those formats from now on (`changed=1`, then the device reconnects) |
 | `allow_silence true\|false` | `allow_silence <value>`; sets the [allowed silence](#allowed-silence) for the next stream |
 | `version` | `version fw=<version> board=<board> usb=<vid>:<pid>` |
-| `stall <ms>` | test command: `stall <ms>` and then the main loop busy-waits for `<ms>` milliseconds (1 to 2000) with interrupts on, so the USB interrupt keeps filling the receive FIFO while nothing drains it; used to force `DEVICE_OVERRUN` on purpose. Other values answer `error stall=<value>` |
+| `stall <ms>` | test command: `stall <ms>` and then the main loop busy-waits for `<ms>` milliseconds (1 to 2000) with interrupts on, so the USB interrupt keeps filling the receive FIFO while nothing drains it; used to force `OVERRUN` on purpose. Other values answer `error stall=<value>` |
 | `help` | `help commands=status,result,mark,formats,allow_silence,version,help test=stall` |
 
 Anything else gets `error unknown-command=<word>` or `error line-too-long`.
@@ -402,8 +402,8 @@ once the host has the device back, and `run` then plays.
 at its `stream stop` line, which says how many results it had), prints
 them, and exits with 3 if the player failed, else 2 if no result arrived,
 else 1 when any result is `NOT_BIT_PERFECT` or `UNKNOWN_SIGNAL` (or fewer
-than N results are `BIT_PERFECT` or `DEVICE_OVERRUN` with `--expect N`),
-else 4 when any is `DEVICE_OVERRUN` or the reporting is incomplete (a
+than N results are `BIT_PERFECT` or `OVERRUN` with `--expect N`),
+else 4 when any is `OVERRUN` or the reporting is incomplete (a
 `stream stop` line with `results_lost` above 0, fewer result lines than its
 `results=`, or a stream unfinished at the timeout), else 0: at least one
 result arrived and all are `BIT_PERFECT`. `--json` prints each line as one JSON object. The port
@@ -424,7 +424,7 @@ format conversion.
 | blue, steady | a stream runs |
 | red, steady | a file of the run is `NOT_BIT_PERFECT`, from its first difference on |
 | red, slow blink | the run has an `UNKNOWN_SIGNAL` result |
-| red, fast blink | the run has a `DEVICE_OVERRUN` result |
+| red, fast blink | the run has an `OVERRUN` result |
 | green, steady | the run's results are all `BIT_PERFECT` |
 | green and red off | nothing judged yet |
 | all three on | fault, stopped |

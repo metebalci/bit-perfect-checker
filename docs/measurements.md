@@ -14,6 +14,9 @@ stage it was made with, because the device changed during the work:
 | With the checker | gave a verdict per file |
 | 1.0.0 release candidate | the firmware as in the README, `fw=1.0.0` |
 
+Verdicts are named as the spec names them now. Firmware 1.0.0 logged the
+`OVERRUN` verdict under an earlier, longer name.
+
 Nothing here was measured on macOS, Windows or Android, or on a Linux PC
 without a virtual machine.
 
@@ -264,9 +267,9 @@ The Linux rows are the range of two runs. The CPU runs at 160 MHz.
   test command busy-waits in the main loop while the USB interrupt keeps
   filling the FIFO:
   - `stall 200` in a 48 kHz 24/3 stream: `overflow packets=684`; the file's
-    result was `DEVICE_OVERRUN` with `ovf=684`; `loop_max` of that second was
+    result was `OVERRUN` with `ovf=684`; `loop_max` of that second was
     199,057 us and `fifo_max` 113,750 us, the whole FIFO.
-  - `stall 50` in a 768 kHz 16/2 stream: `ovf=312`, `DEVICE_OVERRUN`.
+  - `stall 50` in a 768 kHz 16/2 stream: `ovf=312`, `OVERRUN`.
   - A file in the same stream before the stall stayed `BIT_PERFECT`.
 
 ### 5.1 The chip's errata
@@ -286,7 +289,7 @@ affects only the console's input.
   keeps it to itself.
 - Play one file per run, or a gapless playlist; the device gives one result
   per file either way. Count the results: `bpcctl run --expect <n>` fails
-  when fewer than n files give `BIT_PERFECT` or `DEVICE_OVERRUN`, which
+  when fewer than n files give `BIT_PERFECT` or `OVERRUN`, which
   catches a file that did not arrive or was muted ([README](../README.md#automate-with-bpcctl)).
 - Do not test through a hypervisor's emulated USB (section 3).
 - At 705.6 and 768 kHz, and now and then at 384 kHz with 4-byte slots

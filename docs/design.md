@@ -107,7 +107,7 @@ signal. Only `BIT_PERFECT` is a pass.
 | `BIT_PERFECT` | the received rate and channel count are the file's, the whole body arrived as one run of consecutive units, every unit equals the expected one in every channel, and the X-syncs before and after the body arrived intact |
 | `NOT_BIT_PERFECT` | the file was found and that does not hold |
 | `UNKNOWN_SIGNAL` | audio that belongs to no file, silence included |
-| `DEVICE_OVERRUN` | hardware checker only: its own receive buffer overflowed before any difference, so it could not judge the file; play it again |
+| `OVERRUN` | hardware checker only: its own receive buffer overflowed before any difference, so it could not judge the file; play it again |
 
 The exact rules are in bpc1.md, section 12.6. The choices behind
 them:
@@ -144,7 +144,7 @@ them:
   compares the number of `BIT_PERFECT` results with the files played.
 - **A difference before an overrun.** A file whose first difference came before
   the hardware checker's buffer overflowed is `NOT_BIT_PERFECT`, since the
-  overflow cannot undo a proven difference. `DEVICE_OVERRUN` is for an overflow
+  overflow cannot undo a proven difference. `OVERRUN` is for an overflow
   before any difference. It is never reported as a fault of the host.
 - **What a verdict detects.** Changes that players, mixers, operating systems
   and transports make, not a stream crafted to pass. The format is public and
@@ -487,7 +487,7 @@ Green and red show a **run**: every result since the user button was pressed,
 the console command `mark` was sent or the board was reset, whichever came
 last. They show the first of these that holds: red steady for any
 `NOT_BIT_PERFECT`, red blinking slowly for any `UNKNOWN_SIGNAL`, red blinking
-fast for any `DEVICE_OVERRUN`, and green when every result of the run was
+fast for any `OVERRUN`, and green when every result of the run was
 `BIT_PERFECT`. A run is either green or red, and a lower verdict never
 changes what a higher one set. Red stays on until the next run, so the LEDs
 do not depend on how the host splits files into streams. The full table is in

@@ -10,7 +10,7 @@ starts and stops within the lead-in and tail), no false pass (single-bit
 changes in every class of body unit, DoP marker and padding faults, drops,
 inserts, repeats, late starts, early stops, channel order, rate), the gap
 sweep and review cases of an earlier engine, unknown signal outside the
-files, allowed silence, device overruns and chunking. Needs a host C
+files, allowed silence, overruns and chunking. Needs a host C
 compiler; skipped without one."""
 
 import json
@@ -1032,21 +1032,21 @@ class Checker(unittest.TestCase):
             cfg, _ = words(spec.KIND_PCM, 48000, 24)
             self.assert_fail(sim.zero(a, 6 * cfg.block_len + 1500, 10), 48000, 6 * cfg.block_len + 1500, silence=True)
 
-    def test_device_overrun(self):
+    def test_overrun(self):
         """An overrun inside a file makes it not judged, unless the file's
         first difference came before it; in a stretch outside every file, an
         overrun makes that stretch not judged."""
         _, a = words(spec.KIND_PCM, 48000, 24)
         res = self.results(np.concatenate([a, a]), 48000, overruns=(len(a) + 20000,))
-        self.assertEqual([(r["verdict"], r["diff"]) for r in res], [("BIT_PERFECT", "-"), ("DEVICE_OVERRUN", "-")])
+        self.assertEqual([(r["verdict"], r["diff"]) for r in res], [("BIT_PERFECT", "-"), ("OVERRUN", "-")])
         cfg, w = words(spec.KIND_PCM, 48000, 24, LONG)
         B = cfg.block_len
         x = flip(w, 5 * B + 100, 0, 8)
         for name, over, want in (("a difference, then an overrun", 20 * B, ("NOT_BIT_PERFECT", "0.429")),
-                                 ("an overrun, then a difference", 3 * B, ("DEVICE_OVERRUN", "-")),
-                                 ("an overrun at the differing frame", 5 * B + 100, ("DEVICE_OVERRUN", "-")),
-                                 ("an overrun in the lead-in, no difference", B // 2, ("DEVICE_OVERRUN", "-")),
-                                 ("an overrun in the body, no difference", 20 * B, ("DEVICE_OVERRUN", "-"))):
+                                 ("an overrun, then a difference", 3 * B, ("OVERRUN", "-")),
+                                 ("an overrun at the differing frame", 5 * B + 100, ("OVERRUN", "-")),
+                                 ("an overrun in the lead-in, no difference", B // 2, ("OVERRUN", "-")),
+                                 ("an overrun in the body, no difference", 20 * B, ("OVERRUN", "-"))):
             with self.subTest(name):
                 r = self.one(w if "no difference" in name else x, 48000, overruns=(over,))
                 self.assertEqual((r["verdict"], r["diff"]), want)
@@ -1055,19 +1055,19 @@ class Checker(unittest.TestCase):
             self.assertEqual([(r["verdict"], r["diff"]) for r in res], [("NOT_BIT_PERFECT", "0.171"), ("BIT_PERFECT", "-")])
         with self.subTest("two overruns, the first before the difference"):
             r = self.one(x, 48000, overruns=(3 * B, 20 * B))
-            self.assertEqual((r["verdict"], r["diff"]), ("DEVICE_OVERRUN", "-"))
+            self.assertEqual((r["verdict"], r["diff"]), ("OVERRUN", "-"))
         with self.subTest("an overrun that drops whole r5 bit pairs"):
             for k, n in ((8, 24), (8, 48), (24, 24), (24, 48)):
                 d = chip_frame(cfg, k, CHIP_R5 + 4)  # the chips after it shift by one or two bits
                 r = self.one(np.delete(w, np.s_[d:d + n], axis=0), 48000, overruns=(d,))
-                self.assertEqual((r["verdict"], r["diff"]), ("DEVICE_OVERRUN", "-"), (k, n))
+                self.assertEqual((r["verdict"], r["diff"]), ("OVERRUN", "-"), (k, n))
         with self.subTest("a body left after an overrun"):
             r = self.one(w[: 10 * B], 48000, overruns=(8 * B,))
-            self.assertEqual((r["verdict"], r["diff"]), ("DEVICE_OVERRUN", "-"))
+            self.assertEqual((r["verdict"], r["diff"]), ("OVERRUN", "-"))
         res = self.results(np.concatenate([a, zeros(40000), a]), 48000, overruns=(len(a) + 20000,))
-        self.assertEqual([r["verdict"] for r in res], ["BIT_PERFECT", "DEVICE_OVERRUN", "BIT_PERFECT"])
+        self.assertEqual([r["verdict"] for r in res], ["BIT_PERFECT", "OVERRUN", "BIT_PERFECT"])
         res = self.results(np.concatenate([a, zeros(40000)]), 48000, overruns=(len(a) + 30000,), silence=True)
-        self.assertEqual([r["verdict"] for r in res], ["BIT_PERFECT", "DEVICE_OVERRUN"])
+        self.assertEqual([r["verdict"] for r in res], ["BIT_PERFECT", "OVERRUN"])
 
 
     def test_overrun_before_the_next_file(self):
@@ -1080,14 +1080,14 @@ class Checker(unittest.TestCase):
         y = flip(x, n + 5 * B + 100, 0, 8)  # a body bit of the second file
         cut = np.concatenate([a[:10 * B + 2000], a])  # the first file cut in its tail
         for name, w, over, want in (
-                ("in the first file's last block", x, n - B // 2, [("DEVICE_OVERRUN", "-"), ("BIT_PERFECT", "-")]),
-                ("at its last frame", x, n - 1, [("DEVICE_OVERRUN", "-"), ("BIT_PERFECT", "-")]),
-                ("before the second file's first frame", x, n, [("DEVICE_OVERRUN", "-"), ("BIT_PERFECT", "-")]),
-                ("after the second file's first frame", x, n + 1, [("BIT_PERFECT", "-"), ("DEVICE_OVERRUN", "-")]),
+                ("in the first file's last block", x, n - B // 2, [("OVERRUN", "-"), ("BIT_PERFECT", "-")]),
+                ("at its last frame", x, n - 1, [("OVERRUN", "-"), ("BIT_PERFECT", "-")]),
+                ("before the second file's first frame", x, n, [("OVERRUN", "-"), ("BIT_PERFECT", "-")]),
+                ("after the second file's first frame", x, n + 1, [("BIT_PERFECT", "-"), ("OVERRUN", "-")]),
                 ("in the first file's last block, a difference in the second", y, n - B // 2,
-                 [("DEVICE_OVERRUN", "-"), ("NOT_BIT_PERFECT", "0.429")]),
+                 [("OVERRUN", "-"), ("NOT_BIT_PERFECT", "0.429")]),
                 ("the first file cut in its tail, an overrun before the cut", cut, 10 * B + 2000 - B // 4,
-                 [("DEVICE_OVERRUN", "-"), ("BIT_PERFECT", "-")])):
+                 [("OVERRUN", "-"), ("BIT_PERFECT", "-")])):
             with self.subTest(name):
                 res = self.results(w, 48000, overruns=(over,))
                 self.assertEqual([(r["verdict"], r["diff"]) for r in res], want)
@@ -1103,13 +1103,13 @@ class Checker(unittest.TestCase):
         y = np.concatenate([x, zeros(4 * B)])  # silence through block 15
         for name, over, sil, want in (
                 ("at block 14, after the extent", 14 * B + 100, False,
-                 [("BIT_PERFECT", "STOP"), ("DEVICE_OVERRUN", "STOP")]),
+                 [("BIT_PERFECT", "STOP"), ("OVERRUN", "STOP")]),
                 ("at block 14, silence allowed", 14 * B + 100, True,
-                 [("BIT_PERFECT", "STOP"), ("DEVICE_OVERRUN", "STOP")]),
+                 [("BIT_PERFECT", "STOP"), ("OVERRUN", "STOP")]),
                 ("at the extent's last frame", 13 * B - 1, False,
-                 [("DEVICE_OVERRUN", "STOP"), ("UNKNOWN_SIGNAL", "STOP")]),
+                 [("OVERRUN", "STOP"), ("UNKNOWN_SIGNAL", "STOP")]),
                 ("at the extent's end", 13 * B, False,
-                 [("BIT_PERFECT", "STOP"), ("DEVICE_OVERRUN", "STOP")])):
+                 [("BIT_PERFECT", "STOP"), ("OVERRUN", "STOP")])):
             with self.subTest(name):
                 res = self.results(y, 48000, overruns=(over,), silence=sil)
                 self.assertEqual([(r["verdict"], r["end"]) for r in res], want)
@@ -1119,7 +1119,7 @@ class Checker(unittest.TestCase):
             z[k * B:k * B + 8] = 0  # lead-in X-syncs 3 to 8: the extent grows at block 9's
         with self.subTest("in the lead-in, where block 9's X-sync extends the extent"):
             res = self.results(z, 48000, overruns=(6 * B + 100,))
-            self.assertEqual([(r["verdict"], r["end"]) for r in res], [("DEVICE_OVERRUN", "LAST")])
+            self.assertEqual([(r["verdict"], r["end"]) for r in res], [("OVERRUN", "LAST")])
 
     def test_frames_end_at_the_extent(self):
         """A file's received frames (dur) end with its extent, where the

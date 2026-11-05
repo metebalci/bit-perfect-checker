@@ -34,7 +34,7 @@ typedef struct {
   bool run_pass;        // a BIT_PERFECT result
   bool run_fail;        // a NOT_BIT_PERFECT result, or a file's first difference
   bool run_unknown;     // an UNKNOWN_SIGNAL result
-  bool run_overrun;     // a DEVICE_OVERRUN result
+  bool run_overrun;     // an OVERRUN result
   uint32_t run_count[4];      // the run's results by verdict, indexed by bpc1_verdict_t
   uint32_t run_results_lost;  // the run's results the checker dropped (its queue was full)
   // The last result line, as the "result" command repeats it

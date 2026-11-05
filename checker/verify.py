@@ -13,7 +13,7 @@ native DSD: 16 bytes). No inverted search. Per file, first that holds:
 
 Every stretch of units outside every file's extent, silence included, is one
 UNKNOWN_SIGNAL result; with the setting allow_silence, a stretch of silence
-gives none. DEVICE_OVERRUN is for hardware checkers only.
+gives none. OVERRUN is for hardware checkers only.
 
 A file passes only on what it shows: the lead-in X-sync before its body (or
 a body from block 0), the tail X-sync after it (or its own LAST flag), and

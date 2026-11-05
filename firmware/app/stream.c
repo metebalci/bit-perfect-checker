@@ -660,7 +660,7 @@ static void format_result(char *out, uint32_t size, const result_t *x) {
 static void run_note(uint8_t verdict) {
   bool *flag = verdict == BPC1_BIT_PERFECT      ? &status.run_pass
                : verdict == BPC1_NOT_BIT_PERFECT ? &status.run_fail
-               : verdict == BPC1_DEVICE_OVERRUN  ? &status.run_overrun
+               : verdict == BPC1_OVERRUN         ? &status.run_overrun
                                                  : &status.run_unknown;
   if (!*flag) {
     *flag = true;

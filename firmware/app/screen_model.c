@@ -119,7 +119,7 @@ static const char *verdict_word(uint8_t verdict) {
     [BPC1_UNKNOWN_SIGNAL] = "UNKNOWN SIGNAL",
     [BPC1_BIT_PERFECT] = "BIT-PERFECT",
     [BPC1_NOT_BIT_PERFECT] = "NOT BIT-PERFECT",
-    [BPC1_DEVICE_OVERRUN] = "DEVICE OVERRUN",
+    [BPC1_OVERRUN] = "OVERRUN",
   };
   return verdict < sizeof(words) / sizeof(words[0]) ? words[verdict] : "?";
 }
@@ -256,7 +256,7 @@ void screen_model(const status_t *s, const char *fw, screen_t *out) {
   }
 
   // 3-6: the run's results by verdict
-  static const uint8_t order[] = {BPC1_BIT_PERFECT, BPC1_NOT_BIT_PERFECT, BPC1_UNKNOWN_SIGNAL, BPC1_DEVICE_OVERRUN};
+  static const uint8_t order[] = {BPC1_BIT_PERFECT, BPC1_NOT_BIT_PERFECT, BPC1_UNKNOWN_SIGNAL, BPC1_OVERRUN};
   for (uint32_t i = 0; i < sizeof(order); i++) {
     TEXT(count, 16);
     put_u(&count, s->run_count[order[i]]);

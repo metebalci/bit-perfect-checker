@@ -372,7 +372,7 @@ changed (informative; the verdict does not depend on it):
 | `BIT_PERFECT` | the file arrived at its rate with the whole body as one run of consecutive units, every unit equal to the expected one in every channel, and the X-syncs before and after the body intact |
 | `NOT_BIT_PERFECT` | the file was found and that does not hold |
 | `UNKNOWN_SIGNAL` | audio that belongs to no BPC1 file, silence included: not a BPC1 test signal, or a stream in which inversion, rounding, dithering or resampling destroyed the X-syncs |
-| `DEVICE_OVERRUN` | hardware checker only: its own receive buffer overflowed and it could not judge the file; play it again |
+| `OVERRUN` | hardware checker only: its own receive buffer overflowed and it could not judge the file; play it again |
 
 The exact rules are in section 12.6 of the [signal format](docs/bpc1.md#126-verdicts).
 Only `BIT_PERFECT` is a pass. In the software checker, by default, silence
@@ -410,8 +410,8 @@ Its exit status is the first of these that holds:
 |---|---|
 | 3 | the player command failed |
 | 2 | no result: the device did not answer, or no stream arrived |
-| 1 | any result is `NOT_BIT_PERFECT` or `UNKNOWN_SIGNAL`, or, with `--expect <n>`, fewer than n results are `BIT_PERFECT` or `DEVICE_OVERRUN` (a file that did not arrive at all) |
-| 4 | not fully judged, play again: any result is `DEVICE_OVERRUN` (the device's receive buffer overflowed), or the reporting is incomplete: a stream's `results_lost` is above 0, fewer result lines arrived than its `stream stop` line's `results=`, or the timeout ended the wait before a stream stopped |
+| 1 | any result is `NOT_BIT_PERFECT` or `UNKNOWN_SIGNAL`, or, with `--expect <n>`, fewer than n results are `BIT_PERFECT` or `OVERRUN` (a file that did not arrive at all) |
+| 4 | not fully judged, play again: any result is `OVERRUN` (the device's receive buffer overflowed), or the reporting is incomplete: a stream's `results_lost` is above 0, fewer result lines arrived than its `stream stop` line's `results=`, or the timeout ended the wait before a stream stopped |
 | 0 | at least one result arrived and all are `BIT_PERFECT` |
 
 The device prints one result line per file and per stretch of unknown signal

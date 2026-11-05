@@ -1408,7 +1408,7 @@ extent gets one result with the verdict `UNKNOWN_SIGNAL` (kind `NONE`, end
 `STOP`, no file fields, no `diff`), silence included: a test plays test files
 only. This holds at the stream's start and end too: silence that a host
 prepends or appends is not the file's data. Packets without audio carry no units. A buffer overflow of a hardware
-checker while no file is open gives that stretch `DEVICE_OVERRUN` instead.
+checker while no file is open gives that stretch `OVERRUN` instead.
 
 **Allowed silence.** A checker may offer the setting `allow_silence`: `false`
 (the rule above) or `true`; it chooses its default and reports the setting
@@ -1431,14 +1431,14 @@ the first of these that holds:
    negated or inverted X-syncs, so an inverted, rounded, dithered or
    resampled stream may give `UNKNOWN_SIGNAL`. A DoP file received without
    markers has no readable X-sync and gives it too (12.1).
-2. `DEVICE_OVERRUN` (hardware checkers only): the checker's own receive buffer
+2. `OVERRUN` (hardware checkers only): the checker's own receive buffer
    overflowed between the file's first received unit and its end, and no
    difference of the file (a unit that did not arrive as expected, as `diff`
    below) came before the overflow. The file is not judged; this is not a
    property of the stream: play it again. A file whose first difference came
    before the overflow is `NOT_BIT_PERFECT`, with that difference's `diff`,
    whatever the overflow lost afterwards. A software checker, which reads the
-   whole stream, never reports `DEVICE_OVERRUN`.
+   whole stream, never reports `OVERRUN`.
 3. `BIT_PERFECT` when all of (a) to (d) hold, else `NOT_BIT_PERFECT`:
    - **(a) Rate.** The received rate equals the file's rate (PCM: the frame
      rate; DoP: the DoP frame rate x 16; native DSD: the DSD rate), and the
@@ -1521,7 +1521,7 @@ both limit X-syncs intact, do not change the verdict.
   is broken or cut off, the body runs from after the last LEAD_IN X-sync
   received to the first TAIL X-sync received, and `diff` is the first unit
   compared in it that differs or did not arrive. For `BIT_PERFECT`,
-  `UNKNOWN_SIGNAL` and `DEVICE_OVERRUN` there is none;
+  `UNKNOWN_SIGNAL` and `OVERRUN` there is none;
 - the transport (PCM, DoP, native DSD), the received rate, the slot size and
   the number of bits used in the body ("effective depth");
 - the signal identity: kind, rate, depth, channels and seed.
@@ -1752,7 +1752,7 @@ with `diff` 7.500, and each part alone gives `NOT_BIT_PERFECT`.
   to zeros give no result; a track that is not a test file, a near-silent
   word in the zeros and a padding bit set in DoP idle still give
   `UNKNOWN_SIGNAL`.
-The vectors have no `DEVICE_OVERRUN` case: only a hardware checker reports
+The vectors have no `OVERRUN` case: only a hardware checker reports
 it.
 
 ## 14. Design notes

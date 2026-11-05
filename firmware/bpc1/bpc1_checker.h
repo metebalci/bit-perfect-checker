@@ -28,7 +28,7 @@
 // blocks comes from its X-sync flagged LAST or from an R-header that passes
 // section 6, decoded at its chip centres. Every received frame outside every
 // extent is unknown signal: each stretch of them gets an UNKNOWN_SIGNAL
-// report (DEVICE_OVERRUN if the FIFO overflowed in it). Only positions are
+// report (OVERRUN if the FIFO overflowed in it). Only positions are
 // kept for this, no frames. With allow_silence, a stretch of silence only
 // (PCM words 0; DoP frames with valid markers, DSD bytes 0x69 or 0x96, zero
 // bits below the 24) gives no report; frames outside the extents known so
@@ -50,7 +50,7 @@ typedef enum {
   BPC1_UNKNOWN_SIGNAL,   // frames outside every recognised file
   BPC1_BIT_PERFECT,      // rate, limits, body and words as the file's (a to d)
   BPC1_NOT_BIT_PERFECT,  // the file was found and a to d do not all hold
-  BPC1_DEVICE_OVERRUN,   // the device's own receive FIFO overflowed before the
+  BPC1_OVERRUN,          // the device's own receive FIFO overflowed before the
                          // file's first difference: not judged
 } bpc1_verdict_t;
 
@@ -244,7 +244,7 @@ void bpc1_checker_init(bpc1_checker_t *ck, uint32_t host_rate, uint8_t slot_bits
 // words: n_frames x BPC1_MAX_CH, left-justified.
 void bpc1_checker_feed(bpc1_checker_t *ck, const uint32_t *words, uint32_t n_frames);
 // The device's own receive FIFO overflowed before the next frame fed: the
-// file there becomes DEVICE_OVERRUN.
+// file there becomes OVERRUN.
 void bpc1_checker_overrun(bpc1_checker_t *ck);
 // Takes the oldest finished file's report; false if none.
 bool bpc1_checker_pop(bpc1_checker_t *ck, bpc1_report_t *rep);
@@ -267,7 +267,7 @@ uint32_t bpc1_checker_results_lost(const bpc1_checker_t *ck);
 void bpc1_checker_allow_silence(bpc1_checker_t *ck, bool allow);
 
 // The file being checked so far, with end OPEN: NOT_BIT_PERFECT from a first
-// difference received before any overrun, DEVICE_OVERRUN from an overrun
+// difference received before any overrun, OVERRUN from an overrun
 // before any difference, else BIT_PERFECT (so far). False while no file is
 // being checked.
 bool bpc1_checker_peek(const bpc1_checker_t *ck, bpc1_report_t *rep);

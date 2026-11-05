@@ -775,7 +775,7 @@ static void unknown_stretch(bpc1_checker_t *ck, uint64_t from, uint64_t to, bool
   }
   bpc1_report_t r;
   report_init(ck, &r);
-  r.verdict = overrun ? BPC1_DEVICE_OVERRUN : BPC1_UNKNOWN_SIGNAL;
+  r.verdict = overrun ? BPC1_OVERRUN : BPC1_UNKNOWN_SIGNAL;
   r.first_frame = from;
   r.frames = to - from;
   ck->outside += to - from;
@@ -899,7 +899,7 @@ static void fill_report(const bpc1_checker_t *ck, uint8_t end, bpc1_report_t *r)
   report_init(ck, r);
   // A difference before the first overrun is judged; an overrun before it is not
   bool judged = ck->failed && (!ck->overrun || ck->diff_rx < ck->over_rx);
-  r->verdict = judged ? BPC1_NOT_BIT_PERFECT : ck->overrun ? BPC1_DEVICE_OVERRUN : BPC1_BIT_PERFECT;
+  r->verdict = judged ? BPC1_NOT_BIT_PERFECT : ck->overrun ? BPC1_OVERRUN : BPC1_BIT_PERFECT;
   r->end = end;
   r->kind = ck->id.kind;
   r->dop = ck->dsd_f;
@@ -1544,7 +1544,7 @@ static const char *name_of(const char *const names[], uint32_t n, uint32_t x) {
 #define NAME_OF(names, x) name_of(names, sizeof(names) / sizeof(names[0]), x)
 
 const char *bpc1_verdict_name(uint8_t verdict) {
-  static const char *const names[] = {"UNKNOWN_SIGNAL", "BIT_PERFECT", "NOT_BIT_PERFECT", "DEVICE_OVERRUN"};
+  static const char *const names[] = {"UNKNOWN_SIGNAL", "BIT_PERFECT", "NOT_BIT_PERFECT", "OVERRUN"};
   return NAME_OF(names, verdict);
 }
 

@@ -16,7 +16,7 @@ results and says how many there were (results=<n>) and how many the device
 dropped because its queue of results was full (results_lost=<n>). A
 result's verdict is BIT_PERFECT, NOT_BIT_PERFECT, UNKNOWN_SIGNAL (a stretch
 of the stream outside every recognised file, silence included) or
-DEVICE_OVERRUN; its file=<n> is its place in its stream, stretches of
+OVERRUN; its file=<n> is its place in its stream, stretches of
 unknown signal included. The stop line also gives outside=<units>, the
 units outside every file. Every result is printed, and the exit status is
 the first of these that holds:
@@ -24,9 +24,9 @@ the first of these that holds:
   2  no result line at all: the device did not answer, or no stream
      arrived
   1  any result is NOT_BIT_PERFECT or UNKNOWN_SIGNAL (or another verdict),
-     or fewer than N results are BIT_PERFECT or DEVICE_OVERRUN with
+     or fewer than N results are BIT_PERFECT or OVERRUN with
      --expect N
-  4  not fully judged, play again: any result is DEVICE_OVERRUN (the
+  4  not fully judged, play again: any result is OVERRUN (the
      device's receive buffer overflowed), or the reporting is incomplete:
      a stream's results_lost is above 0, fewer result lines arrived than
      its results=, or the timeout ended the wait before it stopped
@@ -158,11 +158,11 @@ def exit_code(results, expect=0, incomplete=False):
     if not results:
         return EXIT_NO_RESULT
     verdicts = [r.fields.get("verdict") for r in results]
-    if any(v not in ("BIT_PERFECT", "DEVICE_OVERRUN") for v in verdicts):
+    if any(v not in ("BIT_PERFECT", "OVERRUN") for v in verdicts):
         return EXIT_FAIL
-    if verdicts.count("BIT_PERFECT") + verdicts.count("DEVICE_OVERRUN") < expect:
+    if verdicts.count("BIT_PERFECT") + verdicts.count("OVERRUN") < expect:
         return EXIT_FAIL       # a file did not arrive at all (an overrun arrived, unjudged)
-    return EXIT_OVERRUN if "DEVICE_OVERRUN" in verdicts or incomplete else EXIT_PASS
+    return EXIT_OVERRUN if "OVERRUN" in verdicts or incomplete else EXIT_PASS
 
 
 def value(text):
@@ -294,7 +294,7 @@ def main(argv=None):
     run_help = ("run a player and wait for the results of its streams: exit 3 when the "
                 "player failed, else 2 with no result, else 1 when any result is "
                 "NOT_BIT_PERFECT or UNKNOWN_SIGNAL (or fewer than --expect are BIT_PERFECT or "
-                "DEVICE_OVERRUN), else 4 when not fully judged (any DEVICE_OVERRUN, results "
+                "OVERRUN), else 4 when not fully judged (any OVERRUN, results "
                 "lost, fewer than announced, or a stream unfinished at the timeout: play "
                 "again), else 0 with at least one result, all BIT_PERFECT")
     p = sub.add_parser("run", help=run_help, description=run_help)
@@ -302,7 +302,7 @@ def main(argv=None):
                    help="seconds to wait for the result after the player exits (default 10)")
     p.add_argument("--json", action="store_true", help="print each result as a JSON object")
     p.add_argument("--expect", type=int, default=0, metavar="N",
-                   help="exit 1 when fewer than N results are BIT_PERFECT or DEVICE_OVERRUN")
+                   help="exit 1 when fewer than N results are BIT_PERFECT or OVERRUN")
     p.add_argument("command", nargs=argparse.REMAINDER, help="the player command, after --")
     args = ap.parse_args(argv)
 
