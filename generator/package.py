@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 Mete Balci
 """Release archives: deterministic zip files built from a generated set.
 
     python3 -m generator package [--out out] [--dist dist]

@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 Mete Balci
 """Text rendering of a check report."""
 
 from .check import rate_text

@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 Mete Balci
 """Check BPC1 test files or captures.
 
     python3 -m checker FILE...

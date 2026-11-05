@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2026 Mete Balci
 // NUCLEO-U5A5ZJ-Q: STM32U5A5ZJT6Q (SMPS), 16 MHz HSE crystal, LD1 green PC7,
 // LD2 blue PB7, LD3 red PG2, user button B1 on PC13 (high when pressed),
 // ST-LINK virtual COM port on USART1 PA9/PA10, user USB-C on the OTG HS PHY. The clock set-up follows TinyUSB's

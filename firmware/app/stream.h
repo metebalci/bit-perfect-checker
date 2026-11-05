@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2026 Mete Balci
 // Stream probe and BPC1 checker: records what the host chose (rate, alt
 // setting), what arrived (packets, frames, the bits in use, DoP markers) and
 // what was lost (microframes without a packet, receive FIFO overflows),

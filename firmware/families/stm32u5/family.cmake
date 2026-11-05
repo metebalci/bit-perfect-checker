@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 Mete Balci
 # STM32U5 family: CPU flags, ST's CMSIS device files and HAL, the startup
 # file and the family glue. The board sets MCU_VARIANT (e.g. stm32u5a5xx) and
 # HSE_VALUE before this is included.

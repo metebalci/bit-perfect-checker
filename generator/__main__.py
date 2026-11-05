@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 Mete Balci
 """Write the BPC1 v1 test-file set, or package it for release.
 
     python3 -m generator [--out out] [--32bit] [--no-flac] [--no-aiff] [--no-alac]

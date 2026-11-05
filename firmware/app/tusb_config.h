@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2026 Mete Balci
 // TinyUSB configuration: one UAC2 High-Speed audio sink with an explicit
 // feedback endpoint, nothing else.
 

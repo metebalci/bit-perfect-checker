@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 Mete Balci
 """The BPC1 v1 test-file set: which files exist, their names, tags and lengths."""
 
 import hashlib

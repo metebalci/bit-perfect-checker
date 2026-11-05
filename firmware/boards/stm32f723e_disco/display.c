@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2026 Mete Balci
 // The STM32F723E-DISCO's display, for now a test pattern: display_init()
 // brings up the panel and the touch controller, times a full-screen fill and
 // draws colour bars, a marker in the top-left corner and every character of

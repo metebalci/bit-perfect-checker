@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2026 Mete Balci
 // Host tool for tests/test_bpc1_c.py: answers queries about the expected
 // BPC1 signal with the firmware's C code, one query per line on stdin.
 // Not part of the firmware.

@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2026 Mete Balci
 // STM32U5 family support. The USB PHY set-up follows TinyUSB's
 // hw/bsp/stm32u5 family files (MIT licence).
 

@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 Mete Balci
 """Repeatability: a second generation gives byte-identical files.
 
 The default test regenerates one file of every container (and FLAC) twice

@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 Mete Balci
 """The firmware's C implementation of BPC1 (firmware/bpc1/) against the
 golden vectors and the Python checker's model. Needs a host C compiler
 (gcc or cc); skipped without one."""

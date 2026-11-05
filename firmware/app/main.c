@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2026 Mete Balci
 // bit-perfect-checker firmware, stage 1: a UAC2 High-Speed sink at every rate
 // from 44.1 to 768 kHz that checks the BPC1 test signal it receives (the
 // exact layer) and reports the verdict on the LEDs, a display if the board

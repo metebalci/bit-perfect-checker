@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2026 Mete Balci
 // BPC1 v1 checker: proves that a file arrived bit-perfect, from
 // docs/bpc1.md section 12.6. The reference is checker/verify.py.
 

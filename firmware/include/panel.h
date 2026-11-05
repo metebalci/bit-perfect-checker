@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2026 Mete Balci
 // What a display's screen code needs from its panel: a rectangle of pixels
 // to write into, and colours given as 0xRRGGBB, which the driver turns into
 // the panel's own format. A board with a panel implements it, in the board's

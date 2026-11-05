@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2026 Mete Balci
 // Event log on the board's debug UART (the ST-LINK virtual COM port on the
 // Nucleo), 115200 8N1.
 //

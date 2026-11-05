@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2026 Mete Balci
 // STM32F7 HAL configuration: only the modules this firmware uses.
 
 #ifndef STM32F7XX_HAL_CONF_H

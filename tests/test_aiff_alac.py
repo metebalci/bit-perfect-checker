@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 Mete Balci
 """AIFF and ALAC beside every PCM and DoP WAV, 705.6 and 768 kHz included:
 the same samples, the 80-bit rate, the tags, determinism, and their release
 archives."""

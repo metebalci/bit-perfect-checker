@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2026 Mete Balci
 // Event log: a ring buffer of whole lines, drained by the board's UART
 // interrupt through log_tx_byte().
 

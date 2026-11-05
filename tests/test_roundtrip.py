@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 Mete Balci
 """Round trip: generate, write the container, read it back, check it.
 
 Every container and configuration of the format, 32-bit PCM included, as

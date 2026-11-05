@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 Mete Balci
 """Robust layer: find and decode the robust headers (R-headers).
 
 The decoder works on a real-valued signal x (full scale = 1.0): PCM samples,

@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 Mete Balci
 # Toolchain: GNU Arm Embedded (arm-none-eabi-gcc) on the PATH.
 
 set(CMAKE_SYSTEM_NAME Generic)

@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2026 Mete Balci
 // What the firmware needs from a display. A board or shield with a display
 // implements it and lists the sources in its board.cmake or shield.cmake;
 // without one, the build links app/display_none.c.

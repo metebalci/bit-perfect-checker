@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 Mete Balci
 """The code-sweep set: kind 5, lbD, the sweep payload, its files, and verify.py
 on sweep streams (spec 7.4 and 11.6)."""
 

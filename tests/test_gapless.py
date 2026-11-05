@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 Mete Balci
 """The gapless set (docs/bpc1.md, 11.7): the cut, the part files and their
 tags, and what checkers give for a pair joined, changed at the cut, or
 played as two streams. checker/verify.py and the firmware's engine, through

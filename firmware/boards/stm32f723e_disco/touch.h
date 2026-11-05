@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2026 Mete Balci
 // The STM32F723E-DISCO's touch panel as a second user button: a finger
 // anywhere on the screen counts as a press of B1.
 

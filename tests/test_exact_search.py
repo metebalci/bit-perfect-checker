@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 Mete Balci
 """The gap search's masked comparison and the inverted X-sync search (12.2),
 against the golden vectors and on whole streams."""
 

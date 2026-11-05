@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2026 Mete Balci
 /*
  * alac_tool: Apple's ALAC reference codec (third_party/alac/codec, the
  * macosforge/alac sources) as a small command-line helper for the generator

@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 Mete Balci
 """Release archives: members, README, warning file, determinism, contents."""
 
 import hashlib

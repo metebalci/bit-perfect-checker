@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 Mete Balci
 """The negative test files: each deliberately faulty file is NOT_BIT_PERFECT,
 and the diagnosis names its fault."""
 

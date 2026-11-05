@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 Mete Balci
 # Writes version.h with the git description of the source tree. Run at every
 # build; the file only changes when the description does.
 #   cmake -DSRC=<dir> -DOUT=<file> -P version.cmake

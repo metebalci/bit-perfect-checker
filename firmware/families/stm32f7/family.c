@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2026 Mete Balci
 // STM32F7 family support. The USB set-up follows ST's STM32CubeF7 USB device
 // examples for the STM32F723E-DISCO (BSD-3-Clause) and TinyUSB's
 // hw/bsp/stm32f7 family files (MIT licence); TinyUSB's DWC2 driver starts the

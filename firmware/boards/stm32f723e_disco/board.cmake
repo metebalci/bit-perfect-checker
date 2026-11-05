@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 Mete Balci
 # STM32F723E-DISCO
 
 set(FAMILY stm32f7)

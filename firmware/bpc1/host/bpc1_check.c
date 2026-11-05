@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2026 Mete Balci
 // Host tool for tests/test_bpc1_checker.py: runs the firmware's BPC1 checker
 // engine on a raw capture. Not part of the firmware.
 //

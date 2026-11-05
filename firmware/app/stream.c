@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2026 Mete Balci
 // Stream probe and BPC1 checker.
 //
 // The USB interrupt counts packets, bytes and microframes. The microframe

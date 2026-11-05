@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2026 Mete Balci
 // Load figures from the CPU's cycle counter: the time the USB interrupt
 // takes, the longest main-loop iteration, and the fullest the receive FIFO
 // got. The stream code reads and resets them once per second.

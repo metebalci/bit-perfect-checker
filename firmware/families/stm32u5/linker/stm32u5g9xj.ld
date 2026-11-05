@@ -1,3 +1,5 @@
+/* SPDX-License-Identifier: MIT */
+/* Copyright (c) 2026 Mete Balci */
 /* STM32U5G9ZJ: 4 MB flash; SRAM1, 2, 3 and 5 form one 2496 KB block, as on
    the STM32U5A5ZJ. SRAM6 (512 KB) follows it and holds only the display's
    frame buffer, so that the LTDC reads a bank of its own. */

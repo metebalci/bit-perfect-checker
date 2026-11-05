@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 Mete Balci
 """The serial-log client: line parsing, result tracking, exit codes."""
 
 import contextlib

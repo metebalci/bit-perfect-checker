@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 Mete Balci
 """One DSD kind (docs/bpc1.md, 3.1): the DSF, DFF and DoP files of a DSD
 rate carry the same DSD bits, as the WAV, FLAC, AIFF and ALAC files of a
 PCM signal carry the same samples; kinds 1, 2 and 5 are the only ones a

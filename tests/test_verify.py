@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 Mete Balci
 """verify.py, the four verdicts: no false pass and no false fail.
 
 No false pass: every kind of change inside a file's body, of its limits, of

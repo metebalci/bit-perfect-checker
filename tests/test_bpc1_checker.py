@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 Mete Balci
 """The firmware's checker engine (firmware/bpc1/bpc1_checker.c) through its
 host tool firmware/bpc1/host/bpc1_check.c, on generated raw s32le streams:
 the verdict cases of the vectors file and random changes against the

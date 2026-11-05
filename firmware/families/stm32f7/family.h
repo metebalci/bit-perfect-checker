@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2026 Mete Balci
 // STM32F7 family support, shared by every STM32F7 board: the USB OTG HS
 // controller with its internal HS PHY (STM32F72x/F73x), the log UART, the
 // tick, the caches and MPU, the cycle counter and the fault handler. A

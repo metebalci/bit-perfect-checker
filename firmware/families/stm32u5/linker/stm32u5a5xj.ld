@@ -1,3 +1,5 @@
+/* SPDX-License-Identifier: MIT */
+/* Copyright (c) 2026 Mete Balci */
 /* STM32U5A5ZJ: 4 MB flash; SRAM1, 2, 3 and 5 form one 2496 KB block. */
 
 ENTRY(Reset_Handler)

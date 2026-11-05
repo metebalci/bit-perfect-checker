@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 Mete Balci
 """Container writers for BPC1 files: WAV, DSF, DFF, DoP-in-WAV, FLAC, AIFF,
 ALAC (MP4).
 

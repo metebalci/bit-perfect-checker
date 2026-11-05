@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 Mete Balci
 """Apple's ALAC reference codec through a small helper.
 
 The codec is Apple's open-source ALAC encoder and decoder (macosforge/alac,

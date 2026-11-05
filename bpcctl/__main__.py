@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 Mete Balci
 """Command line for the checker's serial log.
 
     python3 -m bpcctl [--port PORT] monitor [--json]

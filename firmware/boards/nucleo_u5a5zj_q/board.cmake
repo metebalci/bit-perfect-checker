@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 Mete Balci
 # NUCLEO-U5A5ZJ-Q
 
 set(FAMILY stm32u5)

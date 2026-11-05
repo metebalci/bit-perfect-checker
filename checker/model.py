@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 Mete Balci
 """Expected-signal model of BPC1 v1, written from docs/bpc1.md.
 
 This is deliberately independent of the generator package: the round-trip

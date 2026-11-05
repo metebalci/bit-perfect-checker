@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 Mete Balci
 """The checker's serial log: lines in, commands out.
 
 Each line from the device is "<seconds>.<milliseconds> <event> [word ...]",

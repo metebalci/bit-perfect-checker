@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 Mete Balci
 """Turns fixed-width BDF fonts into C arrays for the firmware's display.
 
     python3 -I fontgen.py --out <dir> <name>=<file.bdf> [<name>=<file.bdf> ...]

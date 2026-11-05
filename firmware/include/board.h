@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2026 Mete Balci
 // What the firmware needs from a board. Every board implements it, in
 // boards/<board>/board.c together with its family's families/<family>/.
 

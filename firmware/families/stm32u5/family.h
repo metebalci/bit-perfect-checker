@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2026 Mete Balci
 // STM32U5 family support, shared by every STM32U5 board: the USB OTG HS
 // controller with its internal PHY (STM32U59x/5Ax/5Fx/5Gx), the log UART,
 // the tick, the cycle counter, the stack limit and the fault handler. A board's board_init() calls these.

@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2026 Mete Balci
 // The LEDs, from the status:
 //   blue, fast blink   not enumerated
 //   blue, slow blink   waiting for a stream

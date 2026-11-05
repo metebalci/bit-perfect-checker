@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2026 Mete Balci
 // STM32F723E-DISCO: STM32F723IEK6, 25 MHz oscillator into PH0 (HSE bypass),
 // LD5 red PA7, LD6 green PB1, LD1 blue PA5 (through SB14), all active high,
 // user button B1 on PA0 (high when pressed) and the touch panel as a second

@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2026 Mete Balci
 // The device's state as the LEDs and a display show it. The USB callbacks
 // and the stream probe write it, then call status_changed().
 

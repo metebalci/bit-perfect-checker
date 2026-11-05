@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 Mete Balci
 """Golden test vectors for ports of BPC1 v1 (vectors/bpc1-v1-vectors.json).
 
     python3 -m generator.vectors [--check]

@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2026 Mete Balci
 // The ST7789H2 panel driver's own addition to panel.h, for this board's
 // display code.
 

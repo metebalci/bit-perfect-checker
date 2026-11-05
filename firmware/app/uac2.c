@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2026 Mete Balci
 // UAC2 control requests and TinyUSB device callbacks.
 //
 // The device has no audio clock of its own to follow. It runs asynchronous

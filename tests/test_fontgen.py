@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 Mete Balci
 """The display font generator (firmware/tools/fontgen.py) against Spleen's
 BDF files in firmware/lib/spleen: every glyph of 0x20-0x7E, read back from
 the generated C compiled on the host, equals the BDF bitmap; a re-run gives

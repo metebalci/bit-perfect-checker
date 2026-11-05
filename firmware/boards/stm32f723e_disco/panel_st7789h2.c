@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MIT AND BSD-3-Clause
+// Copyright (c) 2026 Mete Balci
 // The STM32F723E-DISCO's 1.54" 240x240 panel (FRD154BP2902) with an
 // ST7789H2 controller that holds the frame: a 16-bit 8080 bus on the FMC,
 // bank 1 sub-bank 2 (NE2 on PG9, 0x64000000), RS on FMC_A0 (PF0), so

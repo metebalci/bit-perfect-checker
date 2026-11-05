@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 Mete Balci
 """Numbered file names (docs/bpc1.md, 11.2) and titles (11.3).
 
 Every published file name starts with five digits TOFPP: the golden list of

@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 Mete Balci
 # A "flash" target that writes the firmware with ST's STM32CubeProgrammer
 # (STM32_Programmer_CLI), shared by the STM32 families. It names the ST-LINK
 # by its serial number, STLINK_SN, so that it never writes to another board

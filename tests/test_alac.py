@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 Mete Balci
 """Apple's ALAC reference codec (generator/third_party/alac) through the helper
 generator/alac_tool.cpp: exact round trips, among them the step case on which
 ffmpeg's ALAC encoder and Apple's decoder disagree and a BPC1 file on which

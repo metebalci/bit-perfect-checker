@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 Mete Balci
 """Exact layer: X-sync lock, frame-exact comparison and gap analysis.
 
 Units are PCM frames, or bytes per channel (8 DSD bits) for DSD.

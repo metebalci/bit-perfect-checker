@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2026 Mete Balci
 // The STM32F723E-DISCO's capacitive touch panel: a FocalTech FT6x36 or
 // FT3x67 on I2C3 (SCL PA8, SDA PH8, 2.7 k pull-ups on the board, 400 kHz at
 // most), address 0x70 (0x38 shifted), INT on PI9 (active low), reset on PH9

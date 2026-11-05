@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 Mete Balci
 # bit-perfect-checker firmware.
 #
 #   cmake -S firmware -B firmware/build/<board> -G Ninja -DBOARD=<board> [-DSHIELD=<shield>]

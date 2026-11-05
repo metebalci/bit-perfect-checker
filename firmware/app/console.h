@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2026 Mete Balci
 // Commands from the host on the log UART, one per line (CR or LF ends it),
 // for test automation. Each answer is one log line:
 //

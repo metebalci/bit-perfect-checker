@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2026 Mete Balci
 // STM32U5G9J-DK2: STM32U5G9ZJT6Q (SMPS), 16 MHz HSE crystal, LD2 red PD2 and
 // LD3 green PD4, both active low, no blue LED, user button B2 on PC13 (high
 // when pressed; B1 is reset), STLINK-V3EC virtual COM port on USART1

@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 Mete Balci
 """Check a received stream against BPC1 v1 and build the report.
 
 The verdict (BIT_PERFECT, NOT_BIT_PERFECT, UNKNOWN_SIGNAL) comes from verify.py.

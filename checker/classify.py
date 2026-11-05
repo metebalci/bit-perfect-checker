@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 Mete Balci
 """Name the alteration of aligned PCM samples.
 
 Input: received and expected 32-bit left-justified words over the body,

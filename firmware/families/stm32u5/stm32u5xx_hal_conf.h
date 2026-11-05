@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2026 Mete Balci
 // STM32U5 HAL configuration: only the modules this firmware uses.
 
 #ifndef STM32U5XX_HAL_CONF_H

@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2026 Mete Balci
 // The USB audio function: sample rate, alt settings, feedback, and which
 // formats the device offers.
 

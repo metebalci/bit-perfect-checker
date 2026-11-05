@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 Mete Balci
 """Prove bit-perfect: the results of a received stream.
 
 The rules of spec 12.6, "Verdicts". A file

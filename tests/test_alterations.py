@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 Mete Balci
 """Simulated playback-chain alterations: each must be detected and named."""
 
 import unittest

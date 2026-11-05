@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 Mete Balci
 """Primitives and golden vectors, against both implementations.
 
 The generator (generator/) and the checker's model (checker/model.py) are

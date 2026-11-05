@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 Mete Balci
 """Readers: WAV, FLAC, AIFF, ALAC (.m4a), DSF, DFF and raw captures -> a Stream.
 
 A PCM stream holds 32-bit left-justified words W (int32, shape frames x nch):

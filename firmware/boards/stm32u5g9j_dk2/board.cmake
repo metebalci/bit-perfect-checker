@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 Mete Balci
 # STM32U5G9J-DK2
 
 set(FAMILY stm32u5)

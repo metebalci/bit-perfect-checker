@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 Mete Balci
 """BPC1 v1 signal synthesis: PCM samples and DSD bits, block by block.
 
 The generator writes files in chunks of whole blocks, so memory stays small

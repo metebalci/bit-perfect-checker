@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 Mete Balci
 # STM32F7 family: CPU flags, ST's CMSIS device files and HAL, the startup
 # file and the family glue. The board sets MCU_VARIANT (e.g. stm32f723xx) and
 # HSE_VALUE before this is included.

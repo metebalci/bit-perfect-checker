@@ -1,3 +1,5 @@
+/* SPDX-License-Identifier: MIT */
+/* Copyright (c) 2026 Mete Balci */
 /* STM32F723xE: 512 KB flash, 16 KB ITCM RAM, 64 KB DTCM, then SRAM1 and
    SRAM2, which form one 192 KB block.
    - The image is linked at the flash's ITCM interface (0x00200000), where

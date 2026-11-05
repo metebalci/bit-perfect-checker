@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2026 Mete Balci
 // BPC1 v1, the test signal of docs/bpc1.md: primitives, header
 // words, and the expected signal unit by unit. Portable C99, no hardware:
 // the firmware checker builds on it, and tests compile it on the host.

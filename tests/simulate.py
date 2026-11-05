@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 Mete Balci
 """Simulated playback-chain alterations for the tests (numpy only).
 
 All functions take and return 32-bit left-justified words W (int32 arrays,

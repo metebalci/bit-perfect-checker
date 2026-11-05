@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2026 Mete Balci
 // USB identity and the UAC2 topology: clock source -> input terminal (USB
 // streaming) -> output terminal. There is no Feature Unit, so a host that
 // wants to change the volume has to do it in software, where the checker
