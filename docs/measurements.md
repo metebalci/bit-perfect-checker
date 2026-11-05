@@ -38,8 +38,9 @@ Contents:
   sound server, no mixing, no conversion. A small program that writes the
   file's frames through libasound did the playing. In the runs with the
   checker it reported no xrun in any of 660 plays.
-- **Board.** NUCLEO-U5A5ZJ-Q, as in the firmware README. The USB controller's
-  mode is in section 2.3.
+- **Board.** NUCLEO-U5A5ZJ-Q, as in the firmware README; the repeats of
+  section 2.8 also used an STM32F723E-DISCO. The USB controller's mode is in
+  section 2.3.
 - **Test files.** The BPC1 regular set and, in the early runs, the 32-bit
   WAVs the generator writes on request. Streams of the early runs last 8.6 s
   (352.8 kHz and above) or 12.6 s; later files are 12.6 s at every rate.
@@ -179,6 +180,21 @@ None of them lies outside every file's extent (`outside=0`, bpc1.md, section
 12.6). The figures are from the small playback program above; another player
 may add another amount.
 
+### 2.8 Repeats at 384 kHz with 4-byte slots
+
+On 2026-11-05 the regular 384 kHz 32-bit WAV (4-byte slots, 12.6 s) was played
+again and again on the Linux PCIe controller setup (section 1), to two boards:
+
+| Board and build | Plays | Plays with lost packets | Packets lost in all |
+|---|---|---|---|
+| STM32F723E-DISCO, commit 14e5362 | 10 | 3 | 6 |
+| NUCLEO-U5A5ZJ-Q, the build with the project's USB ID (16C0:27E0) | 9 | 2 | 2 |
+
+Both boards lost packets in about one play in four, in holes of one or two
+microframes. This agrees with the losses at 384 kHz of section 2.2: at 384 kHz
+with 4-byte slots a packet goes missing now and then on this host, less often than
+at 705.6 and 768 kHz.
+
 ## 3. A virtual machine with USB port passthrough
 
 First receive path, the same 33 files, the board's USB port passed through by
@@ -273,7 +289,8 @@ affects only the console's input.
   when fewer than n files give `BIT_PERFECT` or `DEVICE_OVERRUN`, which
   catches a file that did not arrive or was muted ([README](../README.md#automate-with-bpcctl)).
 - Do not test through a hypervisor's emulated USB (section 3).
-- At 705.6 and 768 kHz, expect an occasional `lost` on a Linux PC. Read
+- At 705.6 and 768 kHz, and now and then at 384 kHz with 4-byte slots
+  (section 2.8), expect an occasional `lost` on a Linux PC. Read
   `lost` on the result line and `lost`, `missed`, `holes` and `maxhole` on
   the `stream stop` line before blaming the signal path: a `NOT_BIT_PERFECT`
   with a few holes of one or two microframes is a packet the device did not

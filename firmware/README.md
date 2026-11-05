@@ -51,17 +51,22 @@ such as iOS join files of the same rate into one stream. It proves that a
 file arrived bit-perfect: a file that did not is `NOT_BIT_PERFECT`, and audio that belongs to no file, silence included, is
 `UNKNOWN_SIGNAL`. It has no robust layer.
 
+The device takes every rate up to 768 kHz. Whether every USB packet reaches
+it depends on the host. An iPad lost no packet at any rate, 768 kHz included,
+so the iPad is the reference test for the highest rates. On one Linux host's
+xHCI controller a few packets went missing. Up to 192 kHz no packet was lost
+in any stream; at 352.8 and 384 kHz a stream lost a few packets now and then;
+at 705.6 and 768 kHz streams lost a few packets each with 3- and 4-byte slots
+(about one in 3 800 to 17 000, in holes of one or two microframes) and
+sometimes with 2-byte slots too.
+
 The USB controller runs in DMA mode. Its isochronous OUT endpoint holds one
 transfer at a time and is re-armed after each packet, so **a host that sends
 a packet late in one microframe and the next early in the following one can
-make the device miss a packet.** On one Linux host's xHCI controller this
-happened with 3- and 4-byte slots at 705.6 and 768 kHz, about one packet in
-4 000 to 17 000, in holes of one or two microframes, and rarely with 4-byte
-slots at 384 kHz (in about one play in four of a 12.5 s file); every 16-bit
-stream and everything up to 352.8 kHz arrived complete. An iPad lost no
-packet at any rate. A miss shows as `lost`. A miss in a file's body makes it
-`NOT_BIT_PERFECT`; a miss in its lead-in or tail does not change the verdict
-([12.6](../docs/bpc1.md#126-verdicts)).
+make the device miss a packet.** A miss shows as `lost`, so it is told apart
+from an altered sample. A miss in a file's body makes the file
+`NOT_BIT_PERFECT`; a miss in its lead-in or tail is counted in `lost` but does
+not change the verdict ([12.6](../docs/bpc1.md#126-verdicts)).
 
 Seen on Linux (snd-usb-audio, raw `hw:` playback): 16-bit files use alt 1,
 24-bit files alt 4 (`S24_3LE`), and 32-bit files alt 2. Alt 2 and 3 are both

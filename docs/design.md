@@ -460,12 +460,13 @@ packet. USB Audio Data Formats 2.0 allows a zero-length packet in place of any
 packet. In DMA mode the driver returned before re-arming, and the device
 received nothing more until the host selected an alt setting again.
 
-The USB controller runs in DMA mode. Its isochronous OUT endpoint holds one
-transfer at a time and is re-armed after each packet, so a host that sends a
-packet late in one microframe and the next early in the following one can make
-the device miss a packet. This is a limit of the host and the controller
-together, and TinyUSB is otherwise unmodified (firmware README, "What it
-does").
+The device takes every rate up to 768 kHz, but whether every packet reaches it
+depends on the host (section 9). The USB controller runs in DMA mode. Its
+isochronous OUT endpoint holds one transfer at a time and is re-armed after
+each packet, so a host that sends a packet late in one microframe and the next
+early in the following one can make the device miss a packet. This is a limit
+of the host and the controller together, and TinyUSB is otherwise unmodified
+(firmware README, "What it does").
 
 The receive FIFO between the USB interrupt and the main loop holds 32,760
 bytes, 5.3 ms at 768 kHz in 4-byte slots; TinyUSB's FIFO is limited to 32 KB.
@@ -527,10 +528,14 @@ the test files' tags do not change it (`firmware/cmake/version.cmake`).
 The project tests with a Linux PC (snd-usb-audio, raw `hw:` playback) and an
 iPad. macOS, Windows and Android are not tested.
 
-- **Linux.** Up to 384 kHz, and every 16-bit stream, arrived complete on the
-  host tested. With 3- and 4-byte slots at 705.6 and 768 kHz, packets were
-  missed, about one in 4,000 to 17,000, in holes of one or two microframes.
-- **iPad.** No packet was lost at any rate.
+- **Linux.** Up to 192 kHz no packet was lost in any stream on the host
+  tested; at 352.8 and 384 kHz a stream lost a few packets now and then. At
+  705.6 and 768 kHz streams lost a few packets each with 3- and 4-byte slots,
+  about one in 3,800 to 17,000, in holes of one or two microframes, and
+  sometimes with 2-byte slots too.
+- **iPad.** No packet was lost at any rate, 768 kHz included. The iPad is
+  therefore the reference test for the highest rates; whether every packet
+  reaches the device depends on the host.
 - Two behaviours are checked against the code and the specification only:
   zero-length audio packets, which the tested hosts never send, and a rate
   change while a stream stays open, which the tested hosts avoid by closing the

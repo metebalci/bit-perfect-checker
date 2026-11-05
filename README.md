@@ -32,6 +32,11 @@ and the board gives a verdict per file. A pass proves that every sample
 arrived unchanged. A fail almost always means a real change; rarely, a USB
 packet the device missed fails a file the host sent intact.
 
+The device takes every rate up to 768 kHz. Whether every USB packet reaches it
+depends on the host: an iPad delivered every rate without losing a packet,
+while a Linux PC lost a few at the highest rates. A missed packet shows as
+`lost` in the result, so it is told apart from an altered sample.
+
 The board shows its verdicts on its LEDs and in a serial log, with one result
 line per file; see [firmware](firmware/README.md).
 
@@ -96,8 +101,9 @@ files.
    their whole length: **do not play them on speakers or headphones.**
 4. **Play and read the result.** See the website above. For test automation,
    see [Automate with bpcctl](#automate-with-bpcctl). What to expect from
-   Linux and from an iPad, such as packets a PC loses at 705.6 and 768 kHz, is
-   in [measurements](docs/measurements.md).
+   Linux and from an iPad, such as the packets a Linux PC missed at the
+   highest rates while an iPad lost none, is in
+   [measurements](docs/measurements.md).
 
 ## Build
 
