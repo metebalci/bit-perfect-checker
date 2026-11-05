@@ -437,11 +437,17 @@ The firmware uses TinyUSB, not ST's own USB middleware.
   first or the deepest it supports, so offering one format lets a tester choose
   what the host sends.
 - No Feature Unit (section 6).
-- **USB ID.** The default is the pid.codes test PID 1209:0001, which is for
-  in-house testing only and not for a device that is distributed. The build
-  warns about it at configure time, and the boot line shows the ID in use. A
-  build option sets another VID:PID, which anyone distributing a device must
-  do. A different USB ID changes only the IDs in the descriptors.
+- **USB ID.** The device uses Objective Development's shared VID/PID pair for
+  audio class devices, 16C0:27E0, under the serial-number rules of its
+  [USB-IDs-for-free.txt](https://github.com/obdev/v-usb/blob/master/usbdrv/USB-IDs-for-free.txt):
+  the serial string starts with the project's domain and a colon
+  (`bpc.metebalci.com:`), followed by the chip's unique ID. Host software
+  matches the serial number as well as the IDs. A build option,
+  `USB_SERIAL_PREFIX`, sets the start of the serial string; anyone who
+  distributes a modified firmware sets it to a domain or e-mail address of
+  their own. Other build options set another VID:PID, which changes only the
+  IDs in the descriptors. If pid.codes assigns the project a PID, a later
+  version switches to it.
 
 ### TinyUSB
 

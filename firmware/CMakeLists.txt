@@ -9,10 +9,17 @@ cmake_minimum_required(VERSION 3.21)
 set(BOARD nucleo_u5a5zj_q CACHE STRING "Board: a folder in boards/")
 set(SHIELD "" CACHE STRING "Optional shield: a folder in shields/")
 
-# pid.codes test PID: for in-house testing only. Anything distributed needs
-# its own VID:PID.
-set(USB_VID 0x1209 CACHE STRING "USB vendor ID")
-set(USB_PID 0x0001 CACHE STRING "USB product ID")
+# Objective Development's shared VID:PID for audio class devices (V-USB's
+# USB-IDs-for-free.txt). Its rules: the serial number string starts with an
+# Internet domain or e-mail address its maker owns, ended by a colon, and host
+# software matches the serial number too. The firmware's serial number is
+# USB_SERIAL_PREFIX followed by the chip's unique ID in hex. Whoever
+# distributes a modified firmware sets USB_SERIAL_PREFIX to a domain or e-mail
+# address of their own.
+set(USB_VID 0x16C0 CACHE STRING "USB vendor ID")
+set(USB_PID 0x27E0 CACHE STRING "USB product ID")
+set(USB_SERIAL_PREFIX "bpc.metebalci.com:" CACHE STRING
+    "Start of the USB serial number: a domain or e-mail address and a colon")
 
 # The formats the device offers at boot, as alt settings 1 to n in this
 # order, each <bits>/<bytes>; the console command "formats" changes them.
@@ -76,13 +83,6 @@ if(DISPLAY_FONTS)
     DEPENDS ${FIRMWARE}/tools/fontgen.py ${fontgen_bdf}
     COMMENT "Generating the display fonts")
   list(APPEND DISPLAY_SOURCES ${FONTS_DIR}/fonts.c ${FONTS_DIR}/fonts.h)
-endif()
-
-string(TOLOWER "${USB_VID}:${USB_PID}" usb_id)
-if(usb_id STREQUAL "0x1209:0x0001")
-  message(WARNING "USB ID 1209:0001 is the pid.codes test PID. It is not unique and is for "
-                  "in-house testing only: never use it on a device that is distributed, sold or "
-                  "manufactured. Set -DUSB_VID=... -DUSB_PID=... for anything else.")
 endif()
 
 # The warning set TinyUSB builds its examples with
@@ -155,6 +155,7 @@ if(DISPLAY_FONTS)
   target_include_directories(${FW} PRIVATE ${FONTS_DIR})
 endif()
 target_compile_definitions(${FW} PRIVATE BOARD_NAME="${BOARD}" USB_VID=${USB_VID} USB_PID=${USB_PID}
+                           USB_SERIAL_PREFIX="${USB_SERIAL_PREFIX}"
                            UAC2_FORMATS_DEFAULT="${UAC2_FORMATS}"
                            ALLOW_SILENCE_DEFAULT=$<IF:$<BOOL:${ALLOW_SILENCE}>,true,false>)
 target_compile_options(${FW} PRIVATE $<$<COMPILE_LANGUAGE:C>:${WARNINGS} -Werror>)

@@ -69,10 +69,10 @@ files.
 2. **The firmware.** Build and flash it yourself with ARM GCC, CMake, Ninja
    and ST's STM32CubeProgrammer, following the Build and Flash sections of the
    [firmware README](firmware/README.md): a few commands, ending in the
-   `flash` target. Copying the binary to the ST-LINK's USB drive works too. No
-   ready-made binary is published yet: the firmware uses the pid.codes test
-   USB ID 1209:0001, which is for private use only and may not be
-   distributed.
+   `flash` target. Copying the binary to the ST-LINK's USB drive works too. A
+   ready-made binary is to be published with firmware 1.1.0. The device uses
+   Objective Development's shared USB ID for audio class devices, 16C0:27E0
+   ([USB ID](firmware/README.md#usb-id)).
 3. **The test files.** Download them from the project's releases, one zip
    per format: `bpc1-r1-wav.zip`, `bpc1-r1-flac.zip`, `bpc1-r1-aiff.zip`
    and `bpc1-r1-alac.zip`, and the code-sweep files in

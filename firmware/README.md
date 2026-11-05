@@ -86,14 +86,25 @@ endpoint and counts like a microframe without a packet (`lost`).
 The device reports the manufacturer "Mete Balci" and the product "Bit-Perfect
 Checker"; on Linux the ALSA card is named `Checker`.
 
-The default USB ID is **1209:0001, the [pid.codes](https://pid.codes/1209/0001/)
-test PID**. It is not unique and is for in-house testing only: never use it on
-a device that is distributed, sold or manufactured. CMake warns about it at
-configure time and the boot line shows the ID in use. Set your own with:
+The device uses **16C0:27E0, Objective Development's shared VID/PID pair for
+audio class devices**, under the serial-number rules of its
+[USB-IDs-for-free.txt](https://github.com/obdev/v-usb/blob/master/usbdrv/USB-IDs-for-free.txt).
+Devices that share the pair tell themselves apart by their serial number
+string, which must start with an Internet domain or e-mail address of their
+maker, ended by a colon. This firmware's serial number is
+`bpc.metebalci.com:` followed by the chip's unique ID as 24 hex digits, and
+host software that looks for the device matches the serial number as well as
+the IDs. The boot line shows the ID in use.
+
+Anyone who distributes a modified firmware sets `USB_SERIAL_PREFIX` to a
+domain or e-mail address of their own:
 
 ```
-cmake ... -DUSB_VID=0x1234 -DUSB_PID=0x5678
+cmake ... -DUSB_SERIAL_PREFIX=example.org:
 ```
+
+`USB_VID` and `USB_PID` set another VID:PID. If pid.codes assigns the project
+a PID, a later version switches to it.
 
 ## Formats
 
@@ -168,7 +179,7 @@ Without STM32CubeProgrammer, copy the `.bin` to the ST-LINK's USB drive
 ## Release
 
 The firmware is to be released as `bit-perfect-checker-firmware-<version>.zip`.
-No binary is published yet (see [USB ID](#usb-id)).
+The first published binary is to come with 1.1.0.
 
 Firmware releases are tagged `firmware-v<major>.<minor>.<patch>`, the first
 `firmware-v1.0.0`. The build takes its version from

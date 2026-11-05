@@ -245,10 +245,18 @@ static const char *const string_desc[] = {
   NULL,                   // 0: language, answered below
   "Mete Balci",           // 1: manufacturer
   "Bit-Perfect Checker",  // 2: product
-  NULL,                   // 3: serial, the chip's unique ID
+  NULL,                   // 3: serial, USB_SERIAL_PREFIX and the chip's unique ID
 };
 
-static uint16_t desc_str[1 + 32];
+// The serial number: the prefix, then the 96-bit unique ID as 24 hex digits.
+// A string descriptor's length is one byte, so it holds at most 126 UTF-16
+// characters.
+#define SERIAL_PREFIX_LEN (sizeof USB_SERIAL_PREFIX - 1)
+#define SERIAL_LEN        (SERIAL_PREFIX_LEN + 24)
+#define DESC_STR_MAX      126
+TU_VERIFY_STATIC(SERIAL_LEN <= DESC_STR_MAX, "USB_SERIAL_PREFIX too long for a string descriptor");
+
+static uint16_t desc_str[1 + SERIAL_LEN];
 
 uint16_t const *tud_descriptor_string_cb(uint8_t index, uint16_t langid) {
   (void) langid;
@@ -258,8 +266,13 @@ uint16_t const *tud_descriptor_string_cb(uint8_t index, uint16_t langid) {
     desc_str[1] = 0x0409;  // English (US)
     n = 1;
   } else if (index == 3) {
+    static const char prefix[] = USB_SERIAL_PREFIX;
     static const char hex[] = "0123456789ABCDEF";
     const volatile uint32_t *uid = (const volatile uint32_t *) UID_BASE;
+    while (n < SERIAL_PREFIX_LEN) {
+      desc_str[1 + n] = (uint16_t) prefix[n];
+      n++;
+    }
     for (int w = 0; w < 3; w++) {
       uint32_t v = uid[w];
       for (int i = 0; i < 8; i++) {

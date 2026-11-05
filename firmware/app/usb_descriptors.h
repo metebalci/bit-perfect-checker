@@ -10,15 +10,21 @@
 #include <stddef.h>
 #include <stdint.h>
 
-// USB_VID and USB_PID come from the build (CMake options of the same name).
-// The default, 1209:0001, is the pid.codes test PID: it is not unique and is
-// for in-house testing only. Never use it on a device that is distributed,
-// sold or manufactured; get your own VID:PID for that.
+// USB_VID, USB_PID and USB_SERIAL_PREFIX come from the build (CMake options
+// of the same names). The default, 16C0:27E0, is Objective Development's
+// shared VID:PID for audio class devices (V-USB's USB-IDs-for-free.txt): a
+// device that uses it tells itself apart by its serial number string, which
+// must start with a domain or e-mail address of its maker and a colon. The
+// serial number is USB_SERIAL_PREFIX (ASCII) followed by the chip's unique ID
+// as 24 hex digits.
 #ifndef USB_VID
-#define USB_VID   0x1209
+#define USB_VID   0x16C0
 #endif
 #ifndef USB_PID
-#define USB_PID   0x0001
+#define USB_PID   0x27E0
+#endif
+#ifndef USB_SERIAL_PREFIX
+#define USB_SERIAL_PREFIX "bpc.metebalci.com:"
 #endif
 
 // Raise with every change to the descriptors, so hosts that cache them notice.
