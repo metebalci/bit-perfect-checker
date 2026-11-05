@@ -10,8 +10,8 @@
 //
 // The panel has no command interface. The layer is L8: one byte per pixel,
 // an index into the layer's colour look-up table, which holds a fixed RGB332
-// palette (index = R[7:5] G[7:5] B[7:6]); 384,000 bytes instead of 768,000
-// for RGB565. 0xRRGGBB colours are truncated to an index, so black, white
+// palette (index = R[7:5] G[7:5] B[7:6], clut_rgb332.h, with the panel's
+// green correction); 384,000 bytes instead of 768,000 for RGB565. 0xRRGGBB colours are truncated to an index, so black, white
 // and the primaries are exact. The CPU draws; the LTDC reads the frame buffer
 // on its own, with no interrupt. The frame buffer is alone in SRAM6, a bank
 // that no other bus master uses, so the LTDC's reads never wait for USB DMA
@@ -22,6 +22,7 @@
 #include <string.h>
 
 #include "board.h"
+#include "clut_rgb332.h"
 #include "family.h"
 #include "panel_rk050hr18.h"
 
@@ -225,15 +226,10 @@ static void ltdc_init(void) {
   LTDC_Layer1->CFBLR = (WIDTH << 16) | (WIDTH + 3u);  // pitch, line length + 3 (RM0456)
   LTDC_Layer1->CFBLNR = HEIGHT;
 
-  // The RGB332 palette, written while the layer is off (RM0456, LTDC_LxCLUTWR)
+  // The RGB332 palette (clut_rgb332.h), written while the layer is off
+  // (RM0456, LTDC_LxCLUTWR)
   for (uint32_t i = 0; i < 256u; i++) {
-    uint32_t r = i >> 5;
-    uint32_t g = (i >> 2) & 7u;
-    uint32_t b = i & 3u;
-    r = (r << 5) | (r << 2) | (r >> 1);
-    g = (g << 5) | (g << 2) | (g >> 1);
-    b *= 0x55u;
-    LTDC_Layer1->CLUTWR = (i << 24) | (r << 16) | (g << 8) | b;
+    LTDC_Layer1->CLUTWR = (i << 24) | clut_rgb332(i);
   }
   LTDC_Layer1->CR = LTDC_LxCR_CLUTEN | LTDC_LxCR_LEN;
   LTDC->SRCR = LTDC_SRCR_IMR;

@@ -43,6 +43,9 @@ void display_init(void) {
   log_line("display ltdc %ux%u l8 fb=0x%08lx fill_us=%u", (unsigned) panel_width(), (unsigned) panel_height(),
            (unsigned long) panel_rk050hr18_fb(), (unsigned) fill_us);
 
+#if defined(PANEL_GREEN_MAX) && PANEL_GREEN_MAX != 255u
+  log_line("display green=%u", (unsigned) PANEL_GREEN_MAX);
+#endif
   screen_layout_init();
   screen_init(&layout);
   touch_init();

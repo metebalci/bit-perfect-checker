@@ -14,3 +14,9 @@ set(BOARD_SOURCES ${CMAKE_CURRENT_LIST_DIR}/board.c ${CMAKE_CURRENT_LIST_DIR}/to
 list(APPEND DISPLAY_SOURCES ${CMAKE_CURRENT_LIST_DIR}/display.c ${CMAKE_CURRENT_LIST_DIR}/panel_rk050hr18.c
      ${APP}/screen.c ${APP}/screen_model.c)
 set(DISPLAY_FONTS 12x24=spleen-12x24.bdf 16x32=spleen-16x32.bdf 32x64=spleen-32x64.bdf)
+
+# The panel's full green, 0-255: the RK050HR18's pure green looks lighter
+# than the F723's panel's (clut_rgb332.h); 208 matches it by eye, 255 is no
+# correction
+set(PANEL_GREEN_MAX 208 CACHE STRING "STM32U5G9J-DK2: the panel's full green, 0-255")
+add_compile_definitions(PANEL_GREEN_MAX=${PANEL_GREEN_MAX}u)
