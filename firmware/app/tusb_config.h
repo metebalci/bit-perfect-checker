@@ -6,7 +6,7 @@
 
 #include "usb_descriptors.h"
 
-// CFG_TUSB_MCU comes from the build (OPT_MCU_STM32U5).
+// CFG_TUSB_MCU comes from the family (families/<family>/family.cmake).
 #define CFG_TUSB_OS                 OPT_OS_NONE
 #define CFG_TUSB_DEBUG              0
 
@@ -18,6 +18,10 @@
 // of the CPU reading its FIFO word by word in the interrupt, so the next
 // isochronous OUT transfer is armed sooner after each packet.
 #define CFG_TUD_DWC2_DMA_ENABLE     1
+
+// The D-cache stays off on every MCU that has one (the STM32F7), so
+// TinyUSB does no cache maintenance on the DMA buffers.
+#define CFG_TUD_MEM_DCACHE_ENABLE   0
 
 #define CFG_TUD_AUDIO               1
 #define CFG_TUD_CDC                 0

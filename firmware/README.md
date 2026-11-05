@@ -151,14 +151,19 @@ with `-Werror`.
 ## Flash
 
 With ST's [STM32CubeProgrammer](https://www.st.com/en/development-tools/stm32cubeprog.html)
-installed in its default folder:
+installed in its default folder, name the board's ST-LINK by its serial
+number, which `STM32_Programmer_CLI -l st-link` lists, and flash:
 
 ```
+cmake -DSTLINK_SN=<serial number> firmware/build/nucleo_u5a5zj_q
 cmake --build firmware/build/nucleo_u5a5zj_q --target flash
 ```
 
-This runs `STM32_Programmer_CLI -c port=SWD mode=UR -w <bin> 0x08000000 -v -rst`.
-Without it, copy the `.bin` to the ST-LINK's USB drive (`NOD_U5A5ZJ`).
+This runs `STM32_Programmer_CLI -c port=SWD sn=<serial number> mode=UR -w <bin> 0x08000000 -v -rst`.
+Without `STLINK_SN` the target refuses to run, so that it never writes to
+another board that happens to be connected.
+Without STM32CubeProgrammer, copy the `.bin` to the ST-LINK's USB drive
+(`NOD_U5A5ZJ`).
 OpenOCD 0.12.0 can connect to the STM32U5A5 but cannot program its flash: its
 flash driver does not know the device ID 0x481.
 

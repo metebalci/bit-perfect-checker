@@ -46,7 +46,7 @@ int main(void) {
   uac2_init();
 
   tusb_rhport_init_t dev_init = {.role = TUSB_ROLE_DEVICE, .speed = TUSB_SPEED_HIGH};
-  tusb_init(0, &dev_init);
+  tusb_init(BOARD_TUD_RHPORT, &dev_init);
 
   uint32_t shown = status.version - 1;  // show the initial status
   while (1) {

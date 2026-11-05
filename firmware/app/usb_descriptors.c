@@ -2,7 +2,7 @@
 
 #include <string.h>
 
-#include "stm32u5xx.h"
+#include "family.h"  // UID_BASE
 #include "tusb.h"
 #include "usb_descriptors.h"
 

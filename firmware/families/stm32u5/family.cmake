@@ -11,7 +11,9 @@ string(TOUPPER ${MCU_VARIANT} MCU_DEFINE)
 string(REPLACE "XX" "xx" MCU_DEFINE ${MCU_DEFINE})  # stm32u5a5xx -> STM32U5A5xx
 
 add_compile_options(${CPU_FLAGS})
-add_compile_definitions(${MCU_DEFINE} USE_HAL_DRIVER HSE_VALUE=${HSE_VALUE}UL CFG_TUSB_MCU=OPT_MCU_STM32U5)
+# TinyUSB port 0 is the U5's only USB controller, OTG HS
+add_compile_definitions(${MCU_DEFINE} USE_HAL_DRIVER HSE_VALUE=${HSE_VALUE}UL CFG_TUSB_MCU=OPT_MCU_STM32U5
+                        BOARD_TUD_RHPORT=0)
 
 # The HAL modules in use
 add_library(family_hal STATIC
@@ -32,18 +34,4 @@ set(FAMILY_SOURCES
   ${CMAKE_CURRENT_LIST_DIR}/family.c
   ${CMSIS_DEVICE}/Source/Templates/gcc/startup_${MCU_VARIANT}.s)
 
-# Flash with ST's STM32CubeProgrammer, from its default install folders
-find_program(STM32_PROGRAMMER STM32_Programmer_CLI
-  HINTS
-    $ENV{HOME}/STMicroelectronics/STM32Cube/STM32CubeProgrammer/bin
-    /Applications/STMicroelectronics/STM32Cube/STM32CubeProgrammer/STM32CubeProgrammer.app/Contents/MacOs/bin)
-
-# A "flash" target for the firmware image <bin>, which <target> builds
-function(family_flash_target target bin)
-  if(STM32_PROGRAMMER)
-    add_custom_target(flash
-      COMMAND ${STM32_PROGRAMMER} -c port=SWD mode=UR -w ${bin} 0x08000000 -v -rst
-      DEPENDS ${target}
-      USES_TERMINAL)
-  endif()
-endfunction()
+include(${FIRMWARE}/cmake/stm32cubeprog.cmake)
