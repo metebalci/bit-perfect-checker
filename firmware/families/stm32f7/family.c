@@ -17,7 +17,35 @@
 // Core: caches, MPU, cycle counter
 //--------------------------------------------------------------------+
 
+// Linker script: the vector table, the USB interrupt's code (ITCM RAM, loaded
+// from flash) and the USB buffers in DTCM.
+extern uint32_t g_pfnVectors[];
+extern uint32_t _sitcm[], _eitcm[], _siitcm[];
+extern uint32_t _sdtcm_usb[], _edtcm_usb[];
+
 void family_core_init(void) {
+  // The image runs from the flash's ITCM interface (0x00200000), where code
+  // and read-only data go through the ART accelerator; so does the vector
+  // table.
+  SCB->VTOR = (uint32_t) g_pfnVectors;
+  __DSB();
+
+  // The USB interrupt's code into ITCM RAM (zero wait states), before
+  // anything calls it. memcpy is part of that code, and GCC turns a plain copy
+  // loop into a call to memcpy: the volatile pointer prevents that.
+  const uint32_t *src = _siitcm;
+  for (volatile uint32_t *p = _sitcm; p < _eitcm; p++) {
+    *p = *src++;
+  }
+  __DSB();
+  __ISB();
+
+  // The USB buffers and the receive FIFO's storage in DTCM are NOLOAD: zero
+  // them as the startup code zeroes .bss.
+  for (uint32_t *p = _sdtcm_usb; p < _edtcm_usb; p++) {
+    *p = 0;
+  }
+
   // The D-cache stays off, so the USB controller's DMA and the CPU always
   // see the same memory without cache maintenance.
   SCB_EnableICache();
@@ -39,6 +67,15 @@ void family_core_init(void) {
   mpu.IsShareable = MPU_ACCESS_SHAREABLE;
   mpu.IsCacheable = MPU_ACCESS_NOT_CACHEABLE;
   mpu.IsBufferable = MPU_ACCESS_NOT_BUFFERABLE;
+  HAL_MPU_ConfigRegion(&mpu);
+
+  // The first 32 bytes of ITCM RAM stay unused and get no access and no
+  // execution, so that a NULL pointer read or a call through a NULL function
+  // pointer faults instead of running the code placed in ITCM RAM.
+  mpu.Number = MPU_REGION_NUMBER2;
+  mpu.BaseAddress = 0x00000000;
+  mpu.Size = MPU_REGION_SIZE_32B;
+  mpu.SubRegionDisable = 0x00;
   HAL_MPU_ConfigRegion(&mpu);
   HAL_MPU_Enable(MPU_PRIVILEGED_DEFAULT);
 
@@ -145,6 +182,7 @@ uint32_t tusb_time_millis_api(void) {
 void SysTick_Handler(void);
 void OTG_HS_IRQHandler(void);
 void HardFault_Handler(void);
+void MemManage_Handler(void);
 
 void SysTick_Handler(void) {
   HAL_IncTick();
@@ -167,6 +205,11 @@ __attribute__((naked)) void HardFault_Handler(void) {
       "msr msp, r0\n"
       "b fault_stop\n");
 }
+
+// HAL_MPU_Enable enables the MemManage exception (SHCSR.MEMFAULTENA), so an
+// MPU violation, such as a NULL pointer access, comes here instead of
+// escalating to HardFault: the same handler.
+void MemManage_Handler(void) __attribute__((alias("HardFault_Handler")));
 
 void fault_stop(void) {
   for (int i = 0; i < LED_COUNT; i++) {

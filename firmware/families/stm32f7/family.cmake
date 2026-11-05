@@ -16,6 +16,10 @@ add_compile_options(${CPU_FLAGS})
 # runs on OTG HS
 add_compile_definitions(${MCU_DEFINE} USE_HAL_DRIVER HSE_VALUE=${HSE_VALUE}UL CFG_TUSB_MCU=OPT_MCU_STM32F7
                         BOARD_TUD_RHPORT=1)
+# TinyUSB's USB buffers (CFG_TUD_MEM_SECTION) in DTCM, where the CPU reads
+# them at zero wait states and the OTG HS DMA reaches them through the core's
+# AHBS port; the linker script places .dtcm_usb.
+add_compile_definitions("CFG_TUD_MEM_SECTION=__attribute__((section(\".dtcm_usb\")))")
 
 # The HAL modules in use
 add_library(family_hal STATIC
