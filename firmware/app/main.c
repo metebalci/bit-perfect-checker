@@ -43,8 +43,8 @@ int main(void) {
   status.allow_silence = ALLOW_SILENCE_DEFAULT;
   console_boot();
   stream_run_start();
+  display_init();  // before the LED test, which the display's splash shows too
   leds_test();
-  display_init();
   uac2_init();
 
   tusb_rhport_init_t dev_init = {.role = TUSB_ROLE_DEVICE, .speed = TUSB_SPEED_HIGH};

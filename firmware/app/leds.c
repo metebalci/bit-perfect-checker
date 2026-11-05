@@ -7,12 +7,19 @@
 #include <stddef.h>
 
 #include "board.h"
+#include "display.h"
 #include "log.h"
 #include "status.h"
+
+// For a display that does not show the LED test
+__attribute__((weak)) void display_led_test(led_t led) {
+  (void) led;
+}
 
 void leds_test(void) {
   static const led_t order[LED_COUNT] = {LED_RED, LED_GREEN, LED_BLUE};
   for (int i = 0; i < LED_COUNT; i++) {
+    display_led_test(order[i]);  // also for an LED the board does not have
     const char *name = board_led_name(order[i]);
     if (name == NULL) {
       continue;
@@ -28,7 +35,8 @@ void leds_test(void) {
 
 void leds_task(void) {
   uint32_t now = board_millis();
-  bool blink = ((now / 250) & 1) != 0;
+  bool slow = ((now / 500) & 1) != 0;
+  bool fast = ((now / 125) & 1) != 0;
   bool blue;
   bool green = false;
   bool red = false;
@@ -36,17 +44,17 @@ void leds_task(void) {
   if (status.streaming) {
     blue = true;
   } else if (status.usb != USB_NOT_MOUNTED) {
-    blue = ((now / 500) & 1) != 0;
+    blue = slow;
   } else {
-    blue = ((now / 125) & 1) != 0;
+    blue = fast;
   }
   // The run's results, the first that holds
   if (status.run_fail) {
     red = true;
   } else if (status.run_unknown) {
-    red = blink;
+    red = slow;
   } else if (status.run_overrun) {
-    red = green = blink;
+    red = fast;
   } else {
     green = status.run_pass;
   }

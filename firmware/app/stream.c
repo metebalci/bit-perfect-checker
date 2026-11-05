@@ -714,6 +714,9 @@ static void log_held(void) {
   status.last_lost = s.held_lost;
   status.last_overflows = s.held_overflows;
   bpc1_diff_text(&s.held_r, status.last_diff, sizeof(status.last_diff));
+  status.last_kind = s.held_r.kind;
+  status.last_depth = s.held_r.depth;
+  status.last_rate = s.held_r.rate;
   if (status.file_diff_known && s.held_r.first_frame == s.diff_file) {
     status.file_diff_known = false;
   }
@@ -776,6 +779,10 @@ uint32_t stream_backlog_us(void) {
   return (uint32_t) (waiting * 1000000u / per_s);
 }
 
+uint32_t stream_packets(void) {
+  return (uint32_t) isr.packets;  // one word: no tear
+}
+
 void stream_log_result(void) {
   if (results == 0) {
     log_line_reserved("result none");
@@ -804,6 +811,10 @@ static void watch(void) {
     log_line("lock kind=%s dop=%u rate=%lu depth=%u seed=0x%08lx block=%u frame=%llu", bpc1_kind_name(r.kind),
              r.dop ? 1u : 0u, (unsigned long) r.rate, r.depth, (unsigned long) r.id.seed, r.id.block,
              (unsigned long long) r.first_frame);
+    status.file_kind = r.kind;
+    status.file_depth = r.depth;
+    status.file_rate = r.rate;
+    status_changed();
   }
   if (r.verdict == BPC1_NOT_BIT_PERFECT) {
     run_note(r.verdict);  // red from the file's first difference on
@@ -907,6 +918,7 @@ static void stop(const char *reason) {
   status.lost = (uint32_t) (net_lost(c) > 0 ? net_lost(c) : 0);
   status.overflows = c->overflows;
   status.file_diff_known = false;
+  status.file_kind = 0;
   // The interrupt may have begun the next segment already (a host gap just
   // over the idle time): a restart now would cut that segment short.
   board_irq_disable();

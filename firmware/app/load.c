@@ -48,3 +48,7 @@ load_t load_take(void) {
   loop_max = 0;
   return l;
 }
+
+uint32_t load_isr_cycles(void) {
+  return isr_cycles;
+}

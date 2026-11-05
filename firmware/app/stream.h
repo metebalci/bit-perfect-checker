@@ -42,4 +42,8 @@ void stream_run_start(void);
 // Audio waiting in the receive FIFO, in microseconds; 0 outside a stream.
 uint32_t stream_backlog_us(void);
 
+// The packets the interrupt counted, the low 32 bits: it moves while audio
+// arrives (it starts over with each segment of a stream).
+uint32_t stream_packets(void);
+
 #endif

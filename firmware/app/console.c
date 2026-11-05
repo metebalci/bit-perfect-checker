@@ -50,7 +50,7 @@ static const char *usb_name(usb_state_t usb) {
   switch (usb) {
     case USB_MOUNTED: return "mounted";
     case USB_SUSPENDED: return "suspended";
-    default: return "not-mounted";
+    default: return "not-connected";
   }
 }
 

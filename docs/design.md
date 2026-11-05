@@ -486,11 +486,12 @@ Blue shows the stream: blinking while waiting, steady while a stream plays.
 Green and red show a **run**: every result since the user button was pressed,
 the console command `mark` was sent or the board was reset, whichever came
 last. They show the first of these that holds: red steady for any
-`NOT_BIT_PERFECT`, red blinking for any `UNKNOWN_SIGNAL`, red and green
-blinking together for any `DEVICE_OVERRUN`, and green when every result of the
-run was `BIT_PERFECT`. Red stays on until the next run, so the LEDs do not
-depend on how the host splits files into streams. The full table is in the
-firmware README.
+`NOT_BIT_PERFECT`, red blinking slowly for any `UNKNOWN_SIGNAL`, red blinking
+fast for any `DEVICE_OVERRUN`, and green when every result of the run was
+`BIT_PERFECT`. A run is either green or red, and a lower verdict never
+changes what a higher one set. Red stays on until the next run, so the LEDs
+do not depend on how the host splits files into streams. The full table is in
+the firmware README.
 
 ### Log and automation
 
@@ -520,8 +521,9 @@ firmware README.
 Firmware releases are tagged `firmware-v<major>.<minor>.<patch>`, the first
 `firmware-v1.0.0`. The device reports the version without the prefix (`fw=1.0.0`
 at the tag), and the zip is `bit-perfect-checker-firmware-<version>.zip`. The
-build takes the version from `git describe` on tags that match `firmware-v*`;
-the test files' tags do not change it (`firmware/cmake/version.cmake`).
+build takes the version from `firmware/VERSION` and, between releases, adds
+the commit (`git describe` on tags that match `firmware-v*`); the test files'
+tags do not change it (`firmware/cmake/version.cmake`).
 
 ## 9. Tested hosts
 

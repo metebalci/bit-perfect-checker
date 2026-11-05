@@ -29,4 +29,7 @@ typedef struct {
 // The figures since the last call; starts over.
 load_t load_take(void);
 
+// The cycles spent in the USB interrupt since the last load_take(), so far.
+uint32_t load_isr_cycles(void);
+
 #endif

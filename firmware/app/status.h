@@ -45,6 +45,14 @@ typedef struct {
   int32_t last_lost;
   uint32_t last_overflows;
   char last_diff[12];         // seconds with 3 decimals, or "-"
+  uint8_t last_kind;          // its file as the header gives it: BPC1_KIND_*, 0 for none
+  uint8_t last_depth;         // bits, 1 for DSD
+  uint32_t last_rate;         // Hz, the DSD bit rate for DSD
+  // The file the checker locked onto in the open stream, from its header,
+  // until the stream stops
+  uint8_t file_kind;          // BPC1_KIND_*, 0 for none
+  uint8_t file_depth;
+  uint32_t file_rate;
   // The file being checked, from its first difference until its result line
   bool file_diff_known;
   char file_diff[12];

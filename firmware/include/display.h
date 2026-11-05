@@ -13,10 +13,16 @@
 #ifndef DISPLAY_H
 #define DISPLAY_H
 
+#include "board.h"
 #include "status.h"
 
 void display_init(void);
 void display_update(const status_t *status);
 void display_task(void);
+
+// From the start-up LED test, as it lights each LED (also one the board does
+// not have): a display can show the same colour. Optional: app/leds.c has a
+// default that does nothing.
+void display_led_test(led_t led);
 
 #endif

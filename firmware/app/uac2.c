@@ -125,7 +125,7 @@ void tud_umount_cb(void) {
   stream_reset();
   status.usb = USB_NOT_MOUNTED;
   status_changed();
-  log_line("usb unmounted");
+  log_line("usb disconnected");
 }
 
 void tud_suspend_cb(bool remote_wakeup_en) {

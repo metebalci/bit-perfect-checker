@@ -7,9 +7,8 @@
 // Green and red show the run (since the user button, `mark` or reset), the
 // first that holds:
 //   red, steady        a NOT_BIT_PERFECT file (from its first difference on)
-//   red, blinking      an UNKNOWN_SIGNAL result
-//   red and green, blinking together
-//                      a DEVICE_OVERRUN result
+//   red, slow blink    an UNKNOWN_SIGNAL result
+//   red, fast blink    a DEVICE_OVERRUN result
 //   green              the results are all BIT_PERFECT
 //   neither            nothing judged yet
 //   all three          fault (set by the board's fault handler)
@@ -17,7 +16,8 @@
 #ifndef LEDS_H
 #define LEDS_H
 
-// At start-up: red, green, then blue, each for 0.3 s, logged as "led <name>".
+// At start-up: red, green, then blue, each for 0.3 s, logged as "led <name>";
+// a display shows each colour too (display_led_test()).
 void leds_test(void);
 
 // From the main loop.

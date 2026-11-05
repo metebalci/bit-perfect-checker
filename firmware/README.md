@@ -189,12 +189,14 @@ The firmware is to be released as `bit-perfect-checker-firmware-<version>.zip`.
 The first published binary is to come with 1.1.0.
 
 Firmware releases are tagged `firmware-v<major>.<minor>.<patch>`, the first
-`firmware-v1.0.0`. The build takes its version from
-`git describe --tags --match 'firmware-v*' --always --dirty` without the
-prefix, and the device reports it as `fw=` in its `boot` and `version` lines:
-`1.0.0` at the tag, `1.0.0-3-gabc1234` three commits after it, the commit hash
-alone without a firmware tag, each with `-dirty` when the tree has
-uncommitted changes. Other tags, such as the test files', do not change it.
+`firmware-v1.0.0`. `firmware/VERSION` holds the version being developed (now
+`1.1.0`), and the device reports its version as `fw=` in its `boot` and
+`version` lines and on a display: `1.1.0` at the tag `firmware-v1.1.0`,
+`1.1.0-abc1234` at any other commit (a pre-release of 1.1.0, with the commit
+hash), each with `-dirty` when the tree has uncommitted changes, and
+`1.1.0-unknown` for source outside git. At a firmware tag whose number is not
+the one in `firmware/VERSION`, the configure stops. Other tags, such as the
+test files', do not change the version.
 
 ## Serial log and commands
 
@@ -213,7 +215,7 @@ their meaning.
 | `led <colour> <pin>` | the LED test at start-up: red, green, blue, each for 0.3 s |
 | `formats <list>` | the formats offered, as alt settings 1 to n; at boot, and after a `formats` command, with `changed=0` or `changed=1` |
 | `usb mounted speed=high` | enumerated; `speed=full` means the High-Speed link failed |
-| `usb unmounted`, `usb suspended`, `usb resumed` | bus state |
+| `usb disconnected`, `usb suspended`, `usb resumed` | bus state |
 | `usb reset` | the host reset the bus while a stream ran or an alt setting was open: the stream stops (`reason=reset`), and the host enumerates the device again |
 | `usb disconnected`, `usb connecting` | the device leaves the bus to change its formats, and comes back |
 | `rate <Hz>` | the host set the sample rate; at boot, the rate the device reports before a host sets one (48000) |
@@ -367,7 +369,7 @@ One command per line, ended by CR or LF. Each answer is one line:
 
 | Command | Answer |
 |---|---|
-| `status` | `status usb=<state> speed=<high/full> rate=<Hz> alt=<n> slot=<bytes> res=<bits> streaming=<0/1> id=<n> lost=<n> ovf=<n> formats=<list> allow_silence=<true/false>`; `lost` and `ovf` are those of stream `id`: as on its last `stat` line while the stream runs, as on its `stream stop` line once it stopped, with a negative `lost` shown as 0 |
+| `status` | `status usb=<mounted/suspended/not-connected> speed=<high/full> rate=<Hz> alt=<n> slot=<bytes> res=<bits> streaming=<0/1> id=<n> lost=<n> ovf=<n> formats=<list> allow_silence=<true/false>`; `lost` and `ovf` are those of stream `id`: as on its last `stat` line while the stream runs, as on its `stream stop` line once it stopped, with a negative `lost` shown as 0 |
 | `result` | the last `result` line again, or `result none` |
 | `mark <text>` | `mark <text>`, to tie a script's steps to the log; it also starts a new run (`run start`, [LEDs](#leds)). The echo comes at once, so a `result` line still waiting from the run before can come between `mark` and `run start`; `bpcctl` follows stream ids and is not affected |
 | `formats [<list> \| default]` | `formats <list>`; with a list, offer those formats from now on (`changed=1`, then the device reconnects) |
@@ -421,8 +423,8 @@ format conversion.
 | blue, slow blink | enumerated, waiting for a stream |
 | blue, steady | a stream runs |
 | red, steady | a file of the run is `NOT_BIT_PERFECT`, from its first difference on |
-| red, blinking | the run has an `UNKNOWN_SIGNAL` result |
-| red and green, blinking together | the run has a `DEVICE_OVERRUN` result |
+| red, slow blink | the run has an `UNKNOWN_SIGNAL` result |
+| red, fast blink | the run has a `DEVICE_OVERRUN` result |
 | green, steady | the run's results are all `BIT_PERFECT` |
 | green and red off | nothing judged yet |
 | all three on | fault, stopped |
@@ -431,8 +433,10 @@ Green and red show the current **run**: every result since the last press of
 the user button (B1 on the Nucleo), the console command `mark`, or a reset.
 They do not depend on how the host splits files into streams, and they keep
 the result after a stream stops, until the next run starts. They show the
-first of these that holds, from red steady down. Once red is on, it stays red
-until the next run; it can only change from blinking to steady. With
+first of these that holds, from red steady down: green only when every result
+is `BIT_PERFECT`, red for every other verdict. A result never changes what a
+result higher in the table set: once red is on, it stays red until the next
+run, and it can only change from a fast blink to a slow blink to steady. With
 `allow_silence` `true` a file muted to zeros gives no result, so green can
 stay on; only `bpcctl run --expect` catches it. A new run is
 logged as `run start` and turns green and red off. A `result` line that is

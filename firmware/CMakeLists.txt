@@ -31,6 +31,11 @@ set(UAC2_FORMATS "16/2,24/4,32/4,24/3" CACHE STRING "Formats offered at boot")
 # command "allow_silence" changes it.
 option(ALLOW_SILENCE "Silence outside every file gives no result" ON)
 
+# For a board with a status screen (app/screen.h), test builds only: a log
+# line per completed redraw, and redrawing everything without a pause.
+option(DISPLAY_LOG "Log each redraw of the status screen" OFF)
+option(DISPLAY_STRESS "Redraw the whole status screen continuously" OFF)
+
 set(CMAKE_TOOLCHAIN_FILE ${CMAKE_CURRENT_LIST_DIR}/cmake/arm-none-eabi.cmake)
 if(NOT CMAKE_BUILD_TYPE)
   set(CMAKE_BUILD_TYPE RelWithDebInfo)
@@ -126,8 +131,15 @@ target_include_directories(tinyusb PRIVATE ${AUDIO})  # headers next to audio_de
 target_compile_options(tinyusb PRIVATE ${WARNINGS})
 target_link_libraries(tinyusb PUBLIC family_hal)
 
-# Version stamp, regenerated at every build
+# Version stamp, written at configure time (a firmware tag that is not
+# firmware/VERSION stops the configure) and again at every build
 set(VERSION_H ${CMAKE_BINARY_DIR}/version.h)
+execute_process(
+  COMMAND ${CMAKE_COMMAND} -DSRC=${REPO_ROOT} -DOUT=${VERSION_H} -P ${FIRMWARE}/cmake/version.cmake
+  RESULT_VARIABLE version_result)
+if(NOT version_result EQUAL 0)
+  message(FATAL_ERROR "No firmware version (cmake/version.cmake)")
+endif()
 add_custom_target(version
   COMMAND ${CMAKE_COMMAND} -DSRC=${REPO_ROOT} -DOUT=${VERSION_H} -P ${FIRMWARE}/cmake/version.cmake
   BYPRODUCTS ${VERSION_H})
@@ -159,7 +171,8 @@ endif()
 target_compile_definitions(${FW} PRIVATE BOARD_NAME="${BOARD}" USB_VID=${USB_VID} USB_PID=${USB_PID}
                            USB_SERIAL_PREFIX="${USB_SERIAL_PREFIX}"
                            UAC2_FORMATS_DEFAULT="${UAC2_FORMATS}"
-                           ALLOW_SILENCE_DEFAULT=$<IF:$<BOOL:${ALLOW_SILENCE}>,true,false>)
+                           ALLOW_SILENCE_DEFAULT=$<IF:$<BOOL:${ALLOW_SILENCE}>,true,false>
+                           $<$<BOOL:${DISPLAY_LOG}>:DISPLAY_LOG> $<$<BOOL:${DISPLAY_STRESS}>:DISPLAY_STRESS>)
 target_compile_options(${FW} PRIVATE $<$<COMPILE_LANGUAGE:C>:${WARNINGS} -Werror>)
 target_link_libraries(${FW} PRIVATE tinyusb family_hal)
 target_link_options(${FW} PRIVATE
