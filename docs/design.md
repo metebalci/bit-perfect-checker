@@ -446,8 +446,7 @@ The firmware uses TinyUSB, not ST's own USB middleware.
   `USB_SERIAL_PREFIX`, sets the start of the serial string; anyone who
   distributes a modified firmware sets it to a domain or e-mail address of
   their own. Other build options set another VID:PID, which changes only the
-  IDs in the descriptors. If pid.codes assigns the project a PID, a later
-  version switches to it.
+  IDs in the descriptors.
 
 ### TinyUSB
 

@@ -103,8 +103,7 @@ domain or e-mail address of their own:
 cmake ... -DUSB_SERIAL_PREFIX=example.org:
 ```
 
-`USB_VID` and `USB_PID` set another VID:PID. If pid.codes assigns the project
-a PID, a later version switches to it.
+`USB_VID` and `USB_PID` set another VID:PID.
 
 ## Formats
 
