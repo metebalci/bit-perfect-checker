@@ -56,9 +56,12 @@ transfer at a time and is re-armed after each packet, so **a host that sends
 a packet late in one microframe and the next early in the following one can
 make the device miss a packet.** On one Linux host's xHCI controller this
 happened with 3- and 4-byte slots at 705.6 and 768 kHz, about one packet in
-4 000 to 17 000, in holes of one or two microframes; everything up to
-384 kHz, and every 16-bit stream, arrived complete. An iPad lost no packet at
-any rate. A miss shows as `lost`, and the file is `NOT_BIT_PERFECT`.
+4 000 to 17 000, in holes of one or two microframes, and rarely with 4-byte
+slots at 384 kHz (in about one play in four of a 12.5 s file); every 16-bit
+stream and everything up to 352.8 kHz arrived complete. An iPad lost no
+packet at any rate. A miss shows as `lost`. A miss in a file's body makes it
+`NOT_BIT_PERFECT`; a miss in its lead-in or tail does not change the verdict
+([12.6](../docs/bpc1.md#126-verdicts)).
 
 Seen on Linux (snd-usb-audio, raw `hw:` playback): 16-bit files use alt 1,
 24-bit files alt 4 (`S24_3LE`), and 32-bit files alt 2. Alt 2 and 3 are both
