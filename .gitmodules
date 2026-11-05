@@ -21,6 +21,10 @@
 	path = firmware/lib/CMSIS_5
 	url = https://github.com/ARM-software/CMSIS_5
 	shallow = true
+[submodule "firmware/lib/spleen"]
+	path = firmware/lib/spleen
+	url = https://github.com/fcambus/spleen
+	shallow = true
 [submodule "generator/third_party/alac"]
 	path = generator/third_party/alac
 	url = https://github.com/macosforge/alac

@@ -1,14 +1,15 @@
 // STM32F723E-DISCO: STM32F723IEK6, 25 MHz oscillator into PH0 (HSE bypass),
 // LD5 red PA7, LD6 green PB1, LD1 blue PA5 (through SB14), all active high,
-// user button B1 on PA0 (high when pressed), ST-LINK virtual COM port on
-// USART6 PC6/PC7, USB OTG HS with the internal PHY on CN19 (micro-AB). The
-// clock set-up follows ST's STM32CubeF7 examples for this board, with HSE
-// bypassed for the board's oscillator.
+// user button B1 on PA0 (high when pressed) and the touch panel as a second
+// one, ST-LINK virtual COM port on USART6 PC6/PC7, USB OTG HS with the
+// internal PHY on CN19 (micro-AB). The clock set-up follows ST's STM32CubeF7
+// examples for this board, with HSE bypassed for the board's oscillator.
 
 #include "board.h"
 
 #include "family.h"
 #include "log.h"
+#include "touch.h"
 
 typedef struct {
   GPIO_TypeDef *port;
@@ -99,6 +100,10 @@ void board_init(void) {
   HAL_GPIO_Init(GPIOA, &gpio);
   gpio.Pull = GPIO_NOPULL;
 
+  // The touch panel, the second user button: out of reset now, set up by
+  // touch_init() from display_init()
+  touch_reset_release();
+
   // Log: USART6 TX on PC6, RX on PC7, clocked from PCLK2
   gpio.Pin = GPIO_PIN_6 | GPIO_PIN_7;
   gpio.Mode = GPIO_MODE_AF_PP;
@@ -124,6 +129,7 @@ const char *board_led_name(led_t led) {
   return leds[led].name;
 }
 
+// B1, or a finger anywhere on the touch panel
 bool board_button(void) {
-  return HAL_GPIO_ReadPin(GPIOA, GPIO_PIN_0) == GPIO_PIN_SET;
+  return HAL_GPIO_ReadPin(GPIOA, GPIO_PIN_0) == GPIO_PIN_SET || touch_down();
 }

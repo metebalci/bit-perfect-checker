@@ -54,6 +54,30 @@ if(NOT DISPLAY_SOURCES)
   set(DISPLAY_SOURCES ${APP}/display_none.c)
 endif()
 
+# A display's fonts: a board or shield lists them in DISPLAY_FONTS as
+# <name>=<file>, <file> a BDF font in lib/spleen, and gets font_<name> from
+# fonts.h. tools/fontgen.py writes fonts.c and fonts.h into the build folder,
+# so only display builds need Python.
+if(DISPLAY_FONTS)
+  find_package(Python3 REQUIRED COMPONENTS Interpreter)
+  set(FONTS_DIR ${CMAKE_BINARY_DIR}/fonts)
+  set(fontgen_args "")
+  set(fontgen_bdf "")
+  foreach(font IN LISTS DISPLAY_FONTS)
+    string(REPLACE "=" ";" font_parts "${font}")
+    list(GET font_parts 0 font_name)
+    list(GET font_parts 1 font_file)
+    list(APPEND fontgen_args "${font_name}=${LIB}/spleen/${font_file}")
+    list(APPEND fontgen_bdf ${LIB}/spleen/${font_file})
+  endforeach()
+  add_custom_command(
+    OUTPUT ${FONTS_DIR}/fonts.c ${FONTS_DIR}/fonts.h
+    COMMAND Python3::Interpreter -I ${FIRMWARE}/tools/fontgen.py --out ${FONTS_DIR} ${fontgen_args}
+    DEPENDS ${FIRMWARE}/tools/fontgen.py ${fontgen_bdf}
+    COMMENT "Generating the display fonts")
+  list(APPEND DISPLAY_SOURCES ${FONTS_DIR}/fonts.c ${FONTS_DIR}/fonts.h)
+endif()
+
 string(TOLOWER "${USB_VID}:${USB_PID}" usb_id)
 if(usb_id STREQUAL "0x1209:0x0001")
   message(WARNING "USB ID 1209:0001 is the pid.codes test PID. It is not unique and is for "
@@ -127,6 +151,9 @@ add_executable(${FW}
 set_target_properties(${FW} PROPERTIES SUFFIX .elf)
 add_dependencies(${FW} version)
 target_include_directories(${FW} PRIVATE ${FIRMWARE}/include ${APP} ${FIRMWARE}/bpc1 ${CMAKE_BINARY_DIR})
+if(DISPLAY_FONTS)
+  target_include_directories(${FW} PRIVATE ${FONTS_DIR})
+endif()
 target_compile_definitions(${FW} PRIVATE BOARD_NAME="${BOARD}" USB_VID=${USB_VID} USB_PID=${USB_PID}
                            UAC2_FORMATS_DEFAULT="${UAC2_FORMATS}"
                            ALLOW_SILENCE_DEFAULT=$<IF:$<BOOL:${ALLOW_SILENCE}>,true,false>)
