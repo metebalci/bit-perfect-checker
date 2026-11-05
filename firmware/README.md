@@ -309,7 +309,41 @@ USB drive writes at the flash's start.
 ## Release
 
 The firmware is to be released as `bit-perfect-checker-firmware-<version>.zip`.
-The first published binary is to come with 1.1.0.
+The first published binary is to come with 1.1.0. The zip holds, in one
+folder of its name, `bpc-<board>-<version>.bin` for every board (the flash
+image for 0x08000000), a `README.txt` on flashing and the USB ID, a
+`NOTICES.txt` with the licences and copyright notices of everything in the
+images, and a `SHA256SUMS` of the `.bin` files.
+
+[`tools/package.py`](tools/package.py) writes it. It clones the repository
+at a commit or tag into a scratch folder, with the firmware's submodules at
+their pinned commits, builds every board with the build's defaults, and
+stops on a build warning, on a `-dirty` or `-unknown` version, and on an
+image that holds a path of the machine it ran on. NOTICES.txt takes the
+copyright lines from the files the builds read (Ninja's dependency log) and
+each licence text from its submodule's own licence file. For the routines
+the images take from the toolchain's C library, newlib, it names each one
+with its source file (from the build's map file and the objects' debug
+information), adds the notice each of those source files carries (or the
+default notice of newlib's `COPYING.NEWLIB` for a file without one), and
+then the licence list that newlib's package ships, by default Debian's
+copyright file of `libnewlib-arm-none-eabi` (`--newlib-licence` and
+`--newlib-version` name another). The notices come from newlib's own
+sources at the release the toolchain was built from: `--newlib-source`
+names a folder that holds `COPYING.NEWLIB` and each routine's source file
+at its path in the
+[newlib repository](https://sourceware.org/git/newlib-cygwin.git), and
+`--newlib-tag` names that release. From the repository root:
+
+```
+python3 -I firmware/tools/package.py --rev firmware-v1.1.0 --work <empty folder> \
+    --newlib-source <folder> --newlib-tag newlib-4.6.0
+```
+
+The zip and a `SHA256SUMS` of the zips go to `firmware/build/release`
+(`--dist` sets another folder); `--ninja` names the `ninja` to build with.
+The zip's entries are sorted and carry the commit's date, so a re-run from
+the same commit with the same toolchain gives the same bytes.
 
 Firmware releases are tagged `firmware-v<major>.<minor>.<patch>`, the first
 `firmware-v1.0.0`. `firmware/VERSION` holds the version being developed (now
