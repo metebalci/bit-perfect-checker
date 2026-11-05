@@ -437,6 +437,14 @@ The firmware uses TinyUSB, not ST's own USB middleware.
   first or the deepest it supports, so offering one format lets a tester choose
   what the host sends.
 - No Feature Unit (section 6).
+- **Connection state.** The USB controller does not sense VBUS (TinyUSB
+  forces the session valid), so on its own it cannot tell a pulled cable from
+  a host that suspended the bus. Each board reads its user USB port's VBUS
+  in the main loop instead (`board_vbus()`); VBUS gone for 50 ms ends the
+  configuration as a controller with VBUS sensing would, and the device
+  reports not connected (`firmware/app/main.c`, `firmware/app/vbus.c`). A
+  host that only suspends the bus leaves VBUS on, and the device stays
+  connected and waiting. A detected disconnect also starts a new run.
 - **USB ID.** The device uses Objective Development's shared VID/PID pair for
   audio class devices, 16C0:27E0, under the serial-number rules of its
   [USB-IDs-for-free.txt](https://github.com/obdev/v-usb/blob/master/usbdrv/USB-IDs-for-free.txt):
@@ -484,8 +492,10 @@ bytes, 5.3 ms at 768 kHz in 4-byte slots; TinyUSB's FIFO is limited to 32 KB.
 
 Blue shows the stream: blinking while waiting, steady while a stream plays.
 Green and red show a **run**: every result since the user button was pressed,
-the console command `mark` was sent or the board was reset, whichever came
-last. They show the first of these that holds: red steady for any
+the console command `mark` was sent, the USB cable was pulled or the board
+was reset, whichever came last. A pull during playback cuts a file; its
+result stays in the run before, so a session does not stay red after the
+cable is pulled. They show the first of these that holds: red steady for any
 `NOT_BIT_PERFECT`, red blinking slowly for any `UNKNOWN_SIGNAL`, red blinking
 fast for any `OVERRUN`, and green when every result of the run was
 `BIT_PERFECT`. A run is either green or red, and a lower verdict never

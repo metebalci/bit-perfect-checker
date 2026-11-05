@@ -1,10 +1,12 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) 2026 Mete Balci
 // The LEDs, from the status:
-//   blue, fast blink   not enumerated
+//   blue, fast blink   not connected: no host has set the device up, or
+//                      the cable is out (no VBUS)
 //   blue, slow blink   waiting for a stream
 //   blue, steady       streaming
-// Green and red show the run (since the user button, `mark` or reset), the
+// Green and red show the run (since the user button, `mark`, a pulled USB
+// cable or reset), the
 // first that holds:
 //   red, steady        a NOT_BIT_PERFECT file (from its first difference on)
 //   red, slow blink    an UNKNOWN_SIGNAL result

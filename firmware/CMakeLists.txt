@@ -157,6 +157,7 @@ add_executable(${FW}
   ${APP}/stream.c
   ${APP}/uac2.c
   ${APP}/usb_descriptors.c
+  ${APP}/vbus.c
   ${FIRMWARE}/bpc1/bpc1.c
   ${FIRMWARE}/bpc1/bpc1_checker.c
   ${DISPLAY_SOURCES}

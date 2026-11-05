@@ -30,7 +30,8 @@ typedef struct {
   uint32_t lost;        // packets lost in this stream, the last one once it stopped
   uint32_t overflows;   // receive FIFO overflows in this stream, likewise
   bool allow_silence;   // silence outside every file gives no result
-  // The results of the run: since the user button, the mark command or reset
+  // The results of the run: since the user button, the mark command, a
+  // pulled USB cable or reset
   bool run_pass;        // a BIT_PERFECT result
   bool run_fail;        // a NOT_BIT_PERFECT result, or a file's first difference
   bool run_unknown;     // an UNKNOWN_SIGNAL result

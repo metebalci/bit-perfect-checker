@@ -121,11 +121,15 @@ void tud_mount_cb(void) {
   log_line("usb mounted speed=%s", speed_name(tud_speed_get()));
 }
 
+// The host deconfigured the device, or VBUS went (main.c); logged once,
+// when the device was connected
 void tud_umount_cb(void) {
   stream_reset();
-  status.usb = USB_NOT_MOUNTED;
-  status_changed();
-  log_line("usb disconnected");
+  if (status.usb != USB_NOT_MOUNTED) {
+    status.usb = USB_NOT_MOUNTED;
+    status_changed();
+    log_line("usb disconnected");
+  }
 }
 
 void tud_suspend_cb(bool remote_wakeup_en) {

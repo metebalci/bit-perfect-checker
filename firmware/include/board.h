@@ -31,6 +31,11 @@ const char *board_led_name(led_t led);
 // The user button is pressed (B1 on a Nucleo); false on a board without one.
 bool board_button(void);
 
+// VBUS is present on the user USB port: a host or a powered cable is
+// plugged in. Polled from the main loop (vbus.h debounces it); the USB
+// controller does not sense VBUS.
+bool board_vbus(void);
+
 // Milliseconds since boot.
 uint32_t board_millis(void);
 

@@ -9,6 +9,7 @@
 
 #include "family.h"
 #include "log.h"
+#include "stm32u5xx_ll_adc.h"
 
 typedef struct {
   GPIO_TypeDef *port;
@@ -75,6 +76,59 @@ static void clock_init(void) {
   }
 }
 
+// VBUS of the user USB-C port (CN15) on PC2, VBUS_SENSE: VBUS divided by
+// 7.61 (ST's BSP, stm32u5xx_nucleo_usbpd_pwr.c: R34 49.9k of 379.9k), so
+// 0.66 V at 5 V, below a GPIO's input high level: read with ADC1 (IN3),
+// converting continuously. UM2861 Rev 5 Table 13 (PC2 VBUS_SENSE).
+#define VBUS_DIVIDER_X100 761u
+#define VBUS_MIN_MV       3500u  // present at or above
+#define VDDA_MV           3300u
+#define ADC_FULL          16384u  // 14 bits
+#define VBUS_MIN_CODE ((uint32_t) ((uint64_t) VBUS_MIN_MV * ADC_FULL * 100u / ((uint64_t) VDDA_MV * VBUS_DIVIDER_X100)))
+#define ADC_START_MS 2u
+
+static bool vbus_adc;  // ADC1 converts VBUS_SENSE
+
+static bool wait_flag(uint32_t (*flag)(const ADC_TypeDef *)) {
+  uint32_t t0 = HAL_GetTick();
+  while (flag(ADC1) == 0u) {
+    if (HAL_GetTick() - t0 > ADC_START_MS) {
+      return false;
+    }
+  }
+  return true;
+}
+
+static void vbus_init(void) {
+  GPIO_InitTypeDef gpio = {0};
+  gpio.Pin = GPIO_PIN_2;
+  gpio.Mode = GPIO_MODE_ANALOG;
+  gpio.Pull = GPIO_NOPULL;
+  HAL_GPIO_Init(GPIOC, &gpio);
+
+  HAL_PWREx_EnableVddA();
+  __HAL_RCC_ADCDAC_CONFIG(RCC_ADCDACCLKSOURCE_HSE);  // 16 MHz
+  __HAL_RCC_ADC12_CLK_ENABLE();
+
+  LL_ADC_DisableDeepPowerDown(ADC1);
+  LL_ADC_EnableInternalRegulator(ADC1);
+  if (!wait_flag(LL_ADC_IsActiveFlag_LDORDY)) {
+    return;
+  }
+  LL_ADC_REG_SetContinuousMode(ADC1, LL_ADC_REG_CONV_CONTINUOUS);
+  LL_ADC_REG_SetOverrun(ADC1, LL_ADC_REG_OVR_DATA_OVERWRITTEN);
+  LL_ADC_SetChannelPreselection(ADC1, LL_ADC_CHANNEL_3);
+  LL_ADC_REG_SetSequencerRanks(ADC1, LL_ADC_REG_RANK_1, LL_ADC_CHANNEL_3);
+  LL_ADC_SetChannelSamplingTime(ADC1, LL_ADC_CHANNEL_3, LL_ADC_SAMPLINGTIME_814CYCLES);
+  LL_ADC_ClearFlag_ADRDY(ADC1);
+  LL_ADC_Enable(ADC1);
+  if (!wait_flag(LL_ADC_IsActiveFlag_ADRDY)) {
+    return;
+  }
+  LL_ADC_REG_StartConversion(ADC1);
+  vbus_adc = true;
+}
+
 void board_init(void) {
   family_core_init();
   HAL_Init();  // 1 ms SysTick, re-timed by the clock set-up
@@ -111,6 +165,8 @@ void board_init(void) {
   __HAL_RCC_USART1_CLK_ENABLE();
   family_log_uart_init(USART1, USART1_IRQn, HAL_RCC_GetPCLK2Freq(), LOG_BAUD);
 
+  vbus_init();
+
   // USB HS PHY clocked from the 16 MHz HSE
   family_usb_init(RCC_USBPHYCLKSOURCE_HSE, SYSCFG_OTG_HS_PHY_CLK_SELECT_1);
 }
@@ -130,4 +186,10 @@ const char *board_led_name(led_t led) {
 
 bool board_button(void) {
   return HAL_GPIO_ReadPin(GPIOC, GPIO_PIN_13) == GPIO_PIN_SET;
+}
+
+// The last conversion; without the ADC, present (the device then shows a
+// pulled cable as suspended, as without VBUS sensing)
+bool board_vbus(void) {
+  return !vbus_adc || LL_ADC_REG_ReadConversionData32(ADC1) >= VBUS_MIN_CODE;
 }

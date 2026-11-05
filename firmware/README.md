@@ -40,6 +40,13 @@ the host sends, and checks every frame against the test signal:
 - **No Feature Unit:** the host cannot hand volume to the device, so any
   volume change happens in the host's software, where the checker sees it as
   a body that is not bit-perfect.
+- **Connection:** each board reads its user USB port's VBUS in the main loop,
+  since the USB controller does not sense it. When VBUS has been gone for
+  50 ms the device reports not connected, so a pulled cable is told apart
+  from a host that only suspends the bus, and a new run starts. The pins: PC2 (VBUS_SENSE, VBUS
+  divided by 7.61, read with ADC1) on the NUCLEO-U5A5ZJ-Q, PB13 (VBUS of
+  CN19) on the STM32F723E-DISCO, and PA1 (USBC_DETECT) on the
+  STM32U5G9J-DK2.
 
 For each stream it counts packets and frames, the average rate, packets lost
 (microframes without a packet, and receive FIFO overflows), the bits in use,
@@ -215,7 +222,8 @@ their meaning.
 | `led <colour> <pin>` | the LED test at start-up: red, green, blue, each for 0.3 s |
 | `formats <list>` | the formats offered, as alt settings 1 to n; at boot, and after a `formats` command, with `changed=0` or `changed=1` |
 | `usb mounted speed=high` | enumerated; `speed=full` means the High-Speed link failed |
-| `usb disconnected`, `usb suspended`, `usb resumed` | bus state |
+| `usb disconnected` | no host has the device set up any more: the cable was pulled (VBUS gone for 50 ms), or the host deconfigured it; once, when the device was connected |
+| `usb suspended`, `usb resumed` | the host suspended or resumed the bus; with VBUS still present the device stays connected |
 | `usb reset` | the host reset the bus while a stream ran or an alt setting was open: the stream stops (`reason=reset`), and the host enumerates the device again |
 | `usb disconnected`, `usb connecting` | the device leaves the bus to change its formats, and comes back |
 | `rate <Hz>` | the host set the sample rate; at boot, the rate the device reports before a host sets one (48000) |
@@ -231,7 +239,7 @@ their meaning.
 | `result seq=<n> stream=<n> file=<n> verdict=<verdict> kind=<kind> ...` | **the outcome of one file**: see [Result lines](#result-lines) |
 | `stream stop id=<n> reason=<why> dur=<s> frames=<n> pkts=<n> rate=<Hz> fpp=<min>-<max> lost=<n> missed=<n> holes=<n> maxhole=<n> doubled=<n> ovf=<n> outside=<frames> silent=<frames> results=<n> results_lost=<n>` | end of a stream, after its last `result` line: `alt` (alt setting changed), `idle` (no packet for 50 ms), `rate` (the host set another rate during the stream), `reset` or `pause`; `fpp` is frames per packet; `holes` counts the runs of microframes without a packet and `maxhole` is the longest; `outside` is the number of frames of the stream outside every file's extent ([12.6](../docs/bpc1.md#126-verdicts)), so host padding can be measured; `silent` is the number of those frames that were allowed silence, which gave no result (0 unless `allow_silence` is `true`); `results` is the number of result lines of the stream, and `results_lost` the number of results of the stream the checker dropped because its queue of finished results was full |
 | `stall <ms>` | the [`stall` command](#commands-to-the-device) started its busy-wait of `<ms>` milliseconds |
-| `run start` | a new run begins: the user button was pressed, the `mark` command arrived, or the board reset; green and red go off ([LEDs](#leds)). It follows any `result` line still waiting at that moment, whose result belongs to the run before |
+| `run start` | a new run begins: the user button was pressed or the touch screen tapped, the `mark` command arrived, the USB cable was pulled (after `usb disconnected`), or the board reset; green and red go off ([LEDs](#leds)). It follows any `result` line still waiting at that moment, whose result belongs to the run before |
 | `usb unsupported get/set entity=<id> ctrl=<n> req=<n>` | a class request the device does not answer |
 | `log lost=<n>` | log lines dropped because the queue was full |
 
@@ -369,7 +377,7 @@ One command per line, ended by CR or LF. Each answer is one line:
 
 | Command | Answer |
 |---|---|
-| `status` | `status usb=<mounted/suspended/not-connected> speed=<high/full> rate=<Hz> alt=<n> slot=<bytes> res=<bits> streaming=<0/1> id=<n> lost=<n> ovf=<n> formats=<list> allow_silence=<true/false>`; `lost` and `ovf` are those of stream `id`: as on its last `stat` line while the stream runs, as on its `stream stop` line once it stopped, with a negative `lost` shown as 0 |
+| `status` | `status usb=<mounted/suspended/not-connected> speed=<high/full> rate=<Hz> alt=<n> slot=<bytes> res=<bits> streaming=<0/1> id=<n> lost=<n> ovf=<n> formats=<list> allow_silence=<true/false>`; `usb=not-connected` while no host has the device set up or the cable is out (no VBUS); `lost` and `ovf` are those of stream `id`: as on its last `stat` line while the stream runs, as on its `stream stop` line once it stopped, with a negative `lost` shown as 0 |
 | `result` | the last `result` line again, or `result none` |
 | `mark <text>` | `mark <text>`, to tie a script's steps to the log; it also starts a new run (`run start`, [LEDs](#leds)). The echo comes at once, so a `result` line still waiting from the run before can come between `mark` and `run start`; `bpcctl` follows stream ids and is not affected |
 | `formats [<list> \| default]` | `formats <list>`; with a list, offer those formats from now on (`changed=1`, then the device reconnects) |
@@ -419,7 +427,7 @@ format conversion.
 
 | LED | Meaning |
 |---|---|
-| blue, fast blink | not enumerated |
+| blue, fast blink | not connected: the cable is out, or no host has set the device up |
 | blue, slow blink | enumerated, waiting for a stream |
 | blue, steady | a stream runs |
 | red, steady | a file of the run is `NOT_BIT_PERFECT`, from its first difference on |
@@ -430,7 +438,10 @@ format conversion.
 | all three on | fault, stopped |
 
 Green and red show the current **run**: every result since the last press of
-the user button (B1 on the Nucleo), the console command `mark`, or a reset.
+the user button (B1 on the Nucleo, or a tap on a touch screen), the console
+command `mark`, a pulled USB cable (VBUS gone for 50 ms), or a reset. A pull
+during playback cuts a file: its result stays in the run before, and while
+the cable is out green and red are off.
 They do not depend on how the host splits files into streams, and they keep
 the result after a stream stops, until the next run starts. They show the
 first of these that holds, from red steady down: green only when every result
@@ -456,7 +467,8 @@ Each case builds on the one before.
    `families/stm32u5/linker/` if the memory differs.
 3. In `board.c`, write the clock tree, the LED pins (`board_led_name()`
    returns NULL for a colour the board lacks), the log UART's pins and its
-   `<UART>_IRQHandler`, and the USB PHY's clock.
+   `<UART>_IRQHandler`, the USB PHY's clock, and `board_vbus()`, which reads
+   the user USB port's VBUS.
 4. Build with `-DBOARD=<board>`.
 
 **A board of another family** (for example the STM32F723E-DISCO, an

@@ -102,6 +102,14 @@ void board_init(void) {
   HAL_GPIO_Init(GPIOA, &gpio);
   gpio.Pull = GPIO_NOPULL;
 
+  // VBUS of CN19 on PB13 through R98 (0 ohm): 5 V from a host, read as a
+  // GPIO. PB13 is 5 V tolerant (FT). R74 into T1's base (LD8, VBUS OK)
+  // discharges VBUS when the cable is pulled, so no pull is needed.
+  // UM2140 Rev 2 Figure 30; DS11853 Rev 10 Table 10 (PB13 FT).
+  gpio.Pin = GPIO_PIN_13;
+  gpio.Mode = GPIO_MODE_INPUT;
+  HAL_GPIO_Init(GPIOB, &gpio);
+
   // The touch panel, the second user button: out of reset now, set up by
   // touch_init() from display_init()
   touch_reset_release();
@@ -140,4 +148,8 @@ void board_fault(void) {
 // B1, or a finger anywhere on the touch panel
 bool board_button(void) {
   return HAL_GPIO_ReadPin(GPIOA, GPIO_PIN_0) == GPIO_PIN_SET || touch_down();
+}
+
+bool board_vbus(void) {
+  return HAL_GPIO_ReadPin(GPIOB, GPIO_PIN_13) == GPIO_PIN_SET;
 }

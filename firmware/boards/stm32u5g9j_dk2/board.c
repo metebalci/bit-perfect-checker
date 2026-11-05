@@ -111,6 +111,14 @@ void board_init(void) {
   HAL_GPIO_Init(GPIOC, &gpio);
   gpio.Pull = GPIO_NOPULL;
 
+  // VBUS of CN2: USBC_DETECT on PA1, 5V_USB (VBUS behind Q2) through the
+  // divider R16 110k / R17 200k: 3.2 V at 5 V VBUS, a logic high at the
+  // board's 3.3 V VDD. R17 pulls it low without VBUS, so no pull is needed.
+  // UM3223 Rev 2 Table 13 (PA1 USB Detect); MB1918 C-01 sheet 8.
+  gpio.Pin = GPIO_PIN_1;
+  gpio.Mode = GPIO_MODE_INPUT;
+  HAL_GPIO_Init(GPIOA, &gpio);
+
   // Log: USART1 TX on PA9 (RX on PA10 is unused), clocked from PCLK2
   gpio.Pin = GPIO_PIN_9 | GPIO_PIN_10;
   gpio.Mode = GPIO_MODE_AF_PP;
@@ -148,4 +156,8 @@ void board_fault(void) {
 // B2, or a finger anywhere on the touch panel
 bool board_button(void) {
   return HAL_GPIO_ReadPin(GPIOC, GPIO_PIN_13) == GPIO_PIN_SET || touch_down();
+}
+
+bool board_vbus(void) {
+  return HAL_GPIO_ReadPin(GPIOA, GPIO_PIN_1) == GPIO_PIN_SET;
 }

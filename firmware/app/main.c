@@ -13,8 +13,10 @@
 #include "load.h"
 #include "status.h"
 #include "stream.h"
+#include "device/dcd.h"
 #include "tusb.h"
 #include "uac2.h"
+#include "vbus.h"
 
 status_t status;
 
@@ -38,6 +40,24 @@ static void button_task(void) {
   }
 }
 
+// A pulled cable: VBUS has gone. The USB controller does not sense VBUS
+// (TinyUSB forces the session valid), so it sees only a suspend. TinyUSB
+// learns it as from a controller that senses VBUS (dcd_dwc2.c, GOTGINT_SEDET):
+// DCD_EVENT_UNPLUGGED ends the configuration and calls tud_umount_cb(),
+// which logs "usb disconnected" after the lines of a stream it stops. Then a
+// new run starts, as the user button does: a pull during playback cuts a
+// file, and that result stays in the run before.
+static void vbus_task(void) {
+  static vbus_t vbus;
+  if (vbus_gone(&vbus, board_vbus(), board_millis())) {
+    dcd_int_disable(BOARD_TUD_RHPORT);  // the event as if from the USB interrupt
+    dcd_event_bus_signal(BOARD_TUD_RHPORT, DCD_EVENT_UNPLUGGED, true);
+    dcd_int_enable(BOARD_TUD_RHPORT);
+    tud_task();  // the event now, so that "usb disconnected" comes before "run start"
+    stream_run_start();
+  }
+}
+
 int main(void) {
   board_init();
   status.allow_silence = ALLOW_SILENCE_DEFAULT;
@@ -58,6 +78,7 @@ int main(void) {
     console_task();
     uac2_task();
     button_task();
+    vbus_task();
     leds_task();
     display_task();
     if (status.version != shown) {
