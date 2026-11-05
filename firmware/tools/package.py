@@ -14,8 +14,9 @@ writes <dist>/bit-perfect-checker-firmware-<version>.zip (default dist:
 firmware/build/release) and <dist>/SHA256SUMS, which lists every zip there.
 The version is what the device reports, from the build's version.h:
 1.1.0 at the tag firmware-v1.1.0, 1.1.0-<hash> at another commit. The
-script stops on a build warning, a version that is -dirty or -unknown, and
-an image that holds a path of this machine.
+script stops on a build warning, a version that is -dirty or -unknown, boards
+built with different USB IDs or serial number prefixes, and a file of the
+archive that holds a path of this machine.
 
 The archive has one top-level folder, named like the zip, with
 bpc-<board>-<version>.bin per board (the flash image for 0x08000000),
@@ -32,9 +33,13 @@ libnewlib-arm-none-eabi, which must own the archives linked
 (--newlib-licence and --newlib-version name another), and, from newlib's
 own sources at the release that matches the toolchain (--newlib-source, a
 folder with COPYING.NEWLIB and each routine's source file at its path in the
-newlib repository; --newlib-tag names the release), the notice each source
-file carries, or COPYING.NEWLIB's default notice for a file without one.
-libgcc's routines get none.
+newlib repository; --newlib-tag names the release, newlib-<version>, and
+<version> must begin the package's version; --newlib-sha256 names a
+sha256sum list of the folder's files, checked when given), the notice each
+source file carries, or COPYING.NEWLIB's default notice for a file without
+one. libgcc's routines get none. A file in a build folder that carries
+copyright lines stops the script: a file the build wrote must be traced to
+the files it was made from.
 
 Determinism, as in generator/package.py: entries sorted by name, the
 commit's date for every entry, Unix permissions 0644 (files) and 0755
@@ -60,9 +65,10 @@ REPO_URL = "https://github.com/metebalci/bit-perfect-checker"
 WEBSITE = "https://bpc.metebalci.com"
 NAME = "bit-perfect-checker-firmware"
 FLASH_ADDRESS = 0x08000000
-USB_ID = "16C0:27E0"
-SERIAL_PREFIX = "bpc.metebalci.com:"
 VERSION_RE = re.compile(r'^#define FW_VERSION "([^"]+)"$', re.M)
+# The build's USB options in its CMakeCache.txt: USB_VID:STRING=0x16C0
+CACHE_RE = re.compile(r"^(USB_VID|USB_PID|USB_SERIAL_PREFIX):[A-Z]+=(.*)$", re.M)
+SHARED_USB_ID = (0x16C0, 0x27E0)            # Objective Development's shared pair
 
 # Board folder in firmware/boards/: (board name, the ST-LINK's USB drive or None)
 BOARDS = {
@@ -90,11 +96,13 @@ WORKS = {
 NEWLIB_PACKAGE = "libnewlib-arm-none-eabi"
 NEWLIB_REPO = "https://sourceware.org/git/newlib-cygwin.git"
 NEWLIB_ARCHIVE_RE = re.compile(r"^lib[cgm](_nano)?\.a$")
+NEWLIB_TAG_RE = re.compile(r"newlib-(\d+\.\d+\.\d+)")
 LIBGCC = "libgcc.a"
 SOURCE_RE = re.compile(rb"newlib/[A-Za-z0-9_./+-]+\.[cS]")
-MEMBER_RE = re.compile(r"^(\S+\.a)\(([^)]+)\)")
+MEMBER_RE = re.compile(r"^(.+?\.a)\(([^)]+)\)")
 LIB = "firmware/lib/"
 PATCHES = "firmware/lib/patches/"            # this project's own files
+BUILD = "firmware/build/"                    # the build folders, see build()
 
 # Environment variables a CMake build reads at its first configure
 BUILD_ENV_DROP = ("CFLAGS", "CXXFLAGS", "CPPFLAGS", "LDFLAGS", "ASMFLAGS", "ASM_FLAGS",
@@ -174,9 +182,46 @@ def check_version(versions):
     return version
 
 
-def check_no_paths(images, paths):
-    """No image holds one of `paths` (this machine's folders)."""
-    for name, data in sorted(images.items()):
+def usb_options(cache):
+    """(VID, PID, serial number prefix) from a build's CMakeCache.txt."""
+    found = dict(CACHE_RE.findall(cache))
+    missing = [k for k in ("USB_VID", "USB_PID", "USB_SERIAL_PREFIX") if k not in found]
+    if missing:
+        raise PackageError(f"CMakeCache.txt: no {', '.join(missing)}")
+    ids = []
+    for key in ("USB_VID", "USB_PID"):
+        try:
+            value = int(found[key], 0)
+        except ValueError:
+            value = -1
+        if not 0 <= value <= 0xFFFF:
+            raise PackageError(f"CMakeCache.txt: {key}={found[key]} is not a 16-bit number")
+        ids.append(value)
+    return ids[0], ids[1], found["USB_SERIAL_PREFIX"]
+
+
+def check_usb(options):
+    """The one USB ID and serial number prefix of all boards' builds
+    ({board: usb_options()}); a mix stops the release."""
+    found = set(options.values())
+    if len(found) != 1:
+        raise PackageError(f"the boards are built with different USB IDs or prefixes: {options}")
+    return found.pop()
+
+
+def build_usb(build_dirs):
+    """check_usb() of the builds in `build_dirs` ({board: build folder}),
+    from each one's CMakeCache.txt."""
+    options = {}
+    for board, build_dir in build_dirs.items():
+        with open(os.path.join(build_dir, "CMakeCache.txt")) as f:
+            options[board] = usb_options(f.read())
+    return check_usb(options)
+
+
+def check_no_paths(files, paths):
+    """No file (name -> bytes) holds one of `paths` (this machine's folders)."""
+    for name, data in sorted(files.items()):
         for p in paths:
             if p and p.encode() in data:
                 raise PackageError(f"{name} holds the local path {p}")
@@ -191,7 +236,19 @@ def bin_name(board, version):
     return f"bpc-{board}-{version}.bin"
 
 
-def readme(version, commit, boards=BOARDS):
+def usb_text(usb):
+    """README.txt's paragraph on the USB ID `usb` (VID, PID, serial prefix)."""
+    vid, pid, prefix = usb
+    if (vid, pid) == SHARED_USB_ID:
+        return f"""The device uses {vid:04X}:{pid:04X}, Objective Development's shared VID/PID pair for
+audio class devices. Devices that share the pair tell themselves apart by
+their serial number: this firmware's starts with {prefix} followed
+by the chip's unique ID as 24 hex digits."""
+    return f"""The device uses {vid:04X}:{pid:04X}. Its serial number starts with {prefix}
+followed by the chip's unique ID as 24 hex digits."""
+
+
+def readme(version, commit, usb, boards=BOARDS):
     width = max(len(bin_name(b, version)) for b in boards) + 2
     rows = "\n".join(f"{bin_name(b, version):<{width}}{name}" for b, (name, _) in boards.items())
     rows += f"\n{'NOTICES.txt':<{width}}licences and copyright notices of the code in the images"
@@ -241,10 +298,7 @@ and flash the board's file to the ST-LINK with that serial number:
 USB ID
 ------
 
-The device uses 16C0:27E0, Objective Development's shared VID/PID pair for
-audio class devices. Devices that share the pair tell themselves apart by
-their serial number: this firmware's starts with {SERIAL_PREFIX} followed
-by the chip's unique ID as 24 hex digits.
+{usb_text(usb)}
 
 
 More
@@ -257,7 +311,7 @@ Source, building, the serial log and its commands: {REPO_URL}
 The firmware is under the MIT licence. NOTICES.txt holds the licences and
 copyright notices of everything in the images.
 """
-    return text.replace("\n", "\r\n").encode("ascii")
+    return ascii_crlf("README.txt", text)
 
 
 def notices(version, sections):
@@ -282,25 +336,34 @@ def notices(version, sections):
         for heading, text in s["texts"]:
             out += [f"--- {heading} ---", "", text.rstrip("\n"), ""]
     text = "\n".join(out).rstrip("\n") + "\n"
+    return ascii_crlf("NOTICES.txt", text)
+
+
+def ascii_crlf(name, text):
     try:
         return text.replace("\n", "\r\n").encode("ascii")
     except UnicodeEncodeError as e:
-        raise PackageError(f"NOTICES.txt: not ASCII: {e}") from e
+        raise PackageError(f"{name}: not ASCII: {e}") from e
 
 
 def linked_members(map_text):
     """(archive, member) of every archive member a GNU ld map file says the
-    linker included, in the map's order."""
-    out, inside = [], False
+    linker included, in the map's order. That part of the map ends at the
+    first blank line after a member; a line in it that neither names a
+    member nor continues the line before (indented) stops the script."""
+    out, inside, members = [], False, False
     for line in map_text.splitlines():
-        if line.startswith("Archive member included"):
-            inside = True
-        elif inside:
-            m = MEMBER_RE.match(line)
-            if m and (m.group(1), m.group(2)) not in out:
+        if not inside:
+            inside = line.startswith("Archive member included")
+        elif not line.strip():
+            if members:
+                break                    # the next part of the map follows
+        elif m := MEMBER_RE.match(line):
+            members = True
+            if (m.group(1), m.group(2)) not in out:
                 out.append((m.group(1), m.group(2)))
-            elif line[:1].isalpha():
-                break                    # the next part of the map
+        elif not line[:1].isspace():
+            raise PackageError(f"map file: neither an archive member nor its reference: {line}")
     return out
 
 
@@ -390,6 +453,65 @@ def copying_default(copying):
     return head.rstrip() + "\n"
 
 
+def check_newlib_tag(tag, version):
+    """--newlib-tag's release (newlib-4.6.0: 4.6.0) begins `version`, newlib's
+    package version (4.6.0.20260123-1, Debian's snapshot after 4.6.0), so
+    that the notices come from the release the toolchain was built from."""
+    m = NEWLIB_TAG_RE.fullmatch(tag)
+    if not m:
+        raise PackageError(f"--newlib-tag {tag}: not newlib-<major>.<minor>.<patch>")
+    release = m.group(1)
+    package = re.sub(r"^\d+:", "", version)          # a Debian epoch
+    if not (package == release or package.startswith(release) and package[len(release)] in ".-+~"):
+        raise PackageError(f"--newlib-tag {tag}: release {release} does not begin newlib's "
+                           f"package version {version}")
+
+
+def check_sha256(folder, sums, rels):
+    """Every file of the sha256sum list `sums` (paths relative to `folder`)
+    has its SHA-256, and the list holds every path in `rels`."""
+    listed = {}
+    for line in sums.splitlines():
+        if not line.strip():
+            continue
+        m = re.fullmatch(r"([0-9a-fA-F]{64}) [ *](.+)", line)
+        if not m:
+            raise PackageError(f"--newlib-sha256: not a sha256sum line: {line}")
+        rel = os.path.normpath(m.group(2))
+        if os.path.isabs(rel) or rel.split(os.sep)[0] == "..":
+            raise PackageError(f"--newlib-sha256: {m.group(2)}: outside --newlib-source")
+        listed[rel] = m.group(1).lower()
+    for rel in rels:
+        if os.path.normpath(rel) not in listed:
+            raise PackageError(f"{rel}: not in --newlib-sha256")
+    for rel, digest in sorted(listed.items()):
+        try:
+            with open(os.path.join(folder, rel), "rb") as f:
+                data = f.read()
+        except OSError as e:
+            raise PackageError(f"--newlib-sha256: {rel}: {e}") from e
+        if hashlib.sha256(data).hexdigest() != digest:
+            raise PackageError(f"{rel}: its SHA-256 is not the one in --newlib-sha256")
+
+
+def newlib_upstream(routines, version, tag, folder, sums=None):
+    """(tag, {source path: text}, COPYING.NEWLIB) of newlib's sources at the
+    release `tag` in `folder` for toolchain_routines() `routines`, after
+    check_newlib_tag() against the package version `version` and, if `sums`
+    (a sha256sum list's text) is given, check_sha256() of the folder."""
+    check_newlib_tag(tag, version)
+    sources = sorted({s for r in routines.values() for s in r if s.startswith("newlib/")})
+    if sums is not None:
+        check_sha256(folder, sums, ["COPYING.NEWLIB"] + sources)
+    files = {}
+    for source in sources:
+        path = os.path.join(folder, *source.split("/"))
+        if not os.path.isfile(path):
+            raise PackageError(f"{path}: missing in --newlib-source")
+        files[source] = read_text(path)
+    return tag, files, read_text(os.path.join(folder, "COPYING.NEWLIB"))
+
+
 def newlib_section(routines, version, text, upstream=None):
     """The NOTICES.txt section of newlib from toolchain_routines(), the
     licence list of newlib's package `version` and, if given, `upstream`:
@@ -464,15 +586,17 @@ def sha256sums(files):
     return "".join(f"{hashlib.sha256(d).hexdigest()}  {n}\n" for n, d in sorted(files.items()))
 
 
-def archive(version, commit, date_time, images, notices_bytes, boards=BOARDS):
-    """(zip name, zip bytes) from `images` (board -> .bin bytes)."""
+def archive(version, commit, date_time, images, notices_bytes, usb, boards=BOARDS, paths=()):
+    """(zip name, zip bytes) from `images` (board -> .bin bytes); a file of
+    it that holds one of `paths` (this machine's folders) stops the script."""
     if set(images) != set(boards):
         raise PackageError(f"images for {sorted(images)}, boards {sorted(boards)}")
     bins = {bin_name(b, version): images[b] for b in boards}
     entries = dict(bins)
-    entries["README.txt"] = readme(version, commit, boards)
+    entries["README.txt"] = readme(version, commit, usb, boards)
     entries["NOTICES.txt"] = notices_bytes
     entries["SHA256SUMS"] = sha256sums(bins).encode("ascii")
+    check_no_paths(entries, paths)
     top = f"{NAME}-{version}"
     return top + ".zip", zip_bytes(top, entries, date_time)
 
@@ -569,7 +693,7 @@ def used_files(build_dir, ninja):
         files = {os.path.realpath(os.path.join(e["directory"], e["file"])) for e in json.load(f)}
     for line in ninja_tool(ninja, build_dir, "deps").splitlines():
         if line.startswith((" ", "\t")) and line.strip():
-            files.add(os.path.realpath(line.strip()))
+            files.add(os.path.realpath(os.path.join(build_dir, line.strip())))
     bdir = os.path.realpath(build_dir) + os.sep
     seen, used, todo = set(), set(), sorted(files)
     while todo:
@@ -611,6 +735,9 @@ def collect(src, used, subs, commit):
             if not p.startswith(src + os.sep):
                 continue                 # the toolchain's files
             rel = os.path.relpath(p, src).replace(os.sep, "/")
+            if rel.startswith(BUILD) and copyright_lines(read_text(p)):
+                raise PackageError(f"{rel}: written by the build, with copyright lines, but the "
+                                   "files it was made from are not known")
             per_work.setdefault(work_of(rel), {}).setdefault(rel, set()).add(board)
     order = list(BOARDS)
 
@@ -711,7 +838,10 @@ def main(argv=None):
     ap.add_argument("--newlib-version", help="the newlib package or release that list is from")
     ap.add_argument("--newlib-source", help="folder with newlib's COPYING.NEWLIB and the linked "
                     "routines' sources at their repository paths, at the toolchain's release")
-    ap.add_argument("--newlib-tag", help="newlib's release tag of --newlib-source")
+    ap.add_argument("--newlib-tag", help="newlib's release tag of --newlib-source, "
+                    "newlib-<version>; <version> must begin the package's version")
+    ap.add_argument("--newlib-sha256", help="a sha256sum list of --newlib-source's files, paths "
+                    "relative to it: every file must match, and every file read must be listed")
     a = ap.parse_args(argv)
     try:
         if bool(a.newlib_licence) != bool(a.newlib_version):
@@ -725,9 +855,9 @@ def main(argv=None):
         os.makedirs(work, exist_ok=True)
         src = os.path.join(work, "bit-perfect-checker")
         commit, subs = clone(os.path.abspath(a.repo), a.rev, src)
-        used, images, versions, linked = {}, {}, {}, {}
+        used, images, versions, linked, bdirs = {}, {}, {}, {}, {}
         for board in BOARDS:
-            bdir = build(src, board, a.ninja)
+            bdir = bdirs[board] = build(src, board, a.ninja)
             with open(os.path.join(bdir, "version.h")) as f:
                 m = VERSION_RE.search(f.read())
             if not m:
@@ -740,8 +870,9 @@ def main(argv=None):
                 linked[board] = linked_members(f.read())
             print(f"{board}: {len(images[board]):,d} bytes, fw={versions[board]}")
         version = check_version(versions)
-        check_no_paths(images, sorted({work, os.path.realpath(work), os.path.abspath(a.repo),
-                                       os.path.realpath(a.repo), os.path.expanduser("~")}))
+        usb = build_usb(bdirs)
+        paths = sorted({work, os.path.realpath(work), os.path.abspath(a.repo),
+                        os.path.realpath(a.repo), os.path.expanduser("~")})
         sections = collect(src, used, subs, commit)
         routines = toolchain_routines(linked)
         if routines:
@@ -750,15 +881,11 @@ def main(argv=None):
             else:
                 newlib = debian_newlib({p for ms in linked.values() for p, _ in ms
                                         if NEWLIB_ARCHIVE_RE.match(os.path.basename(p))})
-            files = {}
-            for source in sorted({src for r in routines.values() for src in r if src.startswith("newlib/")}):
-                path = os.path.join(a.newlib_source, *source.split("/"))
-                if not os.path.isfile(path):
-                    raise PackageError(f"{path}: missing in --newlib-source")
-                files[source] = read_text(path)
-            copying = read_text(os.path.join(a.newlib_source, "COPYING.NEWLIB"))
-            sections.append(newlib_section(routines, *newlib, (a.newlib_tag, files, copying)))
-        name, data = archive(version, commit, commit_date(src, commit), images, notices(version, sections))
+            sums = read_text(a.newlib_sha256) if a.newlib_sha256 else None
+            upstream = newlib_upstream(routines, newlib[0], a.newlib_tag, a.newlib_source, sums)
+            sections.append(newlib_section(routines, *newlib, upstream))
+        name, data = archive(version, commit, commit_date(src, commit), images, notices(version, sections),
+                             usb, paths=paths)
         os.makedirs(a.dist, exist_ok=True)
         path = os.path.join(a.dist, name)
         with open(path + ".part", "wb") as f:

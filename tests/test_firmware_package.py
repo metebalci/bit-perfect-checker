@@ -2,13 +2,18 @@
 # Copyright (c) 2026 Mete Balci
 """The firmware release zip (firmware/tools/package.py), its parts that need
 no toolchain: the zip's bytes and contents from given images, README.txt,
-NOTICES.txt from a small source tree, and the checks that stop a release.
-The build itself (clone, CMake, Ninja) is not run here."""
+NOTICES.txt from a small source tree, and the checks that stop a release;
+and the files a build read, from a small Ninja build (skipped without Ninja
+and a C compiler). The firmware's build itself (clone, CMake) is not run
+here."""
 
 import hashlib
 import importlib.util
 import io
+import json
 import os
+import shutil
+import subprocess
 import tempfile
 import unittest
 import zipfile
@@ -24,6 +29,7 @@ COMMIT = "0123456789abcdef0123456789abcdef01234567"
 DATE = (2026, 11, 5, 12, 34, 56)
 IMAGES = {b: bytes([i]) * (1000 + i) + b"image " + b.encode() for i, b in enumerate(P.BOARDS)}
 NOTICES = b"notices\r\n"
+USB = (0x16C0, 0x27E0, "bpc.metebalci.com:")
 TOP = f"bit-perfect-checker-firmware-{VERSION}"
 BSD3_BODY = """All rights reserved.
 
@@ -36,8 +42,8 @@ THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
 EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE."""
 
 
-def build_archive(images=IMAGES, version=VERSION, date=DATE, notices=NOTICES):
-    return P.archive(version, COMMIT, date, images, notices)
+def build_archive(images=IMAGES, version=VERSION, date=DATE, notices=NOTICES, usb=USB, paths=()):
+    return P.archive(version, COMMIT, date, images, notices, usb, paths=paths)
 
 
 class Archive(unittest.TestCase):
@@ -60,7 +66,7 @@ class Archive(unittest.TestCase):
         self.assertEqual(sums, "".join(
             f"{hashlib.sha256(IMAGES[b]).hexdigest()}  bpc-{b}-{VERSION}.bin\n"
             for b in sorted(IMAGES)))
-        self.assertEqual(z.read(f"{TOP}/README.txt"), P.readme(VERSION, COMMIT))
+        self.assertEqual(z.read(f"{TOP}/README.txt"), P.readme(VERSION, COMMIT, USB))
 
     def test_entries_fixed(self):
         """Every entry: the given date, stored, Unix permissions, no extras."""
@@ -88,10 +94,21 @@ class Archive(unittest.TestCase):
         with self.assertRaises(P.PackageError):
             build_archive(images)
 
+    def test_no_paths(self):
+        """A local path in an image, in NOTICES.txt or in README.txt stops it."""
+        paths = ["/work/x", "/src/repo"]
+        build_archive(paths=paths)
+        cases = {"image": dict(images=dict(IMAGES, stm32f723e_disco=b"\0/src/repo/firmware/app/main.c\0")),
+                 "NOTICES.txt": dict(notices=b"notices of /work/x/bit-perfect-checker/firmware\r\n"),
+                 "README.txt": dict(usb=(0x1209, 0xB9C1, "/src/repo:"))}
+        for name, kwargs in cases.items():
+            with self.subTest(name), self.assertRaises(P.PackageError):
+                build_archive(paths=paths, **kwargs)
+
 
 class Readme(unittest.TestCase):
     def test_text(self):
-        data = P.readme("1.1.0-abc1234", COMMIT)
+        data = P.readme("1.1.0-abc1234", COMMIT, USB)
         self.assertNotIn(b"\n", data.replace(b"\r\n", b""))
         text = data.decode("ascii")
         for b in P.BOARDS:
@@ -104,6 +121,62 @@ class Readme(unittest.TestCase):
                      "https://bpc.metebalci.com", "NOTICES.txt", "SHA256SUMS"):
             self.assertIn(word, text)
         self.assertIn("STM32U5G9J-DK2's ST-LINK shows no drive", text)
+        self.assertIn("16C0:27E0, Objective Development's shared VID/PID pair", text)
+
+    def test_usb_id(self):
+        """The USB ID and the serial number prefix the builds were made with."""
+        text = P.readme(VERSION, COMMIT, (0x1209, 0xB9C1, "example.org:")).decode("ascii")
+        self.assertIn("The device uses 1209:B9C1. Its serial number starts with example.org:", text)
+        self.assertNotIn("16C0", text)
+        self.assertNotIn("Objective Development", text)
+        self.assertNotIn("bpc.metebalci.com:", text)
+
+
+CACHE = """# This is the CMakeCache file.
+//USB vendor ID
+USB_VID:STRING=0x16C0
+//USB product ID
+USB_PID:STRING=0x27E0
+//Serial number prefix
+USB_SERIAL_PREFIX:STRING=bpc.metebalci.com:
+USB_VID_EXTRA:STRING=0x1234
+"""
+
+
+class UsbOptions(unittest.TestCase):
+    def test_from_cache(self):
+        self.assertEqual(P.usb_options(CACHE), USB)
+        other = CACHE.replace("0x16C0", "0x1209").replace("0x27E0", "0xb9c1").replace(
+            "bpc.metebalci.com:", "example.org:")
+        self.assertEqual(P.usb_options(other), (0x1209, 0xB9C1, "example.org:"))
+
+    def test_bad_cache(self):
+        for bad in (CACHE.replace("USB_PID:", "USB_PIDX:"), CACHE.replace("0x16C0", "0x10000"),
+                    CACHE.replace("0x27E0", "27E0h"), "", CACHE.replace("USB_SERIAL_PREFIX:", "X:")):
+            with self.subTest(bad), self.assertRaises(P.PackageError):
+                P.usb_options(bad)
+
+    def test_one_for_all_boards(self):
+        same = {b: USB for b in P.BOARDS}
+        self.assertEqual(P.check_usb(same), USB)
+        for other in ((0x1209, 0x27E0, USB[2]), (0x16C0, 0x27E1, USB[2]), (0x16C0, 0x27E0, "x:")):
+            with self.subTest(other), self.assertRaises(P.PackageError):
+                P.check_usb(dict(same, stm32f723e_disco=other))
+
+    def test_build_folders(self):
+        """From each build folder's CMakeCache.txt; one board built with
+        another prefix stops the script."""
+        with tempfile.TemporaryDirectory() as d:
+            dirs = {b: os.path.join(d, b) for b in P.BOARDS}
+            for board, folder in dirs.items():
+                os.makedirs(folder)
+                with open(os.path.join(folder, "CMakeCache.txt"), "w") as f:
+                    f.write(CACHE.replace("0x16C0", "0x1209"))
+            self.assertEqual(P.build_usb(dirs), (0x1209, 0x27E0, "bpc.metebalci.com:"))
+            with open(os.path.join(dirs["stm32u5g9j_dk2"], "CMakeCache.txt"), "w") as f:
+                f.write(CACHE.replace("0x16C0", "0x1209").replace("bpc.metebalci.com:", "x:"))
+            with self.assertRaises(P.PackageError):
+                P.build_usb(dirs)
 
 
 class Checks(unittest.TestCase):
@@ -263,6 +336,22 @@ class Notices(unittest.TestCase):
         with self.assertRaises(P.PackageError):
             P.collect(self.src, used, self.subs, COMMIT)
 
+    def test_build_folder(self):
+        """A file the build wrote is fine without copyright lines (version.h)
+        and stops the script with them: it must have been traced to its
+        inputs."""
+        os.makedirs(self.path("firmware/build/nucleo_u5a5zj_q"))
+        with open(self.path("firmware/build/nucleo_u5a5zj_q/version.h"), "w") as f:
+            f.write('#define FW_VERSION "1.1.0"\n')
+        with open(self.path("firmware/build/nucleo_u5a5zj_q/fonts.c"), "w") as f:
+            f.write("// COPYRIGHT \"Copyright (c) 2018-2026, Frederic Cambus\"\n")
+        used = self.used()
+        used["nucleo_u5a5zj_q"].append(self.path("firmware/build/nucleo_u5a5zj_q/version.h"))
+        P.collect(self.src, used, self.subs, COMMIT)
+        used["nucleo_u5a5zj_q"].append(self.path("firmware/build/nucleo_u5a5zj_q/fonts.c"))
+        with self.assertRaises(P.PackageError):
+            P.collect(self.src, used, self.subs, COMMIT)
+
     def test_bsd3_without_notice(self):
         with open(self.path("firmware/app/main.c"), "w") as f:
             f.write("// SPDX-License-Identifier: MIT AND BSD-3-Clause\n// Copyright (c) 2026 Mete Balci\n")
@@ -326,6 +415,25 @@ class Toolchain(unittest.TestCase):
             ("libtinyusb.a", "tusb.c.obj"), (LIBGCC_A, "_aeabi_uldivmod.o"),
             (NEWLIB_A, "libc_a-memcpy.o"), (NEWLIB_A, "libc_a-strlen-stub.o")])
         self.assertEqual(P.linked_members("Memory Configuration\n"), [])
+
+    def test_linked_members_spaces(self):
+        """An archive path with spaces, its reference on the same line or the next."""
+        spaced = "/opt/arm tool chain/lib/thumb/v8-m.main+fp/hard/libg_nano.a"
+        text = MAP.replace(NEWLIB_A, spaced)
+        self.assertEqual(P.linked_members(text), [
+            ("libtinyusb.a", "tusb.c.obj"), (LIBGCC_A, "_aeabi_uldivmod.o"),
+            (spaced, "libc_a-memcpy.o"), (spaced, "libc_a-strlen-stub.o")])
+        short = f"Archive member included to satisfy reference by file (symbol)\n\n" \
+                f"/a b/libc.a(libc_a-memset.o)  CMakeFiles/x.dir/app/log.c.obj (memset)\n\nDiscarded\n"
+        self.assertEqual(P.linked_members(short), [("/a b/libc.a", "libc_a-memset.o")])
+
+    def test_linked_members_unmatched(self):
+        """A line in the members' part that names no member stops the script."""
+        for bad in ("/opt/tc/lib/libg_nano.a[libc_a-memcpy.o]", "libc_a-memcpy.o",
+                    "/opt/tc/lib/libg_nano(libc_a-memcpy.o)"):
+            text = MAP.replace(f"{NEWLIB_A}(libc_a-strlen-stub.o)", bad)
+            with self.subTest(bad), self.assertRaises(P.PackageError):
+                P.linked_members(text)
 
     def test_ar_members(self):
         members = {"short.o": b"abc", "a-much-longer-member-name.o": b"defg", "x.o": b""}
@@ -447,6 +555,81 @@ class NewlibNotices(unittest.TestCase):
         with self.assertRaises(P.PackageError):
             P.copying_default("(2) University of California, Berkeley\n")
 
+    def test_tag_and_package(self):
+        """--newlib-tag's release must begin the package's version."""
+        for tag, version in (("newlib-4.6.0", "4.6.0.20260123-1"), ("newlib-4.6.0", "4.6.0-1"),
+                             ("newlib-4.6.0", "4.6.0"), ("newlib-4.5.0", "1:4.5.0+dfsg-2")):
+            with self.subTest(tag=tag, version=version):
+                P.check_newlib_tag(tag, version)
+        for tag, version in (("newlib-4.5.0", "4.6.0.20260123-1"), ("newlib-4.6", "4.6.0-1"),
+                             ("newlib-4.6.0", "4.6.01-1"), ("newlib-4.6.0", "14.6.0-1"),
+                             ("4.6.0", "4.6.0-1"), ("newlib-4.6.0x", "4.6.0x-1"),
+                             ("newlib-4.6.0", "4.5.0.20240101-1")):
+            with self.subTest(tag=tag, version=version), self.assertRaises(P.PackageError):
+                P.check_newlib_tag(tag, version)
+
+    def test_sha256(self):
+        """The download's files against its sha256 list: each listed file
+        matches, and every file read is listed."""
+        with tempfile.TemporaryDirectory() as top:
+            d = os.path.join(top, "newlib")
+            with open(os.path.join(top, "outside.c"), "w") as f:
+                f.write(PLAIN_SRC)
+            files = {"COPYING.NEWLIB": COPYING, "newlib/libc/string/memset.c": PLAIN_SRC,
+                     "newlib/libc/machine/arm/memcpy-armv7m.S": ARM_SRC}
+            for rel, text in files.items():
+                os.makedirs(os.path.dirname(os.path.join(d, rel)), exist_ok=True)
+                with open(os.path.join(d, rel), "w") as f:
+                    f.write(text)
+            sums = "".join(f"{hashlib.sha256(t.encode()).hexdigest()}  ./{r}\n" for r, t in files.items())
+            P.check_sha256(d, sums, list(files))
+            P.check_sha256(d, sums.replace("  ./", " *"), list(files))
+            with open(os.path.join(d, "newlib/libc/string/memset.c"), "a") as f:
+                f.write("/* changed */\n")
+            with self.assertRaises(P.PackageError):
+                P.check_sha256(d, sums, list(files))            # a file differs
+            ok = sums.replace(hashlib.sha256(PLAIN_SRC.encode()).hexdigest(), hashlib.sha256(
+                (PLAIN_SRC + "/* changed */\n").encode()).hexdigest())
+            P.check_sha256(d, ok, list(files))
+            with self.assertRaises(P.PackageError):
+                P.check_sha256(d, ok, list(files) + ["newlib/libc/string/strchr.c"])  # not listed
+            outside = hashlib.sha256(PLAIN_SRC.encode()).hexdigest()
+            for bad in (ok + "0" * 64 + "  ./newlib/libc/string/strchr.c\n",          # missing
+                        ok + outside + "  ../outside.c\n", ok + outside + f"  {top}/outside.c\n",
+                        ok + "not a sum line\n"):
+                with self.subTest(bad.splitlines()[-1]), self.assertRaises(P.PackageError):
+                    P.check_sha256(d, bad, list(files))
+
+    def test_upstream(self):
+        """newlib's sources from the folder: the tag checked against the
+        package version, the files against the sha256 list when one is given,
+        a missing source stops the script."""
+        routines = {"memcpy": {"newlib/libc/machine/arm/memcpy-armv7m.S": ["nucleo_u5a5zj_q"]},
+                    "strlen": {"libc_a-strlen.o (no source named)": ["stm32f723e_disco"]}}
+        files = {"COPYING.NEWLIB": COPYING, "newlib/libc/machine/arm/memcpy-armv7m.S": ARM_SRC}
+        with tempfile.TemporaryDirectory() as d:
+            for rel, text in files.items():
+                os.makedirs(os.path.dirname(os.path.join(d, rel)), exist_ok=True)
+                with open(os.path.join(d, rel), "w") as f:
+                    f.write(text)
+            sums = "".join(f"{hashlib.sha256(t.encode()).hexdigest()}  ./{r}\n" for r, t in files.items())
+            expected = ("newlib-4.6.0", {"newlib/libc/machine/arm/memcpy-armv7m.S": ARM_SRC}, COPYING)
+            self.assertEqual(P.newlib_upstream(routines, "4.6.0.20260123-1", "newlib-4.6.0", d), expected)
+            self.assertEqual(P.newlib_upstream(routines, "4.6.0.20260123-1", "newlib-4.6.0", d, sums),
+                             expected)
+            with self.assertRaises(P.PackageError):
+                P.newlib_upstream(routines, "4.5.0.20250101-1", "newlib-4.6.0", d, sums)
+            with self.assertRaises(P.PackageError):
+                P.newlib_upstream(routines, "4.6.0.20260123-1", "newlib-4.6.0", d, sums.splitlines()[0])
+            with open(os.path.join(d, "COPYING.NEWLIB"), "a") as f:
+                f.write("changed\n")
+            P.newlib_upstream(routines, "4.6.0.20260123-1", "newlib-4.6.0", d)
+            with self.assertRaises(P.PackageError):
+                P.newlib_upstream(routines, "4.6.0.20260123-1", "newlib-4.6.0", d, sums)
+            os.remove(os.path.join(d, "newlib/libc/machine/arm/memcpy-armv7m.S"))
+            with self.assertRaises(P.PackageError):
+                P.newlib_upstream(routines, "4.6.0.20260123-1", "newlib-4.6.0", d)
+
     def test_section_with_sources(self):
         routines = {
             "memcpy": {"newlib/libc/machine/arm/memcpy-armv7m.S": ["nucleo_u5a5zj_q"]},
@@ -476,6 +659,80 @@ class NewlibNotices(unittest.TestCase):
         self.assertEqual(section["texts"][-1][1], "DEBIAN LIST\n")
         text = P.notices(VERSION, [section]).decode("ascii")
         self.assertIn("Copyright (c) 2015 ARM Ltd.\r\nAll rights reserved.", text)
+
+
+NINJA = shutil.which("ninja")
+CC = shutil.which("gcc") or shutil.which("cc")
+TOY_NINJA = """rule gen
+  command = sed -e 's|^|// |' $in > $out
+rule version
+  command = printf '#define FW_VERSION "1.1.0"\\n' > $out
+rule cc
+  command = {cc} -nostdinc -MD -MF $out.d -I../../include -I. -c $in -o $out
+  depfile = $out.d
+  deps = gcc
+build version.h: version
+build fonts.c: gen ../../lib/spleen/spleen-8x16.bdf
+build fonts.o: cc fonts.c
+build main.o: cc ../../app/main.c || version.h
+"""
+
+
+@unittest.skipUnless(NINJA and CC, "no ninja or no C compiler")
+class ToyBuild(unittest.TestCase):
+    """used_files() and collect() on a small Ninja build in a tree laid out
+    like the clone: a source that includes a header by a path relative to
+    the build folder, a source the build makes from a font, and a header the
+    build writes from nothing (as version.h)."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.src = os.path.realpath(self.tmp.name)
+        self.build = os.path.join(self.src, "firmware", "build", "nucleo_u5a5zj_q")
+        files = {
+            "LICENSE": "MIT License\n\nCopyright (c) 2026 Mete Balci\n",
+            "firmware/app/main.c": '// Copyright (c) 2026 Mete Balci\n#include "toy.h"\n#include "version.h"\n'
+                                   "int main(void) { return TOY; }\n",
+            "firmware/include/toy.h": "// Copyright (c) 2026 Mete Balci\n#define TOY 0\n",
+            "firmware/lib/spleen/LICENSE": "Copyright (c) 2018-2026, Frederic Cambus\n",
+            "firmware/lib/spleen/spleen-8x16.bdf":
+                'STARTFONT 2.1\nCOPYRIGHT "Copyright (c) 2018-2026, Frederic Cambus"\nENDFONT\n',
+            "firmware/build/nucleo_u5a5zj_q/build.ninja": TOY_NINJA.format(cc=CC),
+            "firmware/build/nucleo_u5a5zj_q/compile_commands.json": json.dumps([
+                {"directory": self.build, "file": "../../app/main.c", "command": "cc main.c"},
+                {"directory": self.build, "file": "fonts.c", "command": "cc fonts.c"}]),
+        }
+        for rel, text in files.items():
+            path = os.path.join(self.src, *rel.split("/"))
+            os.makedirs(os.path.dirname(path), exist_ok=True)
+            with open(path, "w") as f:
+                f.write(text)
+        r = subprocess.run([NINJA, "-C", self.build], capture_output=True, text=True)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def path(self, rel):
+        return os.path.join(self.src, *rel.split("/"))
+
+    def test_used_files(self):
+        """The sources and headers by their real paths (the header's
+        dependency is relative to the build folder), the font in place of the
+        source made from it, the written header itself."""
+        self.assertEqual(P.used_files(self.build, NINJA), sorted([
+            self.path("firmware/app/main.c"), self.path("firmware/include/toy.h"),
+            self.path("firmware/lib/spleen/spleen-8x16.bdf"),
+            self.path("firmware/build/nucleo_u5a5zj_q/version.h")]))
+
+    def test_notices(self):
+        """The font's copyright line under Spleen, none under this project."""
+        subs = {f: (f"https://example.org/{f}", "a" * 40) for f in P.WORKS}
+        used = {"nucleo_u5a5zj_q": P.used_files(self.build, NINJA)}
+        sections = P.collect(self.src, used, subs, COMMIT)
+        self.assertEqual([(s["title"], s["copyrights"]) for s in sections], [
+            ("Bit-Perfect Checker firmware", ["Copyright (c) 2026 Mete Balci"]),
+            ("Spleen (the screens' fonts)", ["Copyright (c) 2018-2026, Frederic Cambus"])])
 
 
 if __name__ == "__main__":

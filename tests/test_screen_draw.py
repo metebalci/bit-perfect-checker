@@ -4,7 +4,8 @@
 that follows firmware/include/panel.h, with the fonts tools/fontgen.py makes
 from Spleen: every glyph of the splash, the label line, the file lines and
 the version equals its BDF bitmap (Spleen's 12x24 doubled for the DK2's
-24x48), in the STM32F723E-DISCO's layout (240x240) and in the
+24x48), in each board's layout as its display.c uses it
+(boards/<board>/screen_layout.h): the STM32F723E-DISCO's (240x240) and the
 STM32U5G9J-DK2's (800x480: the F723's screen at twice the size on the left
 480x480, its band, frame and hourglass included, the right 320x480 black;
 and moved to x = 160, to test the area's offset). Built with the host tool
@@ -36,6 +37,12 @@ def load_fontgen():
     return module
 
 
+def layout_flags(board, w, h):
+    """The host tool's build flags for a board's panel size and layout header"""
+    return [f"-DDRAW_W={w}u", f"-DDRAW_H={h}u", '-DDRAW_LAYOUT="screen_layout.h"',
+            "-I", os.path.join(FW, "boards", board)]
+
+
 class ScreenDrawBase:
     """A board's screen drawn by the host tool: subclasses give the panel,
     the layout's area, the fonts and the tool's build flags."""
@@ -43,7 +50,7 @@ class ScreenDrawBase:
     panel = (240, 240)
     area = (0, 240)  # x, width
     fonts = FONTS
-    cflags = []
+    cflags = layout_flags("stm32f723e_disco", 240, 240)
 
     @classmethod
     def setUpClass(cls):
@@ -100,7 +107,8 @@ class ScreenDrawBase:
 
 @unittest.skipUnless(CC and os.path.exists(os.path.join(SPLEEN, FONTS["12x24"])), "no C compiler or no Spleen")
 class ScreenDraw(ScreenDrawBase, unittest.TestCase):
-    """The STM32F723E-DISCO's layout, 240x240."""
+    """The STM32F723E-DISCO's layout (boards/stm32f723e_disco/screen_layout.h),
+    240x240."""
 
     def test_splash(self):
         """BIT-PERFECT and CHECKER in 16x32, the address in 12x24, the version
@@ -132,7 +140,6 @@ class ScreenDraw(ScreenDrawBase, unittest.TestCase):
 
 
 DK2_FONTS = {"12x24": "spleen-12x24.bdf", "16x32": "spleen-16x32.bdf", "32x64": "spleen-32x64.bdf"}
-DK2_LAYOUT = os.path.join(FW, "boards", "stm32u5g9j_dk2")
 
 
 def hourglass_1x():
@@ -153,7 +160,7 @@ class ScreenDrawDK2(ScreenDrawBase, unittest.TestCase):
     area = (0, 480)
     fonts = DK2_FONTS
     doubled = {"24x48": "12x24"}
-    cflags = ["-DDRAW_W=800u", "-DDRAW_H=480u", '-DDRAW_LAYOUT="screen_layout.h"', "-I", DK2_LAYOUT]
+    cflags = layout_flags("stm32u5g9j_dk2", 800, 480)
 
     def outside_black(self, *args):
         """Every pixel left and right of the area is black."""

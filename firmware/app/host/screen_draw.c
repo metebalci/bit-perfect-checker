@@ -4,12 +4,11 @@
 // app/screen.c on a panel in memory that follows panel.h (a window, then
 // pixels left to right and top to bottom; panel_bits() reads n bits, the
 // most significant bit of each byte first), and prints glyphs as the panel
-// shows them. Not part of the firmware. By default a 240x240 panel in the
-// STM32F723E-DISCO's layout; built with -DDRAW_W=<w> -DDRAW_H=<h>
-// -DDRAW_LAYOUT=<header>, a board's panel size and its layout header
-// (one that defines `layout` and screen_layout_init(), as
-// boards/stm32u5g9j_dk2/screen_layout.h); -DDRAW_AREA_X=<x> moves that
-// layout's area to x, for tests of the area's offset.
+// shows them. Not part of the firmware. Built with -DDRAW_W=<w> -DDRAW_H=<h>
+// -DDRAW_LAYOUT=<header>, a board's panel size and its layout header, the
+// one its display.c uses (boards/<board>/screen_layout.h, which defines
+// `layout` and screen_layout_init()); -DDRAW_AREA_X=<x> moves that layout's
+// area to x, for tests of the area's offset.
 //
 //   glyph <x> <y> <w> <h>   -> h lines of w characters: 1 where the pixel is
 //                              not black, else 0
@@ -36,9 +35,8 @@
 #include "status.h"
 #include "stream.h"
 
-#ifndef DRAW_W
-#define DRAW_W 240u
-#define DRAW_H 240u
+#if !defined(DRAW_W) || !defined(DRAW_H) || !defined(DRAW_LAYOUT)
+#error "build with -DDRAW_W=<w> -DDRAW_H=<h> -DDRAW_LAYOUT=<header>"
 #endif
 #define W DRAW_W
 #define H DRAW_H
@@ -116,31 +114,7 @@ void panel_bits(const uint8_t *bits, uint32_t n, uint32_t fg, uint32_t bg) {
   }
 }
 
-#ifdef DRAW_LAYOUT
 #include DRAW_LAYOUT
-#else
-// The F723's places (boards/stm32f723e_disco/display.c)
-static const screen_place_t places[] = {
-  {SCREEN_TEXT_LABELS, 78, &font_12x24, SCREEN_RED, false, 0, 0},
-  {SCREEN_TEXT_FILE0, 126, &font_16x32, SCREEN_WHITE, false, 0, 0},
-  {SCREEN_TEXT_FILE1, 164, &font_16x32, SCREEN_WHITE, false, 0, 0},
-  {SCREEN_TEXT_FW, 220, &font_8x16, SCREEN_WHITE, false, 0, 0},
-};
-
-static const screen_layout_t layout = {
-  .band_h = 68,
-  .band_frame = 10,
-  .band_margin = 6,
-  .band_font = &font_16x32,
-  .places = places,
-  .n_places = sizeof(places) / sizeof(places[0]),
-  .splash_y = 40,
-  .splash_font = &font_12x24,
-  .splash_url_y = 124,
-  .splash_squares_y = 164,
-  .splash_square = 32,
-};
-#endif
 
 int main(int argc, char **argv) {
   bool splash = argc > 1 && strcmp(argv[1], "splash") == 0;
@@ -155,9 +129,7 @@ int main(int argc, char **argv) {
   status.last_rate = 48000;
   status.last_depth = 24;
   now_ms = 500;
-#ifdef DRAW_LAYOUT
   screen_layout_init();
-#endif
 #ifdef DRAW_AREA_X
   static screen_layout_t moved;
   moved = layout;

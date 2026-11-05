@@ -4,8 +4,12 @@
 BDF files in firmware/lib/spleen: every glyph of 0x20-0x7E, read back from
 the generated C compiled on the host, equals the BDF bitmap; a re-run gives
 byte-identical files. Needs the Spleen submodule and, for the glyph check, a
-host C compiler; skipped without them."""
+host C compiler; skipped without them. And on a small BDF made here: the
+font's notice in fonts.c, and each malformed font stops the generator."""
 
+import contextlib
+import importlib.util
+import io
 import os
 import shutil
 import subprocess
@@ -138,6 +142,77 @@ class FontGen(unittest.TestCase):
         self.assertIn("font_8x16_bits[1520]", text)
         self.assertIn("font_16x32_bits[6080]", text)
         self.assertIn("font_32x64_bits[24320]", text)
+
+
+_spec = importlib.util.spec_from_file_location("fontgen", FONTGEN)
+F = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(F)
+
+
+def small_bdf(glyphs=range(0x20, 0x7F), bbx="8 2 0 0", rows=("FF", "81"), head="FONTBOUNDINGBOX 8 2 0 0\n"):
+    """A BDF font of 8x2 glyphs, with a copyright comment"""
+    out = ["STARTFONT 2.1\n", "COMMENT /*\n", "COMMENT * Copyright (c) 2026 Example Author\n",
+           "COMMENT * SPDX-License-Identifier: BSD-2-Clause\n", "COMMENT */\n",
+           'FAMILY_NAME "Small"\n', 'FONT_VERSION "1.0"\n', head, f"CHARS {len(glyphs)}\n"]
+    for c in glyphs:
+        out += [f"STARTCHAR c{c}\n", f"ENCODING {c}\n", f"BBX {bbx}\n", "BITMAP\n"]
+        out += [r + "\n" for r in rows] + ["ENDCHAR\n"]
+    return "".join(out + ["ENDFONT\n"])
+
+
+class SmallFont(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def bdf(self, text, name="small.bdf"):
+        path = os.path.join(self.tmp.name, name)
+        with open(path, "w") as f:
+            f.write(text)
+        return path
+
+    def test_good(self):
+        """Read as written; fonts.c names the font and carries its notice."""
+        path = self.bdf(small_bdf())
+        width, height, glyphs, info = F.parse_bdf(path)
+        self.assertEqual((width, height, len(glyphs), glyphs[0x41]), (8, 2, 95, [0xFF, 0x81]))
+        h, c = F.generate([("small", path)])
+        self.assertIn("extern const font_t font_small;", h)
+        self.assertIn("// font_small: small.bdf (Small 1.0)\n"
+                      "//   Copyright (c) 2026 Example Author\n"
+                      "//   SPDX-License-Identifier: BSD-2-Clause\n", c)
+
+    def test_malformed(self):
+        """Each one stops the generator with BdfError."""
+        no_end = small_bdf().replace("ENDCHAR\nENDFONT\n", "")
+        cases = {
+            "a glyph of another box": small_bdf().replace("ENCODING 65\nBBX 8 2 0 0", "ENCODING 65\nBBX 8 2 0 -1"),
+            "a glyph missing": small_bdf(glyphs=[c for c in range(0x20, 0x7F) if c != 0x41]),
+            "rows missing": small_bdf(rows=("FF",)),
+            "no bounding box": small_bdf(head=""),
+            "no ENDCHAR": no_end[:no_end.rindex("BITMAP")],
+            "no ENCODING": small_bdf().replace("ENCODING 65\n", ""),
+            "no BBX": small_bdf().replace("ENCODING 65\nBBX 8 2 0 0\n", "ENCODING 65\n"),
+        }
+        for name, text in cases.items():
+            with self.subTest(name), self.assertRaises(F.BdfError):
+                F.parse_bdf(self.bdf(text))
+
+    def test_main(self):
+        """main(): 1 and no files on a malformed font; a usage error on a
+        name that is no C identifier."""
+        out = os.path.join(self.tmp.name, "out")
+        bad = self.bdf(small_bdf(rows=("FF",)), "bad.bdf")
+        with contextlib.redirect_stderr(io.StringIO()) as err:
+            self.assertEqual(F.main(["--out", out, f"bad={bad}"]), 1)
+            self.assertIn("bad.bdf", err.getvalue())
+            self.assertFalse(os.path.exists(out))
+            with self.assertRaises(SystemExit):
+                F.main(["--out", out, f"8-bit={self.bdf(small_bdf())}"])
+        self.assertEqual(F.main(["--out", out, f"small={self.bdf(small_bdf())}"]), 0)
+        self.assertEqual(sorted(os.listdir(out)), ["fonts.c", "fonts.h"])
 
 
 if __name__ == "__main__":

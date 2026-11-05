@@ -5,8 +5,9 @@
 #   cmake -DSRC=<dir> -DOUT=<file> -P version.cmake
 #
 # firmware/VERSION holds the version being developed, e.g. 1.1.0. Firmware
-# releases are tagged firmware-v<VERSION>; other tags (the test files') are
-# not looked at. The version is <VERSION> at its tag, <VERSION>-<commit>
+# releases are tagged firmware-v<VERSION>; other tags (the test files') and
+# pre-release tags (firmware-v<VERSION>-<suffix>, e.g. -rc1) are not looked
+# at. The version is <VERSION> at its tag, <VERSION>-<commit>
 # (a pre-release) at any other commit, each with -dirty for uncommitted
 # changes; <VERSION>-unknown for source that is not its own git repository
 # (an unpacked archive, say, even inside another repository's work tree). A
@@ -31,7 +32,7 @@ if(result EQUAL 0 AND NOT top STREQUAL "")
   get_filename_component(src "${SRC}" REALPATH)
   if("${top}" STREQUAL "${src}")
     execute_process(
-      COMMAND git describe --tags --match firmware-v* --always --dirty --abbrev=7
+      COMMAND git describe --tags --match firmware-v* --exclude firmware-v*-* --always --dirty --abbrev=7
       WORKING_DIRECTORY ${SRC}
       OUTPUT_VARIABLE described
       OUTPUT_STRIP_TRAILING_WHITESPACE
