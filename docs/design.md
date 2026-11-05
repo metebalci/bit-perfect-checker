@@ -417,8 +417,9 @@ The firmware uses TinyUSB, not ST's own USB middleware.
   signal format version comes. The test signal and its files keep the name
   BPC1.
 - **Flashing** is done with ST's STM32CubeProgrammer (or the ST-LINK's
-  drag-and-drop drive), not OpenOCD: OpenOCD 0.12.0 cannot program the
-  STM32U5A5, whose device ID 0x481 its flash driver does not know.
+  drag-and-drop drive) on every board: it programs every STM32 the firmware
+  runs on, and it names the ST-LINK by its serial number, so that with
+  several boards connected a flash never reaches the wrong one.
 
 ## 8. Firmware
 

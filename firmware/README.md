@@ -164,8 +164,6 @@ Without `STLINK_SN` the target refuses to run, so that it never writes to
 another board that happens to be connected.
 Without STM32CubeProgrammer, copy the `.bin` to the ST-LINK's USB drive
 (`NOD_U5A5ZJ`).
-OpenOCD 0.12.0 can connect to the STM32U5A5 but cannot program its flash: its
-flash driver does not know the device ID 0x481.
 
 ## Release
 
