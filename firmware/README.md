@@ -47,7 +47,10 @@ the host sends, and checks every frame against the test signal:
 - **Connection:** each board reads its user USB port's VBUS in the main loop,
   since the USB controller does not sense it. When VBUS has been gone for
   50 ms the device reports not connected, so a pulled cable is told apart
-  from a host that only suspends the bus, and a new run starts. The pins: PC2 (VBUS_SENSE, VBUS
+  from a host that only suspends the bus, and a new run starts. Without
+  VBUS the device keeps its D+ pull-up off, as USB 2.0 (7.1.5.1) requires,
+  also from boot; VBUS back for 50 ms turns it on (`usb connecting`), and
+  the host enumerates the device again. The pins: PC2 (VBUS_SENSE, VBUS
   divided by 7.61, read with ADC1) on the NUCLEO-U5A5ZJ-Q, PB13 (VBUS of
   CN19) on the STM32F723E-DISCO, and PA1 (USBC_DETECT) on the
   STM32U5G9J-DK2.
@@ -372,10 +375,11 @@ their meaning.
 | `led <colour> <pin>` | the LED test at start-up: red, green, blue, each for 0.3 s; no line for a colour the board lacks |
 | `formats <list>` | the formats offered, as alt settings 1 to n; at boot, and after a `formats` command, with `changed=0` or `changed=1` |
 | `usb mounted speed=high` | enumerated; `speed=full` means the High-Speed link failed |
-| `usb disconnected` | no host has the device set up any more: the cable was pulled (VBUS gone for 50 ms), or the host deconfigured it; once, when the device was connected |
+| `usb disconnected` | the cable was pulled (VBUS gone for 50 ms): once per pull, after the lines of a stream it cut and before `run start`, also when a host reset the bus first (`usb reset`) or never set the device up; or the host deconfigured the device while it was set up |
 | `usb suspended`, `usb resumed` | the host suspended or resumed the bus; with VBUS still present the device stays connected |
 | `usb reset` | the host reset the bus while a stream ran or an alt setting was open: the stream stops (`reason=reset`), and the host enumerates the device again |
 | `usb disconnected`, `usb connecting` | the device leaves the bus to change its formats, and comes back |
+| `usb connecting` | VBUS is back for 50 ms after a pull, or after a boot without VBUS: the device turns its D+ pull-up on, and the host enumerates it (`usb mounted`) |
 | `rate <Hz>` | the host set the sample rate; at boot, the rate the device reports before a host sets one (48000) |
 | `rate unsupported=<Hz>` | the host asked for a rate that is not offered (stalled) |
 | `alt <n> slot=<bytes> res=<bits>` | the host selected a streaming alt setting; `alt 0` closes it |

@@ -13,7 +13,6 @@
 #include "load.h"
 #include "status.h"
 #include "stream.h"
-#include "device/dcd.h"
 #include "tusb.h"
 #include "uac2.h"
 #include "vbus.h"
@@ -40,23 +39,22 @@ static void button_task(void) {
   }
 }
 
-// A pulled cable: VBUS has gone. The USB controller does not sense VBUS
-// (TinyUSB forces the session valid), so it sees only a suspend. TinyUSB
-// learns it as from a controller that senses VBUS (dcd_dwc2.c, GOTGINT_SEDET):
-// DCD_EVENT_UNPLUGGED ends the configuration and calls tud_umount_cb(),
-// which logs "usb disconnected" after the lines of a stream it stops. Then a
-// new run starts, as the user button does: a pull during playback cuts a
-// file, and that result stays in the run before.
-static void vbus_task(void) {
-  static vbus_t vbus;
-  if (vbus_gone(&vbus, board_vbus(), board_millis())) {
-    dcd_int_disable(BOARD_TUD_RHPORT);  // the event as if from the USB interrupt
-    dcd_event_bus_signal(BOARD_TUD_RHPORT, DCD_EVENT_UNPLUGGED, true);
-    dcd_int_enable(BOARD_TUD_RHPORT);
-    tud_task();  // the event now, so that "usb disconnected" comes before "run start"
-    stream_run_start();
+static vbus_t vbus;
+
+// The D+ pull-up: off without VBUS (USB 2.0 7.1.5.1); on again when VBUS is
+// back, and the host's reset and enumeration follow
+static void pullup(bool on) {
+  if (on) {
+    tud_connect();
+  } else {
+    tud_disconnect();
   }
 }
+
+// A pulled cable (vbus.h): uac2_unplug() ends the configuration, then a new
+// run starts, as the user button does: a pull during playback cuts a file,
+// and that result stays in the run before
+static const vbus_ops_t vbus_ops = {.unplug = uac2_unplug, .run_start = stream_run_start, .pullup = pullup};
 
 int main(void) {
   board_init();
@@ -69,6 +67,7 @@ int main(void) {
 
   tusb_rhport_init_t dev_init = {.role = TUSB_ROLE_DEVICE, .speed = TUSB_SPEED_HIGH};
   tusb_init(BOARD_TUD_RHPORT, &dev_init);
+  vbus_act(vbus_start(&vbus, board_vbus(), board_millis()), &vbus_ops);
 
   uint32_t shown = status.version - 1;  // show the initial status
   while (1) {
@@ -78,7 +77,7 @@ int main(void) {
     console_task();
     uac2_task();
     button_task();
-    vbus_task();
+    vbus_act(vbus_poll(&vbus, board_vbus(), board_millis()), &vbus_ops);
     leds_task();
     display_task();
     if (status.version != shown) {

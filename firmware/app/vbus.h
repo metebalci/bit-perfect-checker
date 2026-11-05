@@ -14,18 +14,42 @@
 
 #define VBUS_MS 50u  // a level must hold this long; plugging bounces for less
 
+// What the main loop does after a call, as flags, in this order
+#define VBUS_GONE       0x01u  // VBUS that was present has been absent for VBUS_MS: unplugged
+#define VBUS_DISCONNECT 0x02u  // D+ pull-up off (tud_disconnect())
+#define VBUS_CONNECT    0x04u  // D+ pull-up on (tud_connect())
+
 typedef struct {
-  bool started;    // a level was read
   bool level;      // the last level read
   uint32_t since;  // when it was first read
-  bool known;      // a level has held VBUS_MS since boot
+  bool known;      // a level has held VBUS_MS since start
   bool present;    // the debounced level, once known
+  bool connected;  // the pull-up is on
 } vbus_t;
 
-// level: board_vbus(); now: board_millis(). True once each time VBUS that
-// was present has been absent for VBUS_MS. VBUS absent or present from boot
-// gives nothing (the device starts not connected, and boot starts a run),
-// and so does VBUS coming back.
-bool vbus_gone(vbus_t *v, bool level, uint32_t now);
+// What vbus_act() does, from main.c (or the host tests' stand-ins)
+typedef struct {
+  void (*unplug)(void);     // end the configuration at once, its lines included, without logging the disconnect
+  void (*run_start)(void);  // a new run, as the user button starts one
+  void (*pullup)(bool on);  // the D+ pull-up: tud_connect() or tud_disconnect()
+} vbus_ops_t;
+
+// At start, after tusb_init(), which turns the pull-up on: VBUS_DISCONNECT
+// when VBUS is absent, since a device must not pull D+ up without VBUS
+// (USB 2.0 7.1.5.1).
+uint8_t vbus_start(vbus_t *v, bool level, uint32_t now);
+
+// level: board_vbus(); now: board_millis(). VBUS_GONE once each time VBUS
+// that was present has been absent for VBUS_MS, with VBUS_DISCONNECT;
+// VBUS_CONNECT when VBUS has been present for VBUS_MS with the pull-up off.
+uint8_t vbus_poll(vbus_t *v, bool level, uint32_t now);
+
+// Acts on vbus_start()'s or vbus_poll()'s flags, in this order. A pull:
+// the configuration ends (a stream's lines first), "usb disconnected" is
+// logged, whatever TinyUSB's state (a host may reset the bus as the plug
+// leaves, so the device is no longer set up when VBUS goes), a new run
+// starts, and the pull-up goes off. VBUS back: the pull-up goes on and
+// "usb connecting" is logged.
+void vbus_act(uint8_t act, const vbus_ops_t *ops);
 
 #endif

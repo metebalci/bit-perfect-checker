@@ -496,7 +496,10 @@ The firmware uses TinyUSB, not ST's own USB middleware.
   configuration as a controller with VBUS sensing would, and the device
   reports not connected (`firmware/app/main.c`, `firmware/app/vbus.c`). A
   host that only suspends the bus leaves VBUS on, and the device stays
-  connected and waiting. A detected disconnect also starts a new run. A pulled
+  connected and waiting. Without VBUS the device turns its D+ pull-up off
+  (TinyUSB's `tud_disconnect()`), from boot too, since USB 2.0 (7.1.5.1)
+  forbids pulling D+ up without VBUS and a host may refuse a device that
+  does; VBUS back for 50 ms turns it on again (`tud_connect()`). A detected disconnect also starts a new run. A pulled
   cable shows as NOT CONNECTED on a screen and as a fast blue blink.
 - **USB ID.** The device uses Objective Development's shared VID/PID pair for
   audio class devices, 16C0:27E0, under the serial-number rules of its

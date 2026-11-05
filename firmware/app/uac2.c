@@ -14,6 +14,7 @@
 #include "log.h"
 #include "status.h"
 #include "stream.h"
+#include "device/dcd.h"
 #include "tusb.h"
 #include "usb_descriptors.h"
 
@@ -29,6 +30,7 @@ static uint32_t current_rate = 48000;
 #define RECONNECT_MS 300u
 
 static uint32_t reconnect_at;  // 0: no reconnect pending
+static bool unplugging;         // in uac2_unplug()
 
 static void log_formats(const char *extra) {
   char text[32];
@@ -83,8 +85,10 @@ bool uac2_formats(const char *text) {
 void uac2_task(void) {
   if (reconnect_at != 0 && (int32_t) (board_millis() - reconnect_at) >= 0) {
     reconnect_at = 0;
-    tud_connect();
-    log_line("usb connecting");
+    if (board_vbus()) {  // else main.c connects when VBUS is back
+      tud_connect();
+      log_line("usb connecting");
+    }
   }
 }
 
@@ -121,15 +125,32 @@ void tud_mount_cb(void) {
   log_line("usb mounted speed=%s", speed_name(tud_speed_get()));
 }
 
-// The host deconfigured the device, or VBUS went (main.c); logged once,
-// when the device was connected
+// The host deconfigured the device (logged once, when it was connected),
+// or VBUS went (uac2_unplug(), which logs the disconnect itself)
 void tud_umount_cb(void) {
   stream_reset();
   if (status.usb != USB_NOT_MOUNTED) {
     status.usb = USB_NOT_MOUNTED;
     status_changed();
-    log_line("usb disconnected");
+    if (!unplugging) {
+      log_line("usb disconnected");
+    }
   }
+}
+
+// VBUS has gone. The USB controller does not sense VBUS (TinyUSB forces the
+// session valid), so it sees only a suspend, or a bus reset when the host
+// resets the bus as the plug leaves. TinyUSB learns it as from a controller
+// that senses VBUS (dcd_dwc2.c, GOTGINT_SEDET): DCD_EVENT_UNPLUGGED ends
+// the configuration and calls tud_umount_cb(), here at once, so that a
+// stream's lines come before the caller's "usb disconnected".
+void uac2_unplug(void) {
+  unplugging = true;
+  dcd_int_disable(BOARD_TUD_RHPORT);  // the event as if from the USB interrupt
+  dcd_event_bus_signal(BOARD_TUD_RHPORT, DCD_EVENT_UNPLUGGED, true);
+  dcd_int_enable(BOARD_TUD_RHPORT);
+  tud_task();
+  unplugging = false;
 }
 
 void tud_suspend_cb(bool remote_wakeup_en) {
