@@ -3,7 +3,8 @@
 // STM32U5G9J-DK2: STM32U5G9ZJT6Q (SMPS), 16 MHz HSE crystal, LD2 red PD2 and
 // LD3 green PD4, both active low, no blue LED, user button B2 on PC13 (high
 // when pressed; B1 is reset), STLINK-V3EC virtual COM port on USART1
-// PA9/PA10, user USB-C (CN2) on the OTG HS PHY. Clocks and USB as on the
+// PA9/PA10, user USB-C (CN2) on the OTG HS PHY, the 5" display with its
+// touch panel as a second user button. Clocks and USB as on the
 // NUCLEO-U5A5ZJ-Q, which ST's STM32CubeU5 examples for this board match.
 
 #include "board.h"
@@ -12,6 +13,7 @@
 
 #include "family.h"
 #include "log.h"
+#include "touch.h"
 
 typedef struct {
   GPIO_TypeDef *port;
@@ -137,6 +139,13 @@ const char *board_led_name(led_t led) {
   return leds[led].name;
 }
 
+// A fault: the display's backlight off (PE6, panel_rk050hr18.c), so that
+// the screen does not keep showing a result while the LEDs show the fault
+void board_fault(void) {
+  GPIOE->BSRR = (uint32_t) GPIO_PIN_6 << 16;
+}
+
+// B2, or a finger anywhere on the touch panel
 bool board_button(void) {
-  return HAL_GPIO_ReadPin(GPIOC, GPIO_PIN_13) == GPIO_PIN_SET;
+  return HAL_GPIO_ReadPin(GPIOC, GPIO_PIN_13) == GPIO_PIN_SET || touch_down();
 }

@@ -16,7 +16,7 @@ import unittest
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 FONTGEN = os.path.join(ROOT, "firmware", "tools", "fontgen.py")
 SPLEEN = os.path.join(ROOT, "firmware", "lib", "spleen")
-FONTS = {"8x16": (8, 16), "16x32": (16, 32)}
+FONTS = {"8x16": (8, 16), "16x32": (16, 32), "32x64": (32, 64)}
 CC = shutil.which("gcc") or shutil.which("cc")
 
 DUMP_C = r"""
@@ -38,6 +38,7 @@ static void dump(const char *name, const font_t *f) {
 int main(void) {
   dump("8x16", &font_8x16);
   dump("16x32", &font_16x32);
+  dump("32x64", &font_32x64);
   return 0;
 }
 """
@@ -131,11 +132,12 @@ class FontGen(unittest.TestCase):
                     self.assertEqual(glyphs[c], expected)
 
     def test_flash_size(self):
-        # 95 glyphs of 16 and of 64 bytes: the arrays' declared sizes
+        # 95 glyphs of 16, 64 and 256 bytes: the arrays' declared sizes
         with open(os.path.join(self.out, "fonts.c"), encoding="ascii") as f:
             text = f.read()
         self.assertIn("font_8x16_bits[1520]", text)
         self.assertIn("font_16x32_bits[6080]", text)
+        self.assertIn("font_32x64_bits[24320]", text)
 
 
 if __name__ == "__main__":
