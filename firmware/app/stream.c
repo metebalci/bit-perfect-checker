@@ -2,12 +2,18 @@
 // Copyright (c) 2026 Mete Balci
 // Stream probe and BPC1 checker.
 //
-// The USB interrupt counts packets, bytes and microframes. The microframe
-// number comes from the controller when each packet completes, so a
-// microframe without a packet shows up as a gap. Packets complete well
-// inside their microframe; if one is ever counted in the next microframe
-// instead, the gap it leaves is matched by a "doubled" microframe, and the
-// net loss (missed - doubled) stays right.
+// The USB interrupt counts packets, bytes and microframes. Each packet is
+// counted in the microframe it came in, so a microframe without a packet
+// shows up as a gap. The controller receives an isochronous OUT packet only
+// in a microframe whose parity is the endpoint's EONUM bit (RM0456 Rev 7
+// 73.15.6, RM0431 Rev 4 32.16.6), and the interrupt that serves the packet
+// enters in that microframe or the next one, so the microframe number and
+// EONUM read at the interrupt's entry give the packet's own microframe
+// (packet_uframe()). An entry two or more microframes late comes with a late
+// re-arm, so packets were lost there anyway; the net loss stays right and
+// its hole is counted one packet early. Two packets in the same microframe
+// ("doubled", which takes back the hole before it) cannot happen this way;
+// the count stays for the log line.
 //
 // The main loop drains the receive FIFO, probes the samples for the bits in
 // use and for DoP markers, and feeds every frame to the BPC1 checker engine
@@ -59,7 +65,7 @@ typedef struct {
   uint32_t missed;     // microframes without a packet
   uint32_t holes;      // runs of microframes without a packet
   uint32_t max_hole;   // the longest run
-  uint32_t doubled;    // packets counted in the same microframe as the one before
+  uint32_t doubled;    // packets counted in the same microframe as the one before: 0 with packet_uframe()
   uint32_t overflows;  // packets that overflowed the receive FIFO
   uint16_t min_bytes;
   uint16_t max_bytes;
@@ -113,13 +119,32 @@ static void isr_event(int32_t lost, uint32_t uframe) {
   }
 }
 
+// The microframe P of the packet the interrupt serves, from the microframe
+// number fn and the endpoint's EONUM bit read at the interrupt's entry: fn is
+// P or P + 1, and P has EONUM's parity, so P = fn - ((fn ^ EONUM) & 1). If
+// the interrupt entered before the packet came (it entered for something
+// else and served the packet's completion in the same pass), this gives
+// P - 2, before the packet before; a fresh read of the microframe number
+// then gives P.
+static uint32_t packet_uframe(void) {
+  uint32_t fn;
+  bool odd;
+  board_usb_entry(&fn, &odd);
+  uint32_t uframe = (fn - ((fn ^ (odd ? 1u : 0u)) & 1u)) & UFRAME_MASK;
+  if (!isr_restart && ((uframe - isr_last_uframe) & UFRAME_MASK) > UFRAME_MASK / 2u) {
+    fn = board_usb_microframe();
+    uframe = (fn - ((fn ^ (odd ? 1u : 0u)) & 1u)) & UFRAME_MASK;
+  }
+  return uframe;
+}
+
 void stream_packet_isr(uint16_t n_bytes) {
   // A zero-length packet carries no frames (UAC2 calls it a transfer
   // delimiter): it counts like a microframe without a packet.
   if (n_bytes == 0) {
     return;
   }
-  uint32_t uframe = board_usb_microframe();
+  uint32_t uframe = packet_uframe();
   uint32_t gap = (uframe - isr_last_uframe) & UFRAME_MASK;
   isr_last_uframe = uframe;
 

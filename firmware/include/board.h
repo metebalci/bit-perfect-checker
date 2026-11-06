@@ -47,6 +47,12 @@ uint32_t board_cpu_hz(void);
 // advances every 125 us. Called from the USB interrupt.
 uint32_t board_usb_microframe(void);
 
+// What the USB interrupt that runs now read at its entry, before TinyUSB ran:
+// the (micro)frame number, as board_usb_microframe() gives it, and the audio
+// OUT endpoint's EONUM bit (DOEPCTL bit 16), true when the endpoint was set
+// to receive in an odd (micro)frame. Called from the USB interrupt.
+void board_usb_entry(uint32_t *uframe, bool *odd);
+
 // The fault handler calls this before it lights every LED and stops: a board
 // turns off here what must not keep showing a state, such as a display's
 // backlight. Interrupts are off and the stack may be gone; no waiting. The

@@ -8,6 +8,9 @@
 #include <string.h>
 
 #include "board.h"
+#ifdef BPC_TEST_INJECT
+#include "inject.h"
+#endif
 #include "log.h"
 #include "status.h"
 #include "stream.h"
@@ -108,10 +111,18 @@ static void run(char *cmd) {
     uint32_t t0 = board_millis();
     while (board_millis() - t0 < ms) {
     }
+#ifdef BPC_TEST_INJECT
+  } else if (strcmp(cmd, "inject") == 0) {
+    inject_command(arg);
+#endif
   } else if (strcmp(cmd, "version") == 0) {
     console_version("version");
   } else if (strcmp(cmd, "help") == 0) {
+#ifdef BPC_TEST_INJECT
+    log_line("help commands=status,result,mark,formats,allow_silence,version,help test=stall,inject");
+#else
     log_line("help commands=status,result,mark,formats,allow_silence,version,help test=stall");
+#endif
   } else {
     log_line("error unknown-command=%s", cmd);
   }

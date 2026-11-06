@@ -36,6 +36,16 @@ option(ALLOW_SILENCE "Silence outside every file gives no result" ON)
 option(DISPLAY_LOG "Log each redraw of the status screen" OFF)
 option(DISPLAY_STRESS "Redraw the whole status screen continuously" OFF)
 
+# Test builds only, never a release: the console command "inject", which
+# re-arms the audio OUT endpoint late on purpose (app/inject.h).
+option(BPC_TEST_INJECT "Test builds only: the inject console command" OFF)
+
+# The TinyUSB patches in lib/patches/ that the build applies: a list of
+#   zlp      tinyusb-audio-out-zlp.patch (audio_device.c)
+#   iso_out  tinyusb-dwc2-iso-out-next.patch (dcd_dwc2.c)
+# or "none".
+set(BPC_TUSB_PATCHES "zlp" CACHE STRING "TinyUSB patches: a list of zlp and iso_out, or none")
+
 set(CMAKE_TOOLCHAIN_FILE ${CMAKE_CURRENT_LIST_DIR}/cmake/arm-none-eabi.cmake)
 if(NOT CMAKE_BUILD_TYPE)
   set(CMAKE_BUILD_TYPE RelWithDebInfo)
@@ -85,32 +95,52 @@ if(DISPLAY_FONTS)
 endif()
 
 # TinyUSB device stack: core, audio class, Synopsys DWC2 controller. The
-# audio class driver gets the fix in lib/patches/, applied to a copy in the
-# build folder, so the submodule stays at the release. A patch that no longer
-# applies exactly fails the build.
-set(AUDIO ${TUSB}/class/audio)
-set(AUDIO_PATCH ${LIB}/patches/tinyusb-audio-out-zlp.patch)
-set(AUDIO_PATCHED_DIR ${CMAKE_BINARY_DIR}/tinyusb-patched)
-set(AUDIO_PATCHED ${AUDIO_PATCHED_DIR}/audio_device.c)
+# patches named in BPC_TUSB_PATCHES go to copies in the build folder, so the
+# submodule stays at the release; a file without a patch is compiled from the
+# submodule. A patch that no longer applies exactly fails the build.
+set(TUSB_PATCH_zlp ${TUSB}/class/audio/audio_device.c ${LIB}/patches/tinyusb-audio-out-zlp.patch)
+set(TUSB_PATCH_iso_out ${TUSB}/portable/synopsys/dwc2/dcd_dwc2.c ${LIB}/patches/tinyusb-dwc2-iso-out-next.patch)
+set(TUSB_PATCHES ${BPC_TUSB_PATCHES})
+if(TUSB_PATCHES STREQUAL "none")
+  set(TUSB_PATCHES "")
+endif()
+foreach(name IN LISTS TUSB_PATCHES)
+  if(NOT DEFINED TUSB_PATCH_${name})
+    message(FATAL_ERROR "BPC_TUSB_PATCHES: unknown patch '${name}' (zlp, iso_out or none)")
+  endif()
+endforeach()
+set(TUSB_PATCHED_DIR ${CMAKE_BINARY_DIR}/tinyusb-patched)
 find_program(PATCH patch REQUIRED)
-add_custom_command(
-  OUTPUT ${AUDIO_PATCHED}
-  COMMAND ${CMAKE_COMMAND} -E remove -f ${AUDIO_PATCHED}
-  COMMAND ${CMAKE_COMMAND} -E copy ${AUDIO}/audio_device.c ${AUDIO_PATCHED}.tmp
-  COMMAND ${PATCH} --quiet --forward --fuzz=0 --no-backup-if-mismatch --reject-file=-
-          -i ${AUDIO_PATCH} ${AUDIO_PATCHED}.tmp
-  COMMAND ${CMAKE_COMMAND} -E rename ${AUDIO_PATCHED}.tmp ${AUDIO_PATCHED}
-  DEPENDS ${AUDIO}/audio_device.c ${AUDIO_PATCH}
-  COMMENT "Patching TinyUSB's audio_device.c")
+foreach(name zlp iso_out)
+  list(GET TUSB_PATCH_${name} 0 source)
+  if(name IN_LIST TUSB_PATCHES)
+    list(GET TUSB_PATCH_${name} 1 patch_file)
+    get_filename_component(file ${source} NAME)
+    set(patched ${TUSB_PATCHED_DIR}/${file})
+    add_custom_command(
+      OUTPUT ${patched}
+      COMMAND ${CMAKE_COMMAND} -E remove -f ${patched}
+      COMMAND ${CMAKE_COMMAND} -E copy ${source} ${patched}.tmp
+      COMMAND ${PATCH} --quiet --forward --fuzz=0 --no-backup-if-mismatch --reject-file=-
+              -i ${patch_file} ${patched}.tmp
+      COMMAND ${CMAKE_COMMAND} -E rename ${patched}.tmp ${patched}
+      DEPENDS ${source} ${patch_file}
+      COMMENT "Patching TinyUSB's ${file}")
+    set(TUSB_SOURCE_${name} ${patched})
+  else()
+    set(TUSB_SOURCE_${name} ${source})
+  endif()
+endforeach()
 add_library(tinyusb STATIC
   ${TUSB}/tusb.c
   ${TUSB}/common/tusb_fifo.c
   ${TUSB}/device/usbd.c
-  ${AUDIO_PATCHED}
-  ${TUSB}/portable/synopsys/dwc2/dcd_dwc2.c
+  ${TUSB_SOURCE_zlp}
+  ${TUSB_SOURCE_iso_out}
   ${TUSB}/portable/synopsys/dwc2/dwc2_common.c)
 target_include_directories(tinyusb PUBLIC ${TUSB} ${APP})  # tusb_config.h
-target_include_directories(tinyusb PRIVATE ${AUDIO})  # headers next to audio_device.c
+# The headers next to audio_device.c and dcd_dwc2.c, for their copies
+target_include_directories(tinyusb PRIVATE ${TUSB}/class/audio ${TUSB}/portable/synopsys/dwc2)
 target_compile_options(tinyusb PRIVATE ${WARNINGS})
 target_link_libraries(tinyusb PUBLIC family_hal)
 
@@ -143,5 +173,11 @@ target_compile_definitions(${FW} PRIVATE BOARD_NAME="${BOARD}" USB_VID=${USB_VID
                            ALLOW_SILENCE_DEFAULT=$<IF:$<BOOL:${ALLOW_SILENCE}>,true,false>
                            $<$<BOOL:${DISPLAY_LOG}>:DISPLAY_LOG> $<$<BOOL:${DISPLAY_STRESS}>:DISPLAY_STRESS>)
 target_compile_options(${FW} PRIVATE $<$<COMPILE_LANGUAGE:C>:${WARNINGS} -Werror>)
+if(BPC_TEST_INJECT)
+  message(STATUS "BPC_TEST_INJECT: a test build with the inject command, never a release")
+  target_sources(${FW} PRIVATE ${APP}/inject.c)
+  target_compile_definitions(${FW} PRIVATE BPC_TEST_INJECT)
+  target_link_options(${FW} PRIVATE -Wl,--wrap=dcd_edpt_xfer)
+endif()
 target_link_libraries(${FW} PRIVATE tinyusb family_hal)
 firmware_image(${FW} ${LINKER_SCRIPT})

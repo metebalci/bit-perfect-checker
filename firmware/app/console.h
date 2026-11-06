@@ -26,6 +26,8 @@
 //   stall <ms>    "stall <ms>", then the main loop busy-waits 1 to 2000 ms
 //                 with interrupts on: the receive FIFO fills and overflows
 //                 during a stream, which shows OVERRUN
+//   inject ...    test builds with BPC_TEST_INJECT only: late re-arms on
+//                 purpose (inject.h)
 //
 // Anything else gets "error unknown-command=<word>" or "error line-too-long".
 

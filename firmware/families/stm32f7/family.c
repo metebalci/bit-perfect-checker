@@ -17,7 +17,15 @@
 // which has the USB host's versions of family_usb_init(),
 // board_usb_microframe() and OTG_HS_IRQHandler() instead of this file's.
 #ifndef FAMILY_USB_HOST
+#include "usb_descriptors.h"
+
 #define USB_DEVICE ((USB_OTG_DeviceTypeDef *) (USB_OTG_HS_PERIPH_BASE + USB_OTG_DEVICE_BASE))
+#define USB_AUDIO_OUT                                                                                \
+  ((USB_OTG_OUTEndpointTypeDef *) (USB_OTG_HS_PERIPH_BASE + USB_OTG_OUT_ENDPOINT_BASE                \
+                                   + (EP_AUDIO_OUT & 0x0Fu) * USB_OTG_EP_REG_SIZE))
+// OTG_DOEPCTLx bit 16, EONUM for an isochronous endpoint (RM0431 Rev 4
+// 32.15.61); ST's CMSIS header names no bit 16 for it
+#define USB_OTG_DOEPCTL_EONUM (1UL << 16)
 #endif
 
 //--------------------------------------------------------------------+
@@ -126,6 +134,16 @@ void family_usb_init(void) {
 uint32_t board_usb_microframe(void) {
   return (USB_DEVICE->DSTS & USB_OTG_DSTS_FNSOF_Msk) >> USB_OTG_DSTS_FNSOF_Pos;
 }
+
+// DSTS and the audio OUT endpoint's DOEPCTL, read at the entry of the USB
+// interrupt (OTG_HS_IRQHandler())
+static uint32_t usb_entry_dsts;
+static uint32_t usb_entry_doepctl;
+
+void board_usb_entry(uint32_t *uframe, bool *odd) {
+  *uframe = (usb_entry_dsts & USB_OTG_DSTS_FNSOF_Msk) >> USB_OTG_DSTS_FNSOF_Pos;
+  *odd = (usb_entry_doepctl & USB_OTG_DOEPCTL_EONUM) != 0;
+}
 #endif
 
 //--------------------------------------------------------------------+
@@ -200,6 +218,8 @@ void SysTick_Handler(void) {
 #ifndef FAMILY_USB_HOST
 void OTG_HS_IRQHandler(void) {
   uint32_t t0 = DWT->CYCCNT;
+  usb_entry_dsts = USB_DEVICE->DSTS;
+  usb_entry_doepctl = USB_AUDIO_OUT->DOEPCTL;
   tusb_int_handler(BOARD_TUD_RHPORT, true);
   load_isr(DWT->CYCCNT - t0);
 }

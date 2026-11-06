@@ -10,8 +10,12 @@
 #include "load.h"
 #include "log.h"
 #include "tusb.h"
+#include "usb_descriptors.h"
 
 #define USB_DEVICE ((USB_OTG_DeviceTypeDef *) (USB_OTG_HS_BASE + USB_OTG_DEVICE_BASE))
+#define USB_AUDIO_OUT                                                                                \
+  ((USB_OTG_OUTEndpointTypeDef *) (USB_OTG_HS_BASE + USB_OTG_OUT_ENDPOINT_BASE                       \
+                                   + (EP_AUDIO_OUT & 0x0Fu) * USB_OTG_EP_REG_SIZE))
 
 //--------------------------------------------------------------------+
 // Core: stack limit, cycle counter
@@ -77,6 +81,16 @@ void family_usb_init(uint32_t phy_clock_source, uint32_t phy_reference) {
 
 uint32_t board_usb_microframe(void) {
   return (USB_DEVICE->DSTS & USB_OTG_DSTS_FNSOF_Msk) >> USB_OTG_DSTS_FNSOF_Pos;
+}
+
+// DSTS and the audio OUT endpoint's DOEPCTL, read at the entry of the USB
+// interrupt (OTG_HS_IRQHandler())
+static uint32_t usb_entry_dsts;
+static uint32_t usb_entry_doepctl;
+
+void board_usb_entry(uint32_t *uframe, bool *odd) {
+  *uframe = (usb_entry_dsts & USB_OTG_DSTS_FNSOF_Msk) >> USB_OTG_DSTS_FNSOF_Pos;
+  *odd = (usb_entry_doepctl & USB_OTG_DOEPCTL_DPID_EONUM) != 0;
 }
 
 //--------------------------------------------------------------------+
@@ -149,6 +163,8 @@ void SysTick_Handler(void) {
 
 void OTG_HS_IRQHandler(void) {
   uint32_t t0 = DWT->CYCCNT;
+  usb_entry_dsts = USB_DEVICE->DSTS;
+  usb_entry_doepctl = USB_AUDIO_OUT->DOEPCTL;
   tusb_int_handler(0, true);
   load_isr(DWT->CYCCNT - t0);
 }

@@ -1,0 +1,112 @@
+TinyUSB 0.21.0, DWC2 device: re-arm an isochronous OUT endpoint for the
+(micro)frame after the packet it received, not the one after the re-arm.
+
+The core receives an isochronous OUT packet only in a (micro)frame whose
+parity is the endpoint's DOEPCTL.EONUM bit (RM0431 Rev 4 32.16.6, RM0456
+Rev 7 73.15.6), and edpt_schedule_packets() sets that parity from DSTS.FNSOF
+at the time of the re-arm: the (micro)frame after the current one. With one
+transfer of one packet at a time, the endpoint is re-armed from the
+transfer-complete interrupt of each packet. When a packet completes late in
+its microframe P and the re-arm runs into P+1, today's rule targets P+2, so
+the packet of P+1 is lost even when its token has not come yet.
+
+At an isochronous OUT transfer complete, the driver now notes P from FNSOF
+and EONUM (P = fn - ((fn ^ EONUM) & 1), since the completion is handled in
+P or P+1), and the next re-arm targets the parity of P + interval as long as
+that (micro)frame has not passed ((now - P) masked by speed <= interval);
+otherwise, and for every other transfer, the rule is as before. The note is
+used once, and is cleared when the endpoint is activated; a bus reset clears
+it with the rest of xfer_status. A re-arm that lands after the token of P+1
+then waits for P+3 and loses 2 packets instead of 1: measured, that share of
+the late re-arms was about 1 in 170 on Linux at 705.6 and 768 kHz.
+
+Applied by firmware/CMakeLists.txt (BPC_TUSB_PATCHES iso_out) to a copy in
+the build folder; the submodule stays at the release.
+
+diff --git a/src/portable/synopsys/dwc2/dcd_dwc2.c b/src/portable/synopsys/dwc2/dcd_dwc2.c
+--- a/src/portable/synopsys/dwc2/dcd_dwc2.c
++++ b/src/portable/synopsys/dwc2/dcd_dwc2.c
+@@ -53,6 +53,8 @@
+   uint16_t max_size;
+   uint8_t interval;
+   uint8_t iso_retry; // ISO retry counter
++  uint16_t iso_out_frame;   // ISO OUT: (micro)frame the last packet was received in
++  bool iso_out_frame_valid; // ISO OUT: iso_out_frame not yet used by a re-arm
+ } xfer_ctl_t;
+ 
+ // This variable is modified from ISR context, so it must be protected by critical section
+@@ -103,6 +105,25 @@
+   return (dep->ctl & EPCTL_EPENA) != 0;
+ }
+ 
++// DSTS.FNSOF counts microframes (14 bits) at high speed, and holds the SOF's 11-bit frame number at full speed
++TU_ATTR_ALWAYS_INLINE static inline uint32_t dsts_frame_mask(dwc2_dsts_t dsts) {
++  return (dsts.enum_speed == DCFG_SPEED_HIGH) ? 0x3FFFu : 0x7FFu;
++}
++
++// ISO OUT transfer complete: note the (micro)frame P the packet was received in, for the re-arm. The core receives an
++// isochronous OUT packet only in a (micro)frame whose parity is DOEPCTL.EONUM, and the completion is handled in P or
++// P+1, so P = fn - ((fn ^ EONUM) & 1).
++static void iso_out_note_frame(dwc2_regs_t* dwc2, uint8_t epnum) {
++  const dwc2_depctl_t depctl = {.value = dwc2->epout[epnum].doepctl};
++  if (epnum != 0 && depctl.type == DEPCTL_EPTYPE_ISOCHRONOUS) {
++    const dwc2_dsts_t dsts = {.value = dwc2->dsts};
++    const uint32_t fn = dsts.frame_number;
++    xfer_ctl_t* xfer = XFER_CTL_BASE(epnum, TUSB_DIR_OUT);
++    xfer->iso_out_frame = (uint16_t) ((fn - ((fn ^ depctl.dpid_iso_odd) & 1u)) & dsts_frame_mask(dsts));
++    xfer->iso_out_frame_valid = true;
++  }
++}
++
+   #if CFG_TUD_DWC2_SLAVE_ENABLE
+ static uint16_t epin_write_tx_fifo(dwc2_regs_t *dwc2, uint8_t epnum);
+   #endif
+@@ -285,6 +306,7 @@
+   } else {
+     xfer->interval =  p_endpoint_desc->bInterval;
+   }
++  xfer->iso_out_frame_valid = false;
+ 
+   // Endpoint control
+   dwc2_depctl_t depctl = {.value = 0};
+@@ -396,11 +418,20 @@
+   depctl.enable = 1;
+   if (depctl.type == DEPCTL_EPTYPE_ISOCHRONOUS) {
+     const dwc2_dsts_t dsts = {.value = dwc2->dsts};
+-    const uint32_t odd_now = dsts.frame_number & 1u;
+-    if (odd_now != 0) {
+-      depctl.set_data0_iso_even = 1;
+-    } else {
++    uint32_t odd_next = (dsts.frame_number + 1u) & 1u; // the (micro)frame after the current one
++    if (dir == TUSB_DIR_OUT && xfer->iso_out_frame_valid) {
++      // ISO OUT re-armed after a packet received in P: arm for P + interval while that (micro)frame has not passed.
++      // A re-arm that runs late into P+1 then still receives P+1's packet if it has not come yet, instead of
++      // waiting for P+2 and losing it.
++      xfer->iso_out_frame_valid = false;
++      if (((dsts.frame_number - xfer->iso_out_frame) & dsts_frame_mask(dsts)) <= xfer->interval) {
++        odd_next = (xfer->iso_out_frame + xfer->interval) & 1u;
++      }
++    }
++    if (odd_next != 0) {
+       depctl.set_data1_iso_odd = 1;
++    } else {
++      depctl.set_data0_iso_even = 1;
+     }
+   }
+ 
+@@ -979,6 +1010,7 @@
+         // EP0 can only handle one packet, schedule another packet to be received.
+         edpt_schedule_packets(rhport, 0, TUSB_DIR_OUT);
+       } else {
++        iso_out_note_frame(dwc2, epnum);
+         dcd_event_xfer_complete(rhport, epnum, xfer->total_len, XFER_RESULT_SUCCESS, true);
+       }
+       break;
+@@ -1054,6 +1086,7 @@
+       } else {
+         dwc2_dep_t* epout = &dwc2->epout[epnum];
+         xfer_ctl_t* xfer = XFER_CTL_BASE(epnum, TUSB_DIR_OUT);
++        iso_out_note_frame(dwc2, epnum);
+ 
+         // determine actual received bytes
+         const dwc2_ep_tsize_t tsiz = {.value = epout->tsiz};
