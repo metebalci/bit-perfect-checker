@@ -24,8 +24,9 @@ _spec = importlib.util.spec_from_file_location(
 P = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(P)
 
-VERSION = "1.1.0"
+VERSION = "1.2.0"
 COMMIT = "0123456789abcdef0123456789abcdef01234567"
+FW = "v1.2.0-0123456"
 DATE = (2026, 11, 5, 12, 34, 56)
 IMAGES = {b: bytes([i]) * (1000 + i) + b"image " + b.encode() for i, b in enumerate(P.BOARDS)}
 NOTICES = b"notices\r\n"
@@ -43,7 +44,7 @@ EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE."""
 
 
 def build_archive(images=IMAGES, version=VERSION, date=DATE, notices=NOTICES, usb=USB, paths=()):
-    return P.archive(version, COMMIT, date, images, notices, usb, paths=paths)
+    return P.archive(version, FW, COMMIT, date, images, notices, usb, paths=paths)
 
 
 class Archive(unittest.TestCase):
@@ -66,7 +67,7 @@ class Archive(unittest.TestCase):
         self.assertEqual(sums, "".join(
             f"{hashlib.sha256(IMAGES[b]).hexdigest()}  bpc-{b}-{VERSION}.bin\n"
             for b in sorted(IMAGES)))
-        self.assertEqual(z.read(f"{TOP}/README.txt"), P.readme(VERSION, COMMIT, USB))
+        self.assertEqual(z.read(f"{TOP}/README.txt"), P.readme(VERSION, FW, COMMIT, USB))
 
     def test_entries_fixed(self):
         """Every entry: the given date, stored, Unix permissions, no extras."""
@@ -108,13 +109,15 @@ class Archive(unittest.TestCase):
 
 class Readme(unittest.TestCase):
     def test_text(self):
-        data = P.readme("1.1.0-abc1234", COMMIT, USB)
+        data = P.readme("1.2.0-0123456", FW, COMMIT, USB)
         self.assertNotIn(b"\n", data.replace(b"\r\n", b""))
         text = data.decode("ascii")
         for b in P.BOARDS:
-            self.assertIn(f"bpc-{b}-1.1.0-abc1234.bin", text)
+            self.assertIn(f"bpc-{b}-1.2.0-0123456.bin", text)
+        self.assertIn(f"Built from commit {COMMIT} of\r\n", text)
+        self.assertIn("The firmware reports its version as v1.2.0-0123456.", text)
         for word in ("NUCLEO-U5A5ZJ-Q", "STM32F723E-DISCO", "STM32U5G9J-DK2", "0x08000000",
-                     "sn=<serial number>", "-w bpc-<board>-1.1.0-abc1234.bin 0x08000000",
+                     "sn=<serial number>", "-w bpc-<board>-1.2.0-0123456.bin 0x08000000",
                      "STM32_Programmer_CLI -l st-link", "NOD_U5A5ZJ", "DIS_F723IE",
                      "16C0:27E0", "bpc.metebalci.com:", COMMIT,
                      "https://github.com/metebalci/bit-perfect-checker",
@@ -125,7 +128,7 @@ class Readme(unittest.TestCase):
 
     def test_usb_id(self):
         """The USB ID and the serial number prefix the builds were made with."""
-        text = P.readme(VERSION, COMMIT, (0x1209, 0xB9C1, "example.org:")).decode("ascii")
+        text = P.readme(VERSION, FW, COMMIT, (0x1209, 0xB9C1, "example.org:")).decode("ascii")
         self.assertIn("The device uses 1209:B9C1. Its serial number starts with example.org:", text)
         self.assertNotIn("16C0", text)
         self.assertNotIn("Objective Development", text)
@@ -181,14 +184,30 @@ class UsbOptions(unittest.TestCase):
 
 class Checks(unittest.TestCase):
     def test_version(self):
-        ok = {b: "1.1.0" for b in P.BOARDS}
-        self.assertEqual(P.check_version(ok), "1.1.0")
-        self.assertEqual(P.check_version({b: "1.1.0-277b70c" for b in P.BOARDS}), "1.1.0-277b70c")
-        for bad in ("1.1.0-dirty", "1.1.0-277b70c-dirty", "1.1.0-unknown"):
+        """v<VERSION>-<hash> of the commit built, the hash at any of git's
+        lengths; -dirty, -unknown, the old forms, another commit's hash and
+        a mix stop the release."""
+        ok = {b: FW for b in P.BOARDS}
+        self.assertEqual(P.check_version(ok, COMMIT), FW)
+        longer = "v1.2.0-0123456789ab"
+        self.assertEqual(P.check_version({b: longer for b in P.BOARDS}, COMMIT), longer)
+        for bad in ("v1.2.0-0123456-dirty", "v1.2.0-unknown", "v1.2.0-dirty", "1.2.0", "1.2.0-0123456",
+                    "v1.2.0-277b70c", "v1.2.0-01234", "v1.2-0123456", f"v1.2.0-{COMMIT}0"):
             with self.subTest(bad), self.assertRaises(P.PackageError):
-                P.check_version({b: bad for b in P.BOARDS})
+                P.check_version({b: bad for b in P.BOARDS}, COMMIT)
         with self.assertRaises(P.PackageError):
-            P.check_version(dict(ok, stm32u5g9j_dk2="1.1.0-277b70c"))
+            P.check_version(dict(ok, stm32u5g9j_dk2="v1.2.0-0123456789"), COMMIT)
+
+    def test_release_version(self):
+        """The names' version: <VERSION> at the release tag, else
+        <VERSION>-<hash>; a pre-release tag or another release's tag is no
+        release tag."""
+        self.assertEqual(P.release_version(FW, ["firmware-v1.2.0"]), "1.2.0")
+        self.assertEqual(P.release_version(FW, ["firmware-v1.1.0", "firmware-v1.2.0"]), "1.2.0")
+        for tags in ([], ["firmware-v1.2.0-rc1"], ["firmware-v1.1.0"], ["bpc1-r1"]):
+            with self.subTest(tags):
+                self.assertEqual(P.release_version(FW, tags), "1.2.0-0123456")
+        self.assertEqual(P.release_version("v1.2.0-0123456789ab", []), "1.2.0-0123456789ab")
 
     def test_no_paths(self):
         P.check_no_paths(IMAGES, ["/work/x", "/src/repo"])
@@ -342,7 +361,7 @@ class Notices(unittest.TestCase):
         inputs."""
         os.makedirs(self.path("firmware/build/nucleo_u5a5zj_q"))
         with open(self.path("firmware/build/nucleo_u5a5zj_q/version.h"), "w") as f:
-            f.write('#define FW_VERSION "1.1.0"\n')
+            f.write('#define FW_VERSION "v1.2.0-0123456"\n')
         with open(self.path("firmware/build/nucleo_u5a5zj_q/fonts.c"), "w") as f:
             f.write("// COPYRIGHT \"Copyright (c) 2018-2026, Frederic Cambus\"\n")
         used = self.used()
@@ -666,7 +685,7 @@ CC = shutil.which("gcc") or shutil.which("cc")
 TOY_NINJA = """rule gen
   command = sed -e 's|^|// |' $in > $out
 rule version
-  command = printf '#define FW_VERSION "1.1.0"\\n' > $out
+  command = printf '#define FW_VERSION "v1.2.0-0123456"\\n' > $out
 rule cc
   command = {cc} -nostdinc -MD -MF $out.d -I../../include -I. -c $in -o $out
   depfile = $out.d

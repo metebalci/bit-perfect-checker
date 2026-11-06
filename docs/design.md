@@ -646,11 +646,14 @@ the firmware README.
 ### Versions
 
 Firmware releases are tagged `firmware-v<major>.<minor>.<patch>`, the first
-`firmware-v1.0.0`. The device reports the version without the prefix (`fw=1.0.0`
-at the tag), and the zip is `bit-perfect-checker-firmware-<version>.zip`. The
-build takes the version from `firmware/VERSION` and, between releases, adds
-the commit (`git describe` on tags that match `firmware-v*`); the test files'
-tags do not change it (`firmware/cmake/version.cmake`).
+`firmware-v1.0.0`. The device reports `v<version>-<commit>` with git's short
+commit hash in every build, a release's included (`fw=v1.2.0-6b94cda`), so
+that the screen and the log name the exact source; `-dirty` marks
+uncommitted changes and `-unknown` source outside git. The zip and its
+images keep the plain version: `bit-perfect-checker-firmware-<version>.zip`.
+The build takes the version from `firmware/VERSION` and stops at a firmware
+tag of another number; the test files' tags do not change it
+(`firmware/cmake/version.cmake`).
 
 ## 9. Tested hosts
 

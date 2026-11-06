@@ -12,11 +12,13 @@ empty or missing, with the firmware's submodules at their pinned commits
 upstream URLs), builds each board in BOARDS with the build's defaults, and
 writes <dist>/bit-perfect-checker-firmware-<version>.zip (default dist:
 firmware/build/release) and <dist>/SHA256SUMS, which lists every zip there.
-The version is what the device reports, from the build's version.h:
-1.1.0 at the tag firmware-v1.1.0, 1.1.0-<hash> at another commit. The
-script stops on a build warning, a version that is -dirty or -unknown, boards
-built with different USB IDs or serial number prefixes, and a file of the
-archive that holds a path of this machine.
+The version in the names is 1.2.0 at the release tag firmware-v1.2.0 and
+1.2.0-<hash> at another commit (a pre-release); the device reports
+v1.2.0-<hash> at either, from the build's version.h, and README.txt names
+both and the commit. The script stops on a build warning, a device version
+that is -dirty or -unknown or not the commit's, boards built with different
+USB IDs or serial number prefixes, and a file of the archive that holds a
+path of this machine.
 
 The archive has one top-level folder, named like the zip, with
 bpc-<board>-<version>.bin per board (the flash image for 0x08000000),
@@ -66,6 +68,9 @@ WEBSITE = "https://bpc.metebalci.com"
 NAME = "bit-perfect-checker-firmware"
 FLASH_ADDRESS = 0x08000000
 VERSION_RE = re.compile(r'^#define FW_VERSION "([^"]+)"$', re.M)
+# A clean commit's version as the device reports it (cmake/version.cmake):
+# v<VERSION>-<hash>
+FW_VERSION_RE = re.compile(r"v(\d+\.\d+\.\d+)-([0-9a-f]{7,40})")
 # The build's USB options in its CMakeCache.txt: USB_VID:STRING=0x16C0
 CACHE_RE = re.compile(r"^(USB_VID|USB_PID|USB_SERIAL_PREFIX):[A-Z]+=(.*)$", re.M)
 SHARED_USB_ID = (0x16C0, 0x27E0)            # Objective Development's shared pair
@@ -170,16 +175,29 @@ def work_of(rel):
     return ""
 
 
-def check_version(versions):
-    """The one version of all boards' builds; a -dirty, -unknown or mixed
-    version stops the release."""
+def check_version(versions, commit):
+    """The one version of all boards' builds, v<VERSION>-<hash> of `commit`;
+    a -dirty, -unknown, mixed or another commit's version stops the
+    release."""
     found = set(versions.values())
     if len(found) != 1:
         raise PackageError(f"the boards report different versions: {versions}")
     version = found.pop()
-    if not re.fullmatch(r"\d+\.\d+\.\d+(-[0-9a-f]{7,})?", version):
-        raise PackageError(f"version {version}: not a release or a clean commit's pre-release")
+    m = FW_VERSION_RE.fullmatch(version)
+    if not m:
+        raise PackageError(f"version {version}: not a clean commit's v<VERSION>-<hash>")
+    if not commit.startswith(m.group(2)):
+        raise PackageError(f"version {version}: not commit {commit}'s")
     return version
+
+
+def release_version(fw, tags):
+    """The version in the zip's and the images' names for the device's
+    version `fw` (check_version()): <VERSION> when `tags`, the commit's,
+    hold the release tag firmware-v<VERSION>, else <VERSION>-<hash>, a
+    pre-release."""
+    number, short = FW_VERSION_RE.fullmatch(fw).groups()
+    return number if f"firmware-v{number}" in tags else f"{number}-{short}"
 
 
 def usb_options(cache):
@@ -248,7 +266,7 @@ by the chip's unique ID as 24 hex digits."""
 followed by the chip's unique ID as 24 hex digits."""
 
 
-def readme(version, commit, usb, boards=BOARDS):
+def readme(version, fw, commit, usb, boards=BOARDS):
     width = max(len(bin_name(b, version)) for b in boards) + 2
     rows = "\n".join(f"{bin_name(b, version):<{width}}{name}" for b, (name, _) in boards.items())
     rows += f"\n{'NOTICES.txt':<{width}}licences and copyright notices of the code in the images"
@@ -268,6 +286,7 @@ Firmware for the Bit-Perfect Checker: a USB Audio Class 2 device that
 receives the BPC1 test signal and reports whether it arrived bit-perfect.
 Built from commit {commit} of
 {REPO_URL}
+The firmware reports its version as {fw}.
 
 
 Files
@@ -586,14 +605,15 @@ def sha256sums(files):
     return "".join(f"{hashlib.sha256(d).hexdigest()}  {n}\n" for n, d in sorted(files.items()))
 
 
-def archive(version, commit, date_time, images, notices_bytes, usb, boards=BOARDS, paths=()):
-    """(zip name, zip bytes) from `images` (board -> .bin bytes); a file of
-    it that holds one of `paths` (this machine's folders) stops the script."""
+def archive(version, fw, commit, date_time, images, notices_bytes, usb, boards=BOARDS, paths=()):
+    """(zip name, zip bytes) from `images` (board -> .bin bytes), named with
+    `version` (release_version()), the device's version `fw`; a file of it
+    that holds one of `paths` (this machine's folders) stops the script."""
     if set(images) != set(boards):
         raise PackageError(f"images for {sorted(images)}, boards {sorted(boards)}")
     bins = {bin_name(b, version): images[b] for b in boards}
     entries = dict(bins)
-    entries["README.txt"] = readme(version, commit, usb, boards)
+    entries["README.txt"] = readme(version, fw, commit, usb, boards)
     entries["NOTICES.txt"] = notices_bytes
     entries["SHA256SUMS"] = sha256sums(bins).encode("ascii")
     check_no_paths(entries, paths)
@@ -869,7 +889,9 @@ def main(argv=None):
             with open(os.path.join(bdir, f"bpc-{board}.map")) as f:
                 linked[board] = linked_members(f.read())
             print(f"{board}: {len(images[board]):,d} bytes, fw={versions[board]}")
-        version = check_version(versions)
+        fw = check_version(versions, commit)
+        version = release_version(fw, git("tag", "--points-at", commit, "--list", "firmware-v*",
+                                          cwd=src).split())
         usb = build_usb(bdirs)
         paths = sorted({work, os.path.realpath(work), os.path.abspath(a.repo),
                         os.path.realpath(a.repo), os.path.expanduser("~")})
@@ -884,8 +906,8 @@ def main(argv=None):
             sums = read_text(a.newlib_sha256) if a.newlib_sha256 else None
             upstream = newlib_upstream(routines, newlib[0], a.newlib_tag, a.newlib_source, sums)
             sections.append(newlib_section(routines, *newlib, upstream))
-        name, data = archive(version, commit, commit_date(src, commit), images, notices(version, sections),
-                             usb, paths=paths)
+        name, data = archive(version, fw, commit, commit_date(src, commit), images,
+                             notices(version, sections), usb, paths=paths)
         os.makedirs(a.dist, exist_ok=True)
         path = os.path.join(a.dist, name)
         with open(path + ".part", "wb") as f:

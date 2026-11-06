@@ -1,11 +1,12 @@
 # SPDX-License-Identifier: MIT
 # Copyright (c) 2026 Mete Balci
 """The firmware version (firmware/cmake/version.cmake) in a small git
-repository laid out like this one: <VERSION> at its tag firmware-v<VERSION>,
-<VERSION>-<commit> elsewhere, -dirty for uncommitted changes, -unknown
-outside git; other tags, pre-release tags (firmware-v1.1.0-rc1) included,
-change nothing; a firmware tag of another number stops it. Needs CMake and
-git; skipped without them."""
+repository laid out like this one: v<VERSION>-<commit> at every commit, the
+release tag firmware-v<VERSION> included, with git's short hash at its
+default length, -dirty for uncommitted changes, v<VERSION>-unknown outside
+git; other tags, pre-release tags (firmware-v1.1.0-rc1) included, change
+nothing; a firmware tag of another number stops it. Needs CMake and git;
+skipped without them."""
 
 import os
 import shutil
@@ -53,7 +54,8 @@ class Version(unittest.TestCase):
         self.git("tag", "-a", "-m", name, name)
 
     def head(self):
-        return self.git("rev-parse", "--short=7", "HEAD")
+        """HEAD's short hash at git's default length"""
+        return self.git("rev-parse", "--short", "HEAD")
 
     def version(self, src=None):
         """FW_VERSION from version.cmake, or None when it stops."""
@@ -70,36 +72,49 @@ class Version(unittest.TestCase):
         return text[len(prefix):-2]
 
     def test_no_tag(self):
-        self.assertEqual(self.version(), f"1.1.0-{self.head()}")
+        self.assertEqual(self.version(), f"v1.1.0-{self.head()}")
+        self.assertEqual(len(self.head()), 7)
 
     def test_at_tag_and_after(self):
+        """The release's tag adds nothing: its commit as any other."""
         self.tag("firmware-v1.1.0")
-        self.assertEqual(self.version(), "1.1.0")
+        self.assertEqual(self.version(), f"v1.1.0-{self.head()}")
         self.commit("second")
-        self.assertEqual(self.version(), f"1.1.0-{self.head()}")
+        self.assertEqual(self.version(), f"v1.1.0-{self.head()}")
 
     def test_dirty(self):
-        self.tag("firmware-v1.1.0")
         self.write("file.txt", "changed\n")
-        self.assertEqual(self.version(), "1.1.0-dirty")
+        self.assertEqual(self.version(), f"v1.1.0-{self.head()}-dirty")
+        self.tag("firmware-v1.1.0")
+        self.assertEqual(self.version(), f"v1.1.0-{self.head()}-dirty")
         self.commit("second")
         self.write("file.txt", "changed\n")
-        self.assertEqual(self.version(), f"1.1.0-{self.head()}-dirty")
+        self.assertEqual(self.version(), f"v1.1.0-{self.head()}-dirty")
+
+    def test_longer_hash(self):
+        """The hash at git's length when git uses more than 7 digits (here
+        set by core.abbrev, as git does by itself in a larger repository)."""
+        self.git("config", "core.abbrev", "12")
+        self.assertEqual(len(self.head()), 12)
+        self.assertEqual(self.version(), f"v1.1.0-{self.head()}")
+        self.tag("firmware-v1.1.0")
+        self.write("file.txt", "changed\n")
+        self.assertEqual(self.version(), f"v1.1.0-{self.head()}-dirty")
 
     def test_other_tags(self):
         """The test files' tag is not a firmware tag."""
         self.tag("bpc1-r1")
-        self.assertEqual(self.version(), f"1.1.0-{self.head()}")
+        self.assertEqual(self.version(), f"v1.1.0-{self.head()}")
 
     def test_pre_release_tag(self):
-        """A pre-release tag is no release: at it and after it, the commit's
-        pre-release, also with an older release tag before it."""
+        """A pre-release tag changes nothing, at it and after it, also with
+        an older release tag before it."""
         self.tag("firmware-v1.1.0-rc1")
-        self.assertEqual(self.version(), f"1.1.0-{self.head()}")
+        self.assertEqual(self.version(), f"v1.1.0-{self.head()}")
         self.commit("second")
-        self.assertEqual(self.version(), f"1.1.0-{self.head()}")
+        self.assertEqual(self.version(), f"v1.1.0-{self.head()}")
         self.tag("firmware-v1.1.0-rc2")
-        self.assertEqual(self.version(), f"1.1.0-{self.head()}")
+        self.assertEqual(self.version(), f"v1.1.0-{self.head()}")
 
     def test_pre_release_after_release(self):
         self.write("firmware/VERSION", "1.0.0\n")
@@ -108,16 +123,23 @@ class Version(unittest.TestCase):
         self.write("firmware/VERSION", "1.1.0\n")
         self.commit("1.1.0")
         self.tag("firmware-v1.1.0-rc1")
-        self.assertEqual(self.version(), f"1.1.0-{self.head()}")
+        self.assertEqual(self.version(), f"v1.1.0-{self.head()}")
 
     def test_tag_of_another_number(self):
+        """At a release tag of another number the build stops, dirty or not;
+        after it, with VERSION raised, the version is the next one's."""
         self.tag("firmware-v1.0.0")
         self.assertIsNone(self.version())
+        self.write("file.txt", "changed\n")
+        self.assertIsNone(self.version())
+        self.write("firmware/VERSION", "1.2.0\n")
+        self.commit("1.2.0")
+        self.assertEqual(self.version(), f"v1.2.0-{self.head()}")
 
     def test_outside_git(self):
         plain = os.path.join(self.tmp.name, "plain")
         shutil.copytree(os.path.join(self.repo, "firmware"), os.path.join(plain, "firmware"))
-        self.assertEqual(self.version(plain), "1.1.0-unknown")
+        self.assertEqual(self.version(plain), "v1.1.0-unknown")
 
 
 if __name__ == "__main__":

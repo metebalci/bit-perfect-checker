@@ -8,7 +8,10 @@ the version equals its BDF bitmap (Spleen's 12x24 doubled for the DK2's
 (boards/<board>/screen_layout.h): the STM32F723E-DISCO's (240x240) and the
 STM32U5G9J-DK2's (800x480: the F723's screen at twice the size on the left
 480x480, its band, frame and hourglass included, the right 320x480 black;
-and moved to x = 160, to test the area's offset). Built with the host tool
+and moved to x = 160, to test the area's offset). The version is the
+firmware's longest usual form, v<VERSION>-<hash>-dirty, and again one with
+a 40-digit hash: cut at the version line's 30 columns, every other text as
+with the short one. Built with the host tool
 firmware/app/host/screen_draw.c; needs a host C compiler and the Spleen
 submodule; skipped without them."""
 
@@ -51,6 +54,7 @@ class ScreenDrawBase:
     area = (0, 240)  # x, width
     fonts = FONTS
     cflags = layout_flags("stm32f723e_disco", 240, 240)
+    fw_version = "v1.2.0-6b94cda-dirty"  # the version's longest usual form (cmake/version.cmake)
 
     @classmethod
     def setUpClass(cls):
@@ -59,7 +63,7 @@ class ScreenDrawBase:
         args = [f"{name}={os.path.join(SPLEEN, f)}" for name, f in cls.fonts.items()]
         subprocess.run([sys.executable, "-I", FONTGEN, "--out", d] + args, check=True)
         with open(os.path.join(d, "version.h"), "w") as f:
-            f.write('#define FW_VERSION "1.1.0"\n')
+            f.write(f'#define FW_VERSION "{cls.fw_version}"\n')
         cls.exe = os.path.join(d, "screen_draw")
         cmd = [CC, "-std=c99", "-O2", "-Wall", "-Wextra", "-Werror", "-I", d] + cls.cflags
         fw = cls.fw
@@ -126,7 +130,7 @@ class ScreenDrawBase:
         self.assertEqual(self.pixels(frame, "full-speed"), ["ff0000"] * len(frame))
         vfont, vy = self.version
         self.assertEqual(set("".join(self.drawn(ax, h, aw, vy - h, "full-speed"))), {"0"})
-        self.check_text(vfont, "1.1.0", 30, vy, "full-speed")
+        self.check_version("full-speed")
 
     def check_full_speed_back(self):
         """From Full-Speed back to High-Speed, also after High-Speed before it:
@@ -138,6 +142,27 @@ class ScreenDrawBase:
         self.assertEqual(hashes[1], hashes[0])
         self.assertEqual(hashes[2], hashes[0])
         self.assertNotEqual(hashes[3], hashes[0])
+
+    def check_version(self, *args):
+        """The version in its font, centred in 30 columns and cut at the
+        30th; nothing else lit on its line or below it in the area."""
+        font, y = self.version
+        text = self.fw_version[:30]
+        self.check_text(font, text, 30, y, *args)
+        height = int(font.split("x")[1])
+        lit = sum("".join(self.expected(font, c)).count("1") for c in text)
+        x, w = self.area
+        below = self.drawn(x, y, w, self.panel[1] - y, *args)
+        self.assertEqual("".join(below).count("1"), lit)
+        self.assertEqual(set("".join(below[height:])), {"0"})
+
+    def test_version_fits(self):
+        """The longest usual version of firmware/VERSION, with git's usual
+        7-digit hash, fits the line's 30 columns, which fit the area."""
+        with open(os.path.join(FW, "VERSION")) as f:
+            longest = f"v{f.read().strip()}-{'0' * 7}-dirty"
+        self.assertLessEqual(len(longest), 30, longest)
+        self.assertLessEqual(30 * int(self.version[0].split("x")[0]), self.area[1])
 
     def check_text(self, font, text, cols, y, *args):
         """text centred in cols columns centred in the area at y (full-width
@@ -163,7 +188,7 @@ class ScreenDraw(ScreenDrawBase, unittest.TestCase):
         self.check_text("16x32", "BIT-PERFECT", 11, 40, "splash")
         self.check_text("16x32", "CHECKER", 7, 76, "splash")
         self.check_text("12x24", "bpc.metebalci.com", 17, 124, "splash")
-        self.check_text("8x16", "1.1.0", 30, 220, "splash")
+        self.check_version("splash")
         out = self.pixels([(40 + 64 * i + 16, 180) for i in range(3)], "splash")
         self.assertEqual(out, ["ff0000", "00ff00", "0000ff"])
 
@@ -177,13 +202,13 @@ class ScreenDraw(ScreenDrawBase, unittest.TestCase):
         self.check_text("16x32", "24/48", 15, 164)
 
     def test_version_8x16(self):
-        self.check_text("8x16", "1.1.0", 30, 220)
+        self.check_version()
 
     def test_file_lines_old_run(self):
         """The last result from the run before: no file lines (the version
         stays)."""
         self.assertEqual(set("".join(self.drawn(0, 126, 240, 70, "old-run"))), {"0"})
-        self.check_text("8x16", "1.1.0", 30, 220, "old-run")
+        self.check_version("old-run")
 
     def test_full_speed(self):
         self.check_full_speed()
@@ -232,7 +257,7 @@ class ScreenDrawDK2(ScreenDrawBase, unittest.TestCase):
         self.check_text("32x64", "BIT-PERFECT", 11, 80, "splash")
         self.check_text("32x64", "CHECKER", 7, 148, "splash")
         self.check_text("24x48", "bpc.metebalci.com", 17, 248, "splash")
-        self.check_text("16x32", "1.1.0", 30, 440, "splash")
+        self.check_version("splash")
         out = self.pixels([(self.area[0] + 80 + 128 * i + 32, 360) for i in range(3)], "splash")
         self.assertEqual(out, ["ff0000", "00ff00", "0000ff"])
         self.outside_black("splash")
@@ -247,13 +272,14 @@ class ScreenDrawDK2(ScreenDrawBase, unittest.TestCase):
         self.check_text("32x64", "24/48", 15, 328)
 
     def test_version_16x32(self):
-        self.check_text("16x32", "1.1.0", 30, 440)
+        self.check_version()
+        self.outside_black()
 
     def test_file_lines_old_run(self):
         """The last result from the run before: no file lines (the version
         stays)."""
         self.assertEqual(set("".join(self.drawn(self.area[0], 252, 480, 140, "old-run"))), {"0"})
-        self.check_text("16x32", "1.1.0", 30, 440, "old-run")
+        self.check_version("old-run")
 
     def test_band(self):
         """WAITING in 32x64 with the hourglass (lit) at twice its size right
@@ -305,6 +331,21 @@ class ScreenDrawDK2Moved(ScreenDrawDK2):
     same checks, so that a broken area offset shows."""
     area = (160, 480)
     cflags = ScreenDrawDK2.cflags + ["-DDRAW_AREA_X=160u"]
+
+
+LONG_VERSION = f"v1.2.0-{'0123456789abcdef' * 2}01234567-dirty"  # a 40-digit hash
+
+
+@unittest.skipUnless(CC and os.path.exists(os.path.join(SPLEEN, FONTS["12x24"])), "no C compiler or no Spleen")
+class ScreenDrawLongVersion(ScreenDraw):
+    """The F723's checks with a version longer than its line."""
+    fw_version = LONG_VERSION
+
+
+@unittest.skipUnless(CC and os.path.exists(os.path.join(SPLEEN, DK2_FONTS["32x64"])), "no C compiler or no Spleen")
+class ScreenDrawDK2LongVersion(ScreenDrawDK2):
+    """The DK2's checks with a version longer than its line."""
+    fw_version = LONG_VERSION
 
 
 if __name__ == "__main__":

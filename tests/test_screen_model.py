@@ -18,6 +18,8 @@ FW = os.path.join(ROOT, "firmware")
 CC = shutil.which("gcc") or shutil.which("cc")
 SOURCES = ["app/host/screen_tool.c", "app/screen_model.c", "app/leds.c", "bpc1/bpc1_checker.c", "bpc1/bpc1.c"]
 COLS = 30
+# The firmware version's longest usual form (cmake/version.cmake)
+VERSION = "v1.2.0-6b94cda-dirty"
 
 # bpc1_verdict_t and bpc1_end_t
 UNKNOWN_SIGNAL, BIT_PERFECT, NOT_BIT_PERFECT, OVERRUN = range(4)
@@ -111,7 +113,7 @@ class ScreenModel(unittest.TestCase):
         return subprocess.run([self.exe], input="\n".join(lines) + "\n", capture_output=True, text=True,
                               check=True).stdout.splitlines()
 
-    def screens(self, statuses, fw="1.1.0"):
+    def screens(self, statuses, fw=VERSION):
         """[(band, rows, leds)] for each status, a dict of status fields."""
         q = []
         for st in statuses:
@@ -251,9 +253,10 @@ class ScreenModel(unittest.TestCase):
         for (st, want), (band, _, _) in zip(cases, self.screens(statuses)):
             with self.subTest(**st):
                 self.assertEqual(band["file"], [centre(w, 15) for w in want])
-                self.assertEqual(band["fw"], centre("1.1.0", 30))
-        band, _, _ = self.screens([{"usb": 1}], fw="1.1.0-abcdef0-dirty-and-more-text-to-cut")[0]
-        self.assertEqual(band["fw"], "1.1.0-abcdef0-dirty-and-more-t")
+                self.assertEqual(band["fw"], centre(VERSION, 30))
+        # A longer hash, should git ever use one: cut at the 30th column
+        band, _, _ = self.screens([{"usb": 1}], fw=f"v1.2.0-{'0123456789abcdef' * 2}-dirty")[0]
+        self.assertEqual(band["fw"], "v1.2.0-0123456789abcdef0123456")
 
     def test_rows_44k1_and_705k6(self):
         _, rows, _ = self.screen(usb=1, hs=1, streaming=1, id=12, rate=44100, alt=1, slot=2, res=16, bits=16)
@@ -296,10 +299,14 @@ class ScreenModel(unittest.TestCase):
     def test_settings_without_an_alt_setting(self):
         _, rows, _ = self.screen(usb=0, allow_silence=1, rate=48000)
         self.assertEqual(rows[0], "usb not connected".rjust(COLS))
-        self.assertEqual(rows[1], "allow_silence true".ljust(25) + "1.1.0")
+        # The version does not fit beside the setting: cut at the 30th column
+        self.assertEqual(rows[1], "allow_silence true v1.2.0-6b94")
         _, rows, _ = self.screen(usb=2, hs=1)
         self.assertEqual(rows[0], "usb suspended".rjust(COLS))
-        self.assertEqual(rows[1], "allow_silence false".ljust(25) + "1.1.0")
+        self.assertEqual(rows[1], "allow_silence false v1.2.0-6b9")
+        # A shorter right-hand part than the version's is right-aligned
+        _, rows, _ = self.screens([{"usb": 1, "hs": 1}], fw="1.2.0")[0]
+        self.assertEqual(rows[1], "allow_silence false".ljust(25) + "1.2.0")
         _, rows, _ = self.screen(usb=1, hs=0)
         self.assertEqual(rows[0], "usb full".rjust(COLS))
 
@@ -344,9 +351,9 @@ class ScreenModel(unittest.TestCase):
         self.assertEqual(rows[4], "NOT BIT-PERFECT     4294967295")
         self.assertEqual(rows[7], "last OVERRUN end STOP".ljust(COLS))
         self.assertEqual(rows[8], "lost -2147483648  ovf 42949672")
-        # A long version: cut at the 30th column
-        _, rows, _ = self.screens([{"usb": 1, "hs": 1}], fw="1.1.0-abcdef0-dirty")[0]
-        self.assertEqual(rows[1], "allow_silence false 1.1.0-abcd")
+        # The shortest version form: cut at the 30th column
+        _, rows, _ = self.screens([{"usb": 1, "hs": 1}], fw="v1.2.0-unknown")[0]
+        self.assertEqual(rows[1], "allow_silence false v1.2.0-unk")
 
 
 if __name__ == "__main__":

@@ -247,7 +247,8 @@ red do ([LEDs](#leds)). White text on black, in Spleen's fonts:
   onto; otherwise the last result's file while it belongs to the current run.
   A new run clears them.
 - **Version:** at the bottom, the firmware version as `fw=` shows it
-  ([Release](#release)), without the label.
+  ([Release](#release)), without the label, in at most 30 columns (a longer
+  one is cut).
 - **Splash:** for about 2 s after start-up, `BIT-PERFECT`, `CHECKER`, the
   project's web address, the version, and three squares, red, green and blue,
   that light in the order and timing of the boot LED test and stay lit; then
@@ -376,16 +377,19 @@ USB drive writes at the flash's start.
 ## Release
 
 Each firmware release, from 1.1.0 on, publishes
-`bit-perfect-checker-firmware-<version>.zip`. The zip holds, in one
+`bit-perfect-checker-firmware-<version>.zip`, with the plain version, such
+as `1.2.0`. The zip holds, in one
 folder of its name, `bpc-<board>-<version>.bin` for every board (the flash
-image for 0x08000000), a `README.txt` on flashing and the USB ID, a
+image for 0x08000000), a `README.txt` on flashing, the USB ID, the commit
+and the version the firmware reports, a
 `NOTICES.txt` with the licences and copyright notices of everything in the
 images, and a `SHA256SUMS` of the `.bin` files.
 
 [`tools/package.py`](tools/package.py) writes it. It clones the repository
 at a commit or tag into a scratch folder, with the firmware's submodules at
 their pinned commits, builds every board with the build's defaults, and
-stops on a build warning, on a `-dirty` or `-unknown` version, on boards
+stops on a build warning, on a `-dirty` or `-unknown` version or one that
+is not the commit's, on boards
 built with different USB IDs or serial number prefixes, on a file of the zip
 that holds a path of the machine it ran on, and on a file in a build folder
 that has copyright lines. README.txt's paragraph on the USB ID comes from the
@@ -416,21 +420,23 @@ python3 -I firmware/tools/package.py --rev firmware-v1.1.0 --work <empty folder>
 
 The zip and a `SHA256SUMS` of the zips go to `firmware/build/release`
 (`--dist` sets another folder); `--ninja` names the `ninja` to build with.
+At the release tag the names carry the plain version; from any other
+commit they carry `<version>-<hash>`, a pre-release.
 The zip's entries are sorted and carry the commit's date, so a re-run from
 the same commit with the same toolchain gives the same bytes.
 
 Firmware releases are tagged `firmware-v<major>.<minor>.<patch>`, the first
 `firmware-v1.0.0`. `firmware/VERSION` holds the version being developed (now
-`1.1.0`), and the device reports its version as `fw=` in its `boot` and
-`version` lines and on a display: `1.1.0` at the tag `firmware-v1.1.0`,
-`1.1.0-abc1234` at any other commit (a pre-release of 1.1.0, with the commit
-hash), each with `-dirty` when the tree has uncommitted changes, and
-`1.1.0-unknown` for source outside git. At a firmware tag whose number is not
-the one in `firmware/VERSION`, the configure stops. Other tags, such as the
-test files', and pre-release tags `firmware-v<version>-<suffix>` do not
-change the version: a build at a pre-release tag reports `<version>-<hash>`. Right after tagging a release, raise
-`firmware/VERSION` to the next version; until then every later commit
-reports itself as a pre-release of the version just released.
+`1.2.0`), and the device reports its version as `fw=` in its `boot` and
+`version` lines and on a display as `v<version>-<commit>`, with git's short
+commit hash: `v1.2.0-6b94cda`, at the release tag and at any other commit
+alike, with `-dirty` when the tree has uncommitted changes, and
+`v1.2.0-unknown` for source outside git. At a firmware tag whose number is
+not the one in `firmware/VERSION`, the configure stops. Other tags, such as
+the test files', and pre-release tags `firmware-v<version>-<suffix>` change
+nothing. Right after tagging a release, raise `firmware/VERSION` to the next
+version; until then every later commit reports the version just released,
+with its own hash.
 
 ## Serial log and commands
 
