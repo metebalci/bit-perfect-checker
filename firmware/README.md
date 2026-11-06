@@ -18,7 +18,7 @@ are the NUCLEO-U5A5ZJ-Q, the STM32F723E-DISCO and the STM32U5G9J-DK2
 | `bpc1-generator/` | the BPC1 generator, a USB host that is to play the BPC1 test signal to a checker: its own CMake project on the same boards and families ([its README](bpc1-generator/README.md)) |
 | `cmake/` | the toolchain file, the version stamp, the flash target, and `common.cmake`, which the checker and the BPC1 generator share |
 | `tools/` | `fontgen.py`, which turns [Spleen](https://github.com/fcambus/spleen) bitmap fonts into C arrays at build time, and `package.py`, which builds the release zip ([Release](#release)) |
-| `lib/` | pinned submodules: [TinyUSB](https://github.com/hathach/tinyusb) 0.21.0, ST's CMSIS device files ([STM32U5](https://github.com/STMicroelectronics/cmsis_device_u5), [STM32F7](https://github.com/STMicroelectronics/cmsis_device_f7)) and HAL ([STM32U5](https://github.com/STMicroelectronics/stm32u5xx_hal_driver), [STM32F7](https://github.com/STMicroelectronics/stm32f7xx_hal_driver)), Arm's [CMSIS 5](https://github.com/ARM-software/CMSIS_5) core headers, at the commits TinyUSB 0.21.0 tests with, and Spleen 2.2.0 for the screens' fonts; `patches/` holds our fix to TinyUSB ([below](#tinyusb-patch)) |
+| `lib/` | pinned submodules: [TinyUSB](https://github.com/hathach/tinyusb) 0.21.0, ST's CMSIS device files ([STM32U5](https://github.com/STMicroelectronics/cmsis_device_u5), [STM32F7](https://github.com/STMicroelectronics/cmsis_device_f7)) and HAL ([STM32U5](https://github.com/STMicroelectronics/stm32u5xx_hal_driver), [STM32F7](https://github.com/STMicroelectronics/stm32f7xx_hal_driver)), Arm's [CMSIS 5](https://github.com/ARM-software/CMSIS_5) core headers, at the commits TinyUSB 0.21.0 tests with, and Spleen 2.2.0 for the screens' fonts; `patches/` holds the local patches to TinyUSB ([below](#tinyusb-patches)) |
 
 | Board | Family | Display |
 |---|---|---|
@@ -69,20 +69,18 @@ file arrived bit-perfect: a file that did not is `NOT_BIT_PERFECT`, and audio th
 
 The device takes every rate up to 768 kHz. Whether every USB packet reaches
 it depends on the host. An iPad lost no packet at any rate, 768 kHz included,
-so the iPad is the reference test for the highest rates. On one Linux host's
-xHCI controller a few packets went missing. Up to 192 kHz no packet was lost
-in any stream; at 352.8 and 384 kHz a stream lost a few packets now and then;
-at 705.6 and 768 kHz streams lost a few packets each with 3- and 4-byte slots
-(about one in 3 800 to 17 000, in holes of one or two microframes) and
-sometimes with 2-byte slots too.
-
-The USB controller runs in DMA mode. Its isochronous OUT endpoint holds one
-transfer at a time and is re-armed after each packet, so **a host that sends
-a packet late in one microframe and the next early in the following one can
-make the device miss a packet.** A miss shows as `lost`, so it is told apart
-from an altered sample. A miss in a file's body makes the file
-`NOT_BIT_PERFECT`; a miss in its lead-in or tail is counted in `lost` but does
-not change the verdict ([12.6](../docs/bpc1.md#126-verdicts)).
+so the iPad is the reference test for the highest rates. On one Linux host, a
+virtual machine with a USB 3 card passed through to it, a few packets went
+missing. Up to 192 kHz no packet was lost in any stream; at 352.8 and 384 kHz
+a stream lost a few packets now and then; at 705.6 and 768 kHz streams lost a
+few packets each with 3- and 4-byte slots (about one in 3 800 to 17 000, in
+holes of one or two microframes) and sometimes with 2-byte slots too. Most
+of them were packets the host's controller skipped, two in a row; the
+few the device missed are gone with the re-arm patch
+([below](#tinyusb-patches)). A lost packet shows as `lost`, so it is told
+apart from an altered sample. A loss in a file's body makes the file
+`NOT_BIT_PERFECT`; a loss in its lead-in or tail is counted in `lost` but
+does not change the verdict ([12.6](../docs/bpc1.md#126-verdicts)).
 
 Seen on Linux (snd-usb-audio, raw `hw:` playback): 16-bit files use alt 1,
 24-bit files alt 4 (`S24_3LE`), and 32-bit files alt 2. Alt 2 and 3 are both
@@ -91,19 +89,68 @@ selects alt 3; all 32 bits still arrive. A Linux stream carries 17 to
 20 ms more than the file, inside the file's extent (see
 [measurements](../docs/measurements.md#27-frames-beyond-the-file)).
 
-### TinyUSB patch
+### TinyUSB patches
 
-The submodule stays at TinyUSB 0.21.0, unmodified. The build applies
-[`lib/patches/tinyusb-audio-out-zlp.patch`](lib/patches/tinyusb-audio-out-zlp.patch)
-to a copy of `src/class/audio/audio_device.c` in the build folder and
-compiles that copy instead; a patch that no longer applies exactly fails the
-build. The fix: with the DWC2 controller in DMA mode the audio driver copies
-each received packet into its FIFO, and on a zero-length packet it returned
-before re-arming the endpoint, so the device received nothing more until the
-host selected an alt setting again. USB Audio Data Formats 2.0 (2.1 and
-2.3.1.5) lets a host send a zero-length packet in place of any packet, and
-the device must handle it. With the patch, a zero-length packet re-arms the
-endpoint and counts like a microframe without a packet (`lost`).
+The submodule stays at TinyUSB 0.21.0, unmodified. The build applies the
+patches in `lib/patches/` to copies of the files in the build folder and
+compiles those copies instead; a patch that no longer applies exactly fails
+the build. `-DBPC_TUSB_PATCHES=<list>` chooses them: `zlp`, `iso_out`, both
+(`zlp;iso_out`, the default, which firmware 1.1.0 is built with), or `none`.
+
+- **`zlp`**,
+  [`tinyusb-audio-out-zlp.patch`](lib/patches/tinyusb-audio-out-zlp.patch),
+  on `src/class/audio/audio_device.c`. With the DWC2 controller in DMA mode
+  the audio driver copies each received packet into its FIFO, and on a
+  zero-length packet it returned before re-arming the endpoint, so the
+  device received nothing more until the host selected an alt setting
+  again. USB Audio Data Formats 2.0 (2.1 and 2.3.1.5) lets a host send a
+  zero-length packet in place of any packet, and the device must handle it.
+  With the patch, a zero-length packet re-arms the endpoint and counts like
+  a microframe without a packet (`lost`). Tested on all three boards with a
+  test player that sends three zero-length packets inside a 48 kHz 16-bit
+  file: without the patch the stream stopped at the first one
+  (`NOT_BIT_PERFECT end=STOP diff=5.000`, then `stream stop reason=idle`);
+  with it the file was `BIT_PERFECT` with `lost=3`. The Linux hosts measured
+  never sent a zero-length packet. TinyUSB has merged the fix
+  ([pull request 4443](https://github.com/hathach/tinyusb/pull/4443),
+  commit `8692556e335a` on master); the local patch goes once a TinyUSB
+  release contains it.
+- **`iso_out`**,
+  [`tinyusb-dwc2-iso-out-next.patch`](lib/patches/tinyusb-dwc2-iso-out-next.patch),
+  on `src/portable/synopsys/dwc2/dcd_dwc2.c`. The endpoint holds one
+  transfer at a time and is re-armed from the interrupt of each packet. The
+  controller receives an isochronous OUT packet only in a microframe whose
+  parity is the endpoint's EONUM bit, and TinyUSB 0.21.0 sets that bit from
+  the microframe at the time of the re-arm. So when a packet completes late
+  in its microframe P and the re-arm runs into P+1, the endpoint waits for
+  P+2, and the packet the host sends in P+1 is lost although its token has
+  not come yet. With the patch, the driver notes P at each completion and
+  re-arms for P+1 as long as P+1 has not passed; otherwise the rule is as
+  before. The cost: a re-arm that lands after the host's packet of P+1 now
+  waits for P+3 and loses 2 packets instead of 1. Measured, 169 of 170 late
+  re-arms on real traffic received the next packet. The patch is submitted
+  to TinyUSB as
+  [pull request 4444](https://github.com/hathach/tinyusb/pull/4444), under
+  review.
+
+What the `iso_out` patch gains depends on the host. The late completions
+came from one host setup: Linux in a virtual machine with a Renesas
+uPD720201 USB 3 card passed through to it, the board behind a hub. There,
+without the patch, the device missed 66, 17 and 15 packets the host had sent
+(NUCLEO-U5A5ZJ-Q, STM32U5G9J-DK2 and STM32F723E-DISCO, in 40, 20 and 60
+streams at 705.6 and 768 kHz); with it, none, and every lost packet was one
+the host skipped. On a bare-metal Linux laptop with an Intel controller the
+NUCLEO-U5A5ZJ-Q, with the same test build as on the first host and without
+the patch, never had a late completion (the latest came 50 us into the
+microframe) and lost nothing in 15 streams, and an iPad never lost a packet.
+Windows and macOS were not measured for this. On a host that never
+completes a packet late, the patch arms exactly what the unpatched driver
+arms. It adds about 5 % to the USB interrupt's longest run
+([measurements](../docs/measurements.md#210-late-completions-and-the-re-arm-patch)).
+
+`-DBPC_TEST_INJECT=ON`, for test builds only and never in a release, adds
+the console command `inject <every> <us>|off`, which re-arms every Nth
+packet late on purpose ([`app/inject.h`](app/inject.h)).
 
 ## Boards
 
@@ -275,7 +322,7 @@ The setting in effect is on the `boot` line, the `status` answer and every
 ## Build
 
 Needs `arm-none-eabi-gcc` with newlib, CMake 3.21 or later, Ninja and
-`patch` ([TinyUSB patch](#tinyusb-patch)). A board with a display also needs
+`patch` ([TinyUSB patches](#tinyusb-patches)). A board with a display also needs
 Python 3, which converts the fonts at build time. From the repository root:
 
 ```
@@ -472,7 +519,7 @@ and 0 in the file's fields. The fields:
 | `bits` | the bits in use of the received words over the file's body, for PCM and DoP alike (DoP in 3- or 4-byte slots: 24 when the padding below it is zero) |
 | `end` | how the file ended: `LAST` (its block flagged last arrived), `NEXT` (another file followed), `BACK` (the block index went back), `STOP` (the stream stopped first) |
 | `diff` | the position in the file of the first body unit that did not arrive as expected, in seconds from the file's start as generated, 3 decimals, rounded half up (PCM: frame index / rate; DSD: byte index x 8 / DSD rate): the earliest of the body's first unit, when the rate or channel count is wrong or the first body block's X-sync or the lead-in X-sync before it is missing; the first body unit that differs or did not arrive (in the R-header chips of r5 and r6, as the R-header rule of [12.6](../docs/bpc1.md#126-verdicts) places it); and the first unit after the body, when the X-sync after the body is missing. Where a limit X-sync is broken or cut off, the body runs from after the last lead-in X-sync received to the first tail X-sync received. `-` for `BIT_PERFECT`, `UNKNOWN_SIGNAL` and `OVERRUN` (12.6) |
-| `lost`, `ovf` | packets lost and receive FIFO overflows that fall in the result's frames, by their place in the stream: a lost packet counts in the result of the first frame after it (a doubled microframe takes back the hole before it), an overflow in the result of the frame where the checker learns of it, normally the one it marks `OVERRUN`. Those between two results count in the later one; the stream's last result line also takes those after every result and those in frames not read before the stream stopped. A stream's result lines add up to its `stream stop` line's `lost` and `ovf`, except with `allow_silence` `true` when the stream ends in allowed silence after its last result: the losses there are on no result line, only on the `stream stop` line. The verdict follows the frames, not these counts |
+| `lost`, `ovf` | packets lost and receive FIFO overflows that fall in the result's frames, by their place in the stream: a lost packet counts in the result of the first frame after it, an overflow in the result of the frame where the checker learns of it, normally the one it marks `OVERRUN`. Those between two results count in the later one; the stream's last result line also takes those after every result and those in frames not read before the stream stopped. A stream's result lines add up to its `stream stop` line's `lost` and `ovf`, except with `allow_silence` `true` when the stream ends in allowed silence after its last result: the losses there are on no result line, only on the `stream stop` line. The verdict follows the frames, not these counts |
 | `dur` | a received duration, unlike `diff`, which is a position in the file: the file's received frames, from its first X-sync to its end, at most to the end of its extent ([12.6](../docs/bpc1.md#126-verdicts)), divided by `rate`; seconds, 3 decimals |
 
 The limits of `lost`, `ovf` and the frames checked:
@@ -483,11 +530,11 @@ The limits of `lost`, `ovf` and the frames checked:
   up (as by `stall`) or more than 1024 in files not yet finished, do later
   events merge into the newest one of their stream, so that their counts
   can land on the result line of an earlier file.
-- A doubled microframe takes back the hole before it: the USB interrupt
-  keeps a hole until its microframe has passed, so the two always meet. A
-  stream whose first packet is read in the next microframe has no hole
-  before the doubled microframe that follows, which then shows as
-  `lost=-1`, on the stream's first result line and its `stream stop` line.
+- Each packet is counted in the microframe it came in ([Load
+  figures](#load-figures)), so a packet that completes late leaves no hole.
+  When the USB interrupt enters two or more microframes after a packet, its
+  re-arm is late too and packets were lost there anyway: the count stays
+  right, and that hole is placed one packet early.
 - When the host selects another alt setting, alt 0 included, TinyUSB clears
   the receive FIFO before the firmware hears of it
   (`lib/tinyusb/src/class/audio/audio_device.c:1123`), so the frames still
@@ -547,9 +594,15 @@ the most significant bit of the slot down to the lowest bit set in any
 sample: 16-bit content in a 4-byte slot shows `bits=16`.
 
 `lost` is `missed - doubled`. `missed` counts microframes that passed without
-a packet; `doubled` counts packets read back in the same microframe as the
-one before. If a packet's completion is ever read in the following
-microframe, it adds one to each, and the net stays right.
+a packet. Each packet is counted in its own microframe P: the controller
+receives an isochronous OUT packet only in a microframe whose parity is the
+endpoint's EONUM bit, and the interrupt that serves the packet enters in P
+or P+1, so the microframe number and EONUM read at the interrupt's entry
+give P. `doubled` counts packets counted in the same microframe as the one
+before, which cannot happen this way: it is 0, and `lost` equals `missed`.
+The field stays in the log line. (Builds before 1.1.0 read the microframe
+after the re-arm, so a late completion showed as a one-microframe hole plus
+a doubled packet; the net stayed right.)
 
 ### Commands to the device
 

@@ -361,9 +361,11 @@ show:
 - **iPadOS.** The iPad joins files of the same rate into one stream and sends
   about 0.2 s of zeros before each file.
 - **Packet placement.** Where a host places isochronous packets inside the
-  microframe differs between hosts, and at the highest rates it decides
-  whether a device with a single re-armed OUT transfer misses a packet (section
-  8; the measurements are in [measurements.md](measurements.md#22-lost-packets-at-7056-and-768-khz)).
+  microframe differs between hosts. A packet that completes late in its
+  microframe makes a device with a single re-armed OUT transfer miss the
+  next one unless the re-arm targets the microframe after the packet
+  (section 8, TinyUSB; the measurements are in
+  [measurements.md](measurements.md#210-late-completions-and-the-re-arm-patch)).
 
 ## 7. Hardware
 
@@ -517,23 +519,53 @@ The firmware uses TinyUSB, not ST's own USB middleware.
 
 ### TinyUSB
 
-The submodule stays at release 0.21.0. The build applies one local patch,
-`firmware/lib/patches/tinyusb-audio-out-zlp.patch`, to a copy of
-`src/class/audio/audio_device.c` in the build folder. The submodule is not
-modified, and a patch that no longer applies fails the build.
+The submodule stays at release 0.21.0. The build applies two local patches
+from `firmware/lib/patches/` to copies of the files in the build folder. The
+submodule is not modified, and a patch that no longer applies fails the
+build. The build option `BPC_TUSB_PATCHES` selects them; the default, and
+the release, has both.
 
-The patch re-arms the audio driver's OUT endpoint after a zero-length
-packet. USB Audio Data Formats 2.0 allows a zero-length packet in place of any
-packet. In DMA mode the driver returned before re-arming, and the device
-received nothing more until the host selected an alt setting again.
+- **Zero-length packets** (`tinyusb-audio-out-zlp.patch`, the audio
+  driver). USB Audio Data Formats 2.0 allows a zero-length packet in place
+  of any packet. In DMA mode the driver returned before re-arming the OUT
+  endpoint, and the device received nothing more until the host selected an
+  alt setting again. With the patch the endpoint is re-armed, and the
+  zero-length packet counts as a microframe without a packet. TinyUSB has
+  merged the same fix upstream; the local patch goes once a TinyUSB release
+  contains it.
+- **Re-arm for the next microframe** (`tinyusb-dwc2-iso-out-next.patch`,
+  the DWC2 driver). The isochronous OUT endpoint holds one transfer at a
+  time and is re-armed from the interrupt of each packet. The controller
+  receives a packet only in a microframe whose parity the re-arm sets, and
+  the unpatched driver takes that parity from the microframe at the time of
+  the re-arm. A packet that completes late in its microframe P then has its
+  re-arm run into P+1, the endpoint waits for P+2, and the host's packet in
+  P+1 is lost although its token has not come yet. The patch notes P at the
+  completion and re-arms for P+1 while P+1 has not passed. A re-arm that
+  lands after the host's packet of P+1 then loses 2 packets instead of 1;
+  measured, almost every late re-arm lands before it. The patch is
+  submitted upstream.
 
-The device takes every rate up to 768 kHz, but whether every packet reaches it
-depends on the host (section 9). The USB controller runs in DMA mode. Its
-isochronous OUT endpoint holds one transfer at a time and is re-armed after
-each packet, so a host that sends a packet late in one microframe and the next
-early in the following one can make the device miss a packet. This is a limit
-of the host and the controller together, and TinyUSB is otherwise unmodified
-(firmware README, "What it does").
+What the re-arm patch gains depends on the host. Of the hosts measured,
+late completions came from one host path only, a virtual machine with a
+USB 3 card passed through and the board behind a hub; there the patch
+removes the device's own misses, so every lost packet is one the host
+skipped. On a host that never completes a packet late, such as the
+bare-metal Linux laptop measured, it arms exactly what the unpatched driver
+arms; an iPad lost no packet without it. It adds about 5 % to the USB
+interrupt's longest run. The highest is on the STM32F723E-DISCO at 705.6 kHz with 24-bit
+samples in 3-byte slots: 2,219 cycles, 10.3 us, within the 11 us (2,376
+cycles at 216 MHz) budgeted for that board's interrupt.
+
+Handling the controller's "incomplete isochronous OUT" interrupt as well is
+not used: that interrupt comes at 80 % of the microframe, so re-arming from
+it lost the packets that arrive later in the microframe, and the device
+missed more packets, not fewer.
+
+The hole counter counts each packet in its own microframe, from the
+microframe number and the endpoint's EONUM bit read when the USB interrupt
+enters: the interrupt that serves a packet enters in its microframe or the
+next. A late completion therefore leaves no hole.
 
 The receive FIFO between the USB interrupt and the main loop holds 32,760
 bytes, 5.3 ms at 768 kHz in 4-byte slots; TinyUSB's FIFO is limited to 32 KB.
@@ -597,21 +629,25 @@ tags do not change it (`firmware/cmake/version.cmake`).
 
 ## 9. Tested hosts
 
-The project tests with a Linux PC (snd-usb-audio, raw `hw:` playback) and an
+The project tests with Linux (snd-usb-audio, raw `hw:` playback) and an
 iPad. macOS, Windows and Android are not tested.
 
-- **Linux.** Up to 192 kHz no packet was lost in any stream on the host
-  tested; at 352.8 and 384 kHz a stream lost a few packets now and then. At
-  705.6 and 768 kHz streams lost a few packets each with 3- and 4-byte slots,
-  about one in 3,800 to 17,000, in holes of one or two microframes, and
-  sometimes with 2-byte slots too.
+- **Linux, a virtual machine with a USB 3 card passed through.** Up to
+  192 kHz no packet was lost in any stream; at 352.8 and 384 kHz a stream
+  lost a few packets now and then. At 705.6 and 768 kHz streams lost a few
+  packets each with 3- and 4-byte slots, about one in 3,800 to 17,000, in
+  holes of one or two microframes, and sometimes with 2-byte slots too. With
+  firmware 1.1.0 every lost packet was one the host's controller skipped.
+- **Linux, a bare-metal laptop with an Intel controller.** No packet was lost
+  in 15 streams at 705.6 and 768 kHz.
 - **iPad.** No packet was lost at any rate, 768 kHz included. The iPad is
   therefore the reference test for the highest rates; whether every packet
   reaches the device depends on the host.
-- Two behaviours are checked against the code and the specification only:
-  zero-length audio packets, which the tested hosts never send, and a rate
-  change while a stream stays open, which the tested hosts avoid by closing the
-  stream (alt setting 0) first. The firmware ends such a stream with
+- Two behaviours the tested hosts never show are tested with a test player
+  that drives the device through libusb: zero-length audio packets, and a
+  rate change while a stream stays open (the tested hosts close the stream,
+  alt setting 0, first). The firmware counts a zero-length packet as a
+  microframe without a packet, and ends a stream whose rate changes with
   `reason=rate` and starts a new one at the new rate.
 
 The figures behind these results, with the firmware stage of each, and the

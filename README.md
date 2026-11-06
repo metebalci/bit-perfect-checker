@@ -34,8 +34,9 @@ packet the device missed fails a file the host sent intact.
 
 The device takes every rate up to 768 kHz. Whether every USB packet reaches it
 depends on the host: an iPad delivered every rate without losing a packet,
-while a Linux PC lost a few at the highest rates. A missed packet shows as
-`lost` in the result, so it is told apart from an altered sample.
+while one Linux PC lost a few at the highest rates, most of them packets its
+USB controller skipped. A lost packet shows as `lost` in the result, so it is
+told apart from an altered sample.
 
 The board shows its verdicts on its LEDs and in a serial log, with one result
 line per file; the STM32F723E-DISCO and the STM32U5G9J-DK2 also show the state
@@ -517,24 +518,12 @@ files find them.
   generator compute the DSD payload differently once a file's position
   passes 2^32, which at DSD256 is after about 380 s. No published file is
   that long (the DSD files last under 13 s). Not resolved yet.
-- **Zero-length audio packets: the fix is not tested on hardware.** USB
-  Audio 2.0 lets a host send a zero-length packet in place of any packet.
-  TinyUSB 0.21.0 then stopped receiving, and a local patch fixes that (see
-  the [firmware README](firmware/README.md#tinyusb-patch)). The hosts tested
-  so far never sent one, so the patch is checked against the code and the
-  specification only.
 - **A bus reset during a stream was seen once on hardware.** A USB bus
   reset closes the audio function without telling the firmware, which then
   ends the stream itself with `reason=reset` and logs `usb reset`. It
   happened once, on an iPad, when the cable was pulled during a stream. The
   Linux host used for tests sets alt setting 0 before it resets the port, so
   there the stream has always ended before the reset arrives.
-- **A rate change during a stream is not tested on hardware.** The tested
-  hosts close a stream (alt setting 0) before they set a new rate. If a host
-  sets a new rate while its stream stays open, the firmware feeds the
-  frames still in its buffer to the checker, ends the stream with
-  `reason=rate` and starts a new one at the new rate; this is checked
-  against the code only.
 - **ffmpeg decodes some ALAC packets wrongly.** Decoders based on ffmpeg
   (8.0.1 and its current development version) and Apple's ALAC codec clamp
   the history of ALAC's adaptive Golomb coder on different values, so
@@ -557,8 +546,9 @@ submodule in `generator/third_party/alac`.
 The firmware uses:
 
 - [TinyUSB](https://github.com/hathach/tinyusb) (MIT), by Ha Thach and
-  contributors, release 0.21.0 with one local patch for zero-length audio
-  packets (see the [firmware README](firmware/README.md))
+  contributors, release 0.21.0 with two local patches, one for zero-length
+  audio packets and one for the re-arm of the isochronous OUT endpoint (see
+  the [firmware README](firmware/README.md#tinyusb-patches))
 - ST's CMSIS device files ([STM32U5](https://github.com/STMicroelectronics/cmsis_device_u5),
   [STM32F7](https://github.com/STMicroelectronics/cmsis_device_f7); Apache-2.0)
   and HAL ([STM32U5](https://github.com/STMicroelectronics/stm32u5xx_hal_driver),
