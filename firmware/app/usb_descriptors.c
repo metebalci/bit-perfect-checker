@@ -6,6 +6,7 @@
 
 #include "family.h"  // UID_BASE
 #include "tusb.h"
+#include "uac2.h"
 #include "usb_descriptors.h"
 
 uac2_alt_t uac2_alts[UAC2_ALT_MAX + 1];
@@ -33,26 +34,21 @@ static const tusb_desc_device_t desc_device = {
   .bNumConfigurations = 1,
 };
 
+// High-Speed only. At any other speed the request fails (TinyUSB stalls
+// it), so the host never gets a configuration.
 uint8_t const *tud_descriptor_device_cb(void) {
+  if (!uac2_speed_accepted()) {
+    return NULL;
+  }
   return (uint8_t const *) &desc_device;
 }
 
-// A High-Speed device must answer for its other speed. This one is useless
-// at Full-Speed, so the qualifier simply mirrors the device descriptor.
-static const tusb_desc_device_qualifier_t desc_qualifier = {
-  .bLength            = sizeof(tusb_desc_device_qualifier_t),
-  .bDescriptorType    = TUSB_DESC_DEVICE_QUALIFIER,
-  .bcdUSB             = 0x0200,
-  .bDeviceClass       = TUSB_CLASS_MISC,
-  .bDeviceSubClass    = MISC_SUBCLASS_COMMON,
-  .bDeviceProtocol    = MISC_PROTOCOL_IAD,
-  .bMaxPacketSize0    = CFG_TUD_ENDPOINT0_SIZE,
-  .bNumConfigurations = 1,
-  .bReserved          = 0,
-};
-
+// No other speed, so no device qualifier and no other-speed configuration:
+// both requests fail with a request error (TinyUSB stalls them). USB 2.0
+// (9.6.2) asks this of a full-speed-only device; this one is High-Speed
+// only.
 uint8_t const *tud_descriptor_device_qualifier_cb(void) {
-  return (uint8_t const *) &desc_qualifier;
+  return NULL;
 }
 
 //--------------------------------------------------------------------+
@@ -71,6 +67,12 @@ uint8_t const *tud_descriptor_device_qualifier_cb(void) {
 #define CONFIG_MAX_LEN (HEAD_LEN + UAC2_ALT_MAX * AS_ALT_LEN)
 
 #define STEREO (AUDIO20_CHANNEL_CONFIG_FRONT_LEFT | AUDIO20_CHANNEL_CONFIG_FRONT_RIGHT)
+
+// External terminal type "Digital audio interface" (USB Audio Device Class
+// 2.0, Terminal Types, Table 2-6). The checker drives no transducer, so the
+// output terminal is not a speaker or headphones. TinyUSB's audio.h names
+// no external terminal types.
+#define TERM_TYPE_EXT_DIGITAL_AUDIO_INTERFACE 0x0602
 
 // One streaming alt setting, numbered 0 here and renumbered when the
 // configuration is put together: asynchronous isochronous OUT every
@@ -109,8 +111,8 @@ static const uint8_t desc_head[] = {
                            0, 0),
   TUD_AUDIO20_DESC_INPUT_TERM(UAC2_ENTITY_INPUT_TERMINAL, AUDIO_TERM_TYPE_USB_STREAMING, 0,
                               UAC2_ENTITY_CLOCK, UAC2_CHANNELS, STEREO, 0, 0, 0),
-  TUD_AUDIO20_DESC_OUTPUT_TERM(UAC2_ENTITY_OUTPUT_TERMINAL, AUDIO_TERM_TYPE_OUT_GENERIC_SPEAKER, 0,
-                               UAC2_ENTITY_INPUT_TERMINAL, UAC2_ENTITY_CLOCK, 0, 0),
+  TUD_AUDIO20_DESC_OUTPUT_TERM(UAC2_ENTITY_OUTPUT_TERMINAL, TERM_TYPE_EXT_DIGITAL_AUDIO_INTERFACE,
+                               0, UAC2_ENTITY_INPUT_TERMINAL, UAC2_ENTITY_CLOCK, 0, 0),
 
   // Alt 0: zero bandwidth
   TUD_AUDIO20_DESC_STD_AS_INT(ITF_NUM_AUDIO_STREAMING, 0, 0, 0),
@@ -131,7 +133,6 @@ static const format_t formats[UAC2_ALT_MAX] = {
 };
 
 static uint8_t desc_configuration[CONFIG_MAX_LEN];
-static uint16_t desc_configuration_len;
 
 static const format_t *format_find(uint8_t slot, uint8_t resolution) {
   for (size_t i = 0; i < TU_ARRAY_SIZE(formats); i++) {
@@ -193,7 +194,6 @@ void usb_formats_set(const uac2_alt_t *alts, uint8_t count) {
   uac2_alt_count = count;
   desc_configuration[2] = TU_U16_LOW(len);
   desc_configuration[3] = TU_U16_HIGH(len);
-  desc_configuration_len = len;
 }
 
 bool usb_formats_equal(const uac2_alt_t *alts, uint8_t count) {
@@ -229,14 +229,9 @@ uint8_t const *tud_descriptor_configuration_cb(uint8_t index) {
   return desc_configuration;
 }
 
-// The other-speed configuration is the same configuration, retyped.
-static uint8_t desc_other_speed[CONFIG_MAX_LEN];
-
 uint8_t const *tud_descriptor_other_speed_configuration_cb(uint8_t index) {
   (void) index;
-  memcpy(desc_other_speed, desc_configuration, desc_configuration_len);
-  desc_other_speed[1] = TUSB_DESC_OTHER_SPEED_CONFIG;
-  return desc_other_speed;
+  return NULL;
 }
 
 //--------------------------------------------------------------------+

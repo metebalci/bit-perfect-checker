@@ -46,6 +46,7 @@ static vbus_t vbus;
 // hold ends, and the host's reset and enumeration follow
 static void pullup(bool on) {
   if (on) {
+    uac2_attach();
     tud_connect();
   } else {
     tud_disconnect();

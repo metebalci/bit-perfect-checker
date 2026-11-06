@@ -31,6 +31,7 @@ static uint32_t current_rate = 48000;
 #define RECONNECT_MS 300u
 
 static bool unplugging;         // in uac2_unplug()
+static bool refusal_logged;     // `usb refused` logged since the last attach
 
 static void log_formats(const char *extra) {
   char text[32];
@@ -103,6 +104,23 @@ static const char *speed_name(tusb_speed_t speed) {
     case TUSB_SPEED_FULL: return "full";
     default: return "other";
   }
+}
+
+void uac2_attach(void) {
+  refusal_logged = false;
+}
+
+// The host retries a failed enumeration a few times; one line per attach
+bool uac2_speed_accepted(void) {
+  tusb_speed_t speed = tud_speed_get();
+  if (speed == TUSB_SPEED_HIGH) {
+    return true;
+  }
+  if (!refusal_logged) {
+    refusal_logged = true;
+    log_line("usb refused speed=%s", speed_name(speed));
+  }
+  return false;
 }
 
 void tud_mount_cb(void) {

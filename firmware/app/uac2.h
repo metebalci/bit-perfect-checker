@@ -17,6 +17,14 @@ void uac2_init(void);
 // is not a valid list.
 bool uac2_formats(const char *text);
 
+// The D+ pull-up comes on (main.c): a new attach, after which a refused
+// speed is logged again.
+void uac2_attach(void);
+
+// For the device descriptor request: true at High-Speed. At any other speed
+// the device does not enumerate, and logs `usb refused` once per attach.
+bool uac2_speed_accepted(void);
+
 // VBUS has gone (main.c): ends the configuration at once, with the lines
 // of a stream it stops; the caller logs the disconnect.
 void uac2_unplug(void);

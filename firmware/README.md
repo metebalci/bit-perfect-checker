@@ -33,6 +33,11 @@ checker ([section 12.6](../docs/bpc1.md#126-verdicts)). It
 enumerates as a USB Audio Class 2 output device at High-Speed, records what
 the host sends, and checks every frame against the test signal:
 
+- **High-Speed only:** the user USB port needs a USB 2.0 High-Speed port,
+  hub and cable on the host's side. At Full-Speed the device refuses to
+  enumerate (it stalls the request for its device descriptor) and logs
+  `usb refused speed=full`, so it does not appear on the host at all. It
+  has no device qualifier and no other-speed configuration.
 - **Rates:** 44.1, 48, 88.2, 96, 176.4, 192, 352.8, 384, 705.6 and 768 kHz,
   stereo.
 - **Formats:** 16-bit in 2-byte slots, 24-bit in 4-byte slots, 32-bit in
@@ -443,7 +448,8 @@ their meaning.
 | `display drawn ...`, `display units strip_us=<n> band_glyph_us=<n> text_glyph_us=<n> clear_us=<n>`, `display hourglass ...`, `display ltdc fuif=<n> terrif=<n> touch_reads=<n>` | only in a build with `-DDISPLAY_LOG=ON` ([Screen](#screen)): what drawing cost, and on the DK2 the LTDC's FIFO underruns and transfer errors |
 | `touch off after errors` | STM32U5G9J-DK2: three failed transfers to the touch controller in a row; touch stays off until the next reset. After a failed transfer the firmware waits 1 s before the next, and it reads the controller only while the receive FIFO holds less than 0.5 ms of audio |
 | `formats <list>` | the formats offered, as alt settings 1 to n; at boot, and after a `formats` command, with `changed=0` or `changed=1` |
-| `usb mounted speed=high` | a host has set the device up; `speed=full` means the High-Speed link failed |
+| `usb mounted speed=high` | a host has set the device up |
+| `usb refused speed=full` | the link came up at Full-Speed, not High-Speed (a Full-Speed port, hub or cable): the device refuses to enumerate and does not appear on the host. Once per attach, through the host's retries |
 | `usb disconnected` | the cable was pulled (VBUS gone for 50 ms): once per pull, after the lines of a stream it cut and before `run start`, also when a host reset the bus first (`usb reset`) or never set the device up; or the host deconfigured the device while it was set up |
 | `usb suspended`, `usb resumed` | the host suspended or resumed the bus; with VBUS still present the device stays connected. A pulled cable logs `usb suspended` first, since the USB controller sees only the bus going idle, and `usb disconnected` once VBUS has been gone for 50 ms: measured 45 to 49 ms later on the NUCLEO-U5A5ZJ-Q and the STM32U5G9J-DK2, about 0.3 s later on the STM32F723E-DISCO. The stream the pull cut stops with `reason=idle` before `usb disconnected` |
 | `usb reset` | the host reset the bus while the device was set up: an open stream stops (`reason=reset`), and the host enumerates the device again |

@@ -494,6 +494,18 @@ The firmware uses TinyUSB, not ST's own USB middleware.
   first or the deepest it supports, so offering one format lets a tester choose
   what the host sends.
 - No Feature Unit (section 6).
+- **High-Speed only.** At Full-Speed the device refuses to enumerate: the
+  request for its device descriptor fails, and it has no device qualifier or
+  other-speed configuration. A Full-Speed configuration could not carry most
+  of BPC1 (section 6: above 96 kHz only 16-bit up to 192 kHz, and no DoP),
+  and refusing is clearer than a configuration without audio. This is a
+  deliberate deviation from USB 2.0's expectation that a High-Speed device
+  also works at Full-Speed.
+- **Terminals.** The audio function's input terminal is USB streaming, and
+  its output terminal is a digital audio interface (0x0602, USB Audio 2.0
+  Terminal Types, Table 2-6). The checker drives no transducer, and a
+  speaker or headphones type could make a host offer speaker or headphone
+  features.
 - **Connection state.** The USB controller does not sense VBUS (TinyUSB
   forces the session valid), so on its own it cannot tell a pulled cable from
   a host that suspended the bus. Each board reads its user USB port's VBUS

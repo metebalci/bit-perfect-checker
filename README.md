@@ -73,8 +73,10 @@ test files.
    1.54" touch screen) or an STM32U5G9J-DK2 (a 5" touch screen). Each has two
    USB connections: the ST-LINK USB port, for flashing and the serial log,
    and the user USB port, which goes to the host under test (USB-C on the
-   NUCLEO and the DK2, micro-AB on the F723). Connect both. The boards'
-   details, and what the screens show, are in the
+   NUCLEO and the DK2, micro-AB on the F723). Connect both. The user USB
+   port needs USB 2.0 High-Speed all the way to the host: port, hub and
+   cable. The checker refuses Full-Speed and then does not appear on the
+   host at all. The boards' details, and what the screens show, are in the
    [firmware README](firmware/README.md).
 2. **The firmware.** Build and flash it yourself with ARM GCC, CMake, Ninja
    and ST's STM32CubeProgrammer, following the Build and Flash sections of the
