@@ -15,6 +15,7 @@
 #include "status.h"
 #include "stream.h"
 #include "device/dcd.h"
+#include "device/usbd_pvt.h"
 #include "tusb.h"
 #include "usb_descriptors.h"
 #include "vbus.h"
@@ -31,7 +32,6 @@ static uint32_t current_rate = 48000;
 #define RECONNECT_MS 300u
 
 static bool unplugging;         // in uac2_unplug()
-static bool refusal_logged;     // `usb refused` logged since the last attach
 
 static void log_formats(const char *extra) {
   char text[32];
@@ -106,23 +106,6 @@ static const char *speed_name(tusb_speed_t speed) {
   }
 }
 
-void uac2_attach(void) {
-  refusal_logged = false;
-}
-
-// The host retries a failed enumeration a few times; one line per attach
-bool uac2_speed_accepted(void) {
-  tusb_speed_t speed = tud_speed_get();
-  if (speed == TUSB_SPEED_HIGH) {
-    return true;
-  }
-  if (!refusal_logged) {
-    refusal_logged = true;
-    log_line("usb refused speed=%s", speed_name(speed));
-  }
-  return false;
-}
-
 void tud_mount_cb(void) {
   status.usb = USB_MOUNTED;
   status.high_speed = tud_speed_get() == TUSB_SPEED_HIGH;
@@ -169,6 +152,73 @@ void tud_resume_cb(void) {
   status.usb = tud_mounted() ? USB_MOUNTED : USB_NOT_MOUNTED;
   status_changed();
   log_line("usb resumed");
+}
+
+//--------------------------------------------------------------------+
+// The Full-Speed configuration's driver
+//--------------------------------------------------------------------+
+
+// At Full-Speed the configuration holds only the AudioControl interface
+// (usb_descriptors.c). TinyUSB's audio driver opens an AudioControl
+// interface only with a streaming interface after it, and the host cannot
+// set a configuration whose interface no driver opens, so this driver opens
+// it instead. It has no endpoints and answers no class request.
+static void fs_init(void) {
+}
+
+static void fs_reset(uint8_t rhport) {
+  (void) rhport;
+}
+
+// Taken through the AudioControl interface's class-specific descriptors; at
+// High-Speed left to the audio driver
+static uint16_t fs_open(uint8_t rhport, tusb_desc_interface_t const *itf, uint16_t max_len) {
+  (void) rhport;
+  if (tud_speed_get() == TUSB_SPEED_HIGH || itf->bInterfaceClass != TUSB_CLASS_AUDIO
+      || itf->bInterfaceSubClass != AUDIO_SUBCLASS_CONTROL || itf->bNumEndpoints != 0) {
+    return 0;
+  }
+  uint8_t const *p = (uint8_t const *) itf;
+  uint8_t const *end = p + max_len;
+  uint16_t len = 0;
+  do {
+    len = (uint16_t) (len + tu_desc_len(p));
+    p = tu_desc_next(p);
+  } while (tu_desc_in_bounds(p, end) && tu_desc_type(p) != TUSB_DESC_INTERFACE
+           && tu_desc_type(p) != TUSB_DESC_INTERFACE_ASSOCIATION);
+  return len;
+}
+
+// TinyUSB answers GET_INTERFACE and SET_INTERFACE itself; any other request
+// is a request error
+static bool fs_control_xfer(uint8_t rhport, uint8_t stage, tusb_control_request_t const *request) {
+  (void) rhport;
+  (void) stage;
+  (void) request;
+  return false;
+}
+
+static bool fs_xfer(uint8_t rhport, uint8_t ep_addr, xfer_result_t result, uint32_t xferred_bytes) {
+  (void) rhport;
+  (void) ep_addr;
+  (void) result;
+  (void) xferred_bytes;
+  return false;
+}
+
+static const usbd_class_driver_t fs_driver = {
+  .name = "AC_FS",
+  .init = fs_init,
+  .reset = fs_reset,
+  .open = fs_open,
+  .control_xfer_cb = fs_control_xfer,
+  .xfer_cb = fs_xfer,
+};
+
+// Before TinyUSB's own drivers, which come after the application's
+usbd_class_driver_t const *usbd_app_driver_get_cb(uint8_t *driver_count) {
+  *driver_count = 1;
+  return &fs_driver;
 }
 
 //--------------------------------------------------------------------+

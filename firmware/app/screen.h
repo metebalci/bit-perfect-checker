@@ -68,6 +68,9 @@ typedef struct {
   uint16_t band_margin;      // between the frame and the word, on each side; a
                              // word wider than that leaves breaks at its first
                              // space onto two lines, centred both ways
+  uint16_t band_tall_h;      // the tall band (screen_band_t.tall): from the top,
+                             // over the texts placed above this line, which do
+                             // not show while it does; its lines centred both ways
   const font_t *band_font;
   uint8_t hourglass_scale;   // the hourglass (16x32) at 1x (0 or 1) or 2x (2)
   const screen_place_t *places;  // the texts under the band

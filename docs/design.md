@@ -435,6 +435,11 @@ The firmware uses TinyUSB, not ST's own USB middleware.
   their words, not by the frame. `NOT_BIT_PERFECT` has no label, since the red
   frame already shows it. The screen writes names without the log's
   underscores, and BIT-PERFECT hyphenated as in the project's name.
+- **At Full-Speed the screen says what to change.** The device offers no
+  audio there, so instead of a state it shows `NEEDS` `HIGH-SPEED` `USB PORT`
+  in a tall red frame over the run's texts, and the blue LED double-blinks,
+  a pattern of its own beside the fast and slow blinks. Green and red stay
+  off, since nothing can be checked.
 - **An hourglass shows that the device is waiting or checking.** It blinks
   with the LEDs' slow blink; during `CHECKING` it blinks only while packets
   arrive, so a stream that stalls shows as a steady hourglass. Nothing else on
@@ -494,13 +499,20 @@ The firmware uses TinyUSB, not ST's own USB middleware.
   first or the deepest it supports, so offering one format lets a tester choose
   what the host sends.
 - No Feature Unit (section 6).
-- **High-Speed only.** At Full-Speed the device refuses to enumerate: the
-  request for its device descriptor fails, and it has no device qualifier or
-  other-speed configuration. A Full-Speed configuration could not carry most
-  of BPC1 (section 6: above 96 kHz only 16-bit up to 192 kHz, and no DoP),
-  and refusing is clearer than a configuration without audio. This is a
-  deliberate deviation from USB 2.0's expectation that a High-Speed device
-  also works at Full-Speed.
+- **Audio at High-Speed only.** At Full-Speed the device enumerates, as
+  USB 2.0 requires of a High-Speed device (5.3.1.1, 9.1.1.3), but offers no
+  audio, so it needs a High-Speed port, hub and cable to play. A Full-Speed
+  configuration could not carry most of BPC1 (section 6: above 96 kHz only
+  16-bit up to 192 kHz, and no DoP), and a checker that takes some formats
+  and not others at one speed would be harder to read than one that takes
+  none. The Full-Speed configuration holds the audio function with only its
+  AudioControl interface, as UAC2 allows (3.16.2: zero or more
+  AudioStreaming interfaces), and no clock or terminals, since a USB
+  streaming terminal is one that a streaming interface links to. The device
+  qualifier and the other-speed configuration describe the other speed
+  (USB 2.0 9.6.2, 9.6.4). TinyUSB's audio driver opens an AudioControl
+  interface only with a streaming interface after it, so at Full-Speed a
+  small driver of the firmware's own opens it (`firmware/app/uac2.c`).
 - **Terminals.** The audio function's input terminal is USB streaming, and
   its output terminal is a digital audio interface (0x0602, USB Audio 2.0
   Terminal Types, Table 2-6). The checker drives no transducer, and a
@@ -593,8 +605,9 @@ bytes, 5.3 ms at 768 kHz in 4-byte slots; TinyUSB's FIFO is limited to 32 KB.
 
 ### LEDs
 
-Blue shows the stream: blinking while waiting, steady while a stream is open
-(a board without a blue LED shows this on its screen).
+Blue shows the stream: blinking while waiting, steady while a stream is open,
+a double blink when a host set the device up at Full-Speed, where it offers
+no audio (a board without a blue LED shows this on its screen).
 Green and red show a **run**: every result since the user button was pressed,
 the console command `mark` was sent, the USB cable was pulled or the board
 was reset, whichever came last. A pull during playback cuts a file; its

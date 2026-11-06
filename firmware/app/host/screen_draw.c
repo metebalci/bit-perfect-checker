@@ -13,13 +13,18 @@
 //   glyph <x> <y> <w> <h>   -> h lines of w characters: 1 where the pixel is
 //                              not black, else 0
 //   pixel <x> <y>           -> its colour, 0xRRGGBB in hex
+//   hash                    -> a hash of every pixel's colour (FNV-1a), in hex
 //
 // The status it draws, after the splash's time: mounted, a run with an
 // UNKNOWN_SIGNAL result and the last result's file PCM 48 kHz 24-bit. With
 // the argument "splash": the splash, with all three squares lit; with
 // "not-connected": the same with no host (the band's NOT CONNECTED, which
 // has no hourglass); with "old-run": the same, but the last result belongs
-// to the run before (a run started since it).
+// to the run before (a run started since it); with "full-speed": the same
+// set up at Full-Speed (the tall band, over the texts above its bottom); with
+// "full-speed-back": Full-Speed drawn, then High-Speed (as without an
+// argument, once drawn); with "full-speed-between": High-Speed drawn, then
+// Full-Speed, then High-Speed again.
 
 #include <stdbool.h>
 #include <stdio.h>
@@ -120,8 +125,14 @@ int main(int argc, char **argv) {
   bool splash = argc > 1 && strcmp(argv[1], "splash") == 0;
   bool not_connected = argc > 1 && strcmp(argv[1], "not-connected") == 0;
   bool old_run = argc > 1 && strcmp(argv[1], "old-run") == 0;
+  bool full_speed = argc > 1 && strncmp(argv[1], "full-speed", 10) == 0;
+  bool back = argc > 1 && strcmp(argv[1], "full-speed-back") == 0;
+  bool between = argc > 1 && strcmp(argv[1], "full-speed-between") == 0;
+  if (between) {
+    full_speed = false;
+  }
   status.usb = not_connected ? USB_NOT_MOUNTED : USB_MOUNTED;
-  status.high_speed = true;
+  status.high_speed = !full_speed;
   status.run_unknown = true;
   status.last_known = true;
   status.last_in_run = !old_run;
@@ -148,11 +159,27 @@ int main(int argc, char **argv) {
     for (int i = 0; i < 1000; i++) {
       screen_task();
     }
+    // the speeds that follow
+    for (int step = 0; step < (between ? 2 : back ? 1 : 0); step++) {
+      status.high_speed = between && step == 0 ? false : true;
+      screen_update(&status);
+      for (int i = 0; i < 1000; i++) {
+        screen_task();
+      }
+    }
   }
 
   char line[128];
   while (fgets(line, sizeof(line), stdin) != NULL) {
     unsigned x, y, w, h;
+    if (strncmp(line, "hash", 4) == 0) {
+      uint32_t hash = 2166136261u;
+      for (uint32_t i = 0; i < (uint32_t) W * H; i++) {
+        hash = (hash ^ fb[i / W][i % W]) * 16777619u;
+      }
+      printf("%08x\n", (unsigned) hash);
+      continue;
+    }
     if (sscanf(line, "pixel %u %u", &x, &y) == 2) {
       printf("%06x\n", x < W && y < H ? (unsigned) fb[y][x] : 0u);
       continue;

@@ -6,7 +6,6 @@
 
 #include "family.h"  // UID_BASE
 #include "tusb.h"
-#include "uac2.h"
 #include "usb_descriptors.h"
 
 uac2_alt_t uac2_alts[UAC2_ALT_MAX + 1];
@@ -34,21 +33,28 @@ static const tusb_desc_device_t desc_device = {
   .bNumConfigurations = 1,
 };
 
-// High-Speed only. At any other speed the request fails (TinyUSB stalls
-// it), so the host never gets a configuration.
 uint8_t const *tud_descriptor_device_cb(void) {
-  if (!uac2_speed_accepted()) {
-    return NULL;
-  }
   return (uint8_t const *) &desc_device;
 }
 
-// No other speed, so no device qualifier and no other-speed configuration:
-// both requests fail with a request error (TinyUSB stalls them). USB 2.0
-// (9.6.2) asks this of a full-speed-only device; this one is High-Speed
-// only.
+// The device as it would be at the other speed (USB 2.0 9.6.2). It runs at
+// High-Speed and Full-Speed with the same device descriptor fields, so the
+// qualifier is the same at both speeds.
+static const tusb_desc_device_qualifier_t desc_qualifier = {
+  .bLength            = sizeof(tusb_desc_device_qualifier_t),
+  .bDescriptorType    = TUSB_DESC_DEVICE_QUALIFIER,
+  .bcdUSB             = 0x0200,
+  // as the device descriptor (UAC2 4.3)
+  .bDeviceClass       = TUSB_CLASS_MISC,
+  .bDeviceSubClass    = MISC_SUBCLASS_COMMON,
+  .bDeviceProtocol    = MISC_PROTOCOL_IAD,
+  .bMaxPacketSize0    = CFG_TUD_ENDPOINT0_SIZE,
+  .bNumConfigurations = 1,
+  .bReserved          = 0,
+};
+
 uint8_t const *tud_descriptor_device_qualifier_cb(void) {
-  return NULL;
+  return (uint8_t const *) &desc_qualifier;
 }
 
 //--------------------------------------------------------------------+
@@ -133,6 +139,25 @@ static const format_t formats[UAC2_ALT_MAX] = {
 };
 
 static uint8_t desc_configuration[CONFIG_MAX_LEN];
+
+// The Full-Speed configuration: the audio function with its AudioControl
+// interface and no streaming interface (UAC2 3.16.2: zero or more), so the
+// device enumerates at Full-Speed, as USB 2.0 (5.3.1.1) requires, and offers
+// nothing to play: Full-Speed cannot carry most of BPC1's formats. The
+// function has no clock or terminals either, since a USB streaming terminal
+// is one that a streaming interface links to (Terminal Types, Table 2-1).
+#define FS_ITF_TOTAL  1
+#define FS_CONFIG_LEN (TUD_CONFIG_DESC_LEN + TUD_AUDIO20_DESC_IAD_LEN + TUD_AUDIO20_DESC_STD_AC_LEN \
+                       + TUD_AUDIO20_DESC_CS_AC_LEN)
+
+static const uint8_t desc_fs_configuration[] = {
+  TUD_CONFIG_DESCRIPTOR(1, FS_ITF_TOTAL, 0, FS_CONFIG_LEN, 0x00, 100),
+  TUD_AUDIO20_DESC_IAD(ITF_NUM_AUDIO_CONTROL, FS_ITF_TOTAL, 0),
+  TUD_AUDIO20_DESC_STD_AC(ITF_NUM_AUDIO_CONTROL, 0, 0),
+  TUD_AUDIO20_DESC_CS_AC(0x0200, AUDIO20_FUNC_IO_BOX, 0, 0),
+};
+
+TU_VERIFY_STATIC(sizeof(desc_fs_configuration) == FS_CONFIG_LEN, "Full-Speed configuration length");
 
 static const format_t *format_find(uint8_t slot, uint8_t resolution) {
   for (size_t i = 0; i < TU_ARRAY_SIZE(formats); i++) {
@@ -224,14 +249,24 @@ void usb_formats_text(char *buf, size_t size) {
   }
 }
 
+static const uint8_t *configuration(bool high_speed) {
+  return high_speed ? desc_configuration : desc_fs_configuration;
+}
+
 uint8_t const *tud_descriptor_configuration_cb(uint8_t index) {
   (void) index;
-  return desc_configuration;
+  return configuration(tud_speed_get() == TUSB_SPEED_HIGH);
 }
+
+// The other speed's configuration, retyped (USB 2.0 9.6.4)
+static uint8_t desc_other_speed[CONFIG_MAX_LEN];
 
 uint8_t const *tud_descriptor_other_speed_configuration_cb(uint8_t index) {
   (void) index;
-  return NULL;
+  const uint8_t *other = configuration(tud_speed_get() != TUSB_SPEED_HIGH);
+  memcpy(desc_other_speed, other, (size_t) (other[2] | other[3] << 8));
+  desc_other_speed[1] = TUSB_DESC_OTHER_SPEED_CONFIG;
+  return desc_other_speed;
 }
 
 //--------------------------------------------------------------------+

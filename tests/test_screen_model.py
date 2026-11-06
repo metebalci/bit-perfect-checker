@@ -32,7 +32,10 @@ FLAG = {"NOT_BIT_PERFECT": "fail", "UNKNOWN_SIGNAL": "unknown", "OVERRUN": "over
 # The LEDs for each (firmware/README.md, LEDs): (red, green)
 LEDS = {"NOT_BIT_PERFECT": ("on", "off"), "UNKNOWN_SIGNAL": ("blink 500", "off"),
         "OVERRUN": ("blink 125", "off"), "BIT_PERFECT": ("off", "on"), None: ("off", "off")}
-BLUE_LED = {"streaming": "on", "mounted": "blink 500", "not mounted": "blink 125"}
+BLUE_LED = {"streaming": "on", "mounted": "blink 500", "not mounted": "blink 125", "full speed": "blink 100"}
+# The blue LED at Full-Speed, as (lit, ms) runs from t = 0: a double blink,
+# two flashes of 100 ms 150 ms apart, then 850 ms dark, every 1.2 s
+DOUBLE_BLINK = [(1, 100), (0, 150), (1, 100), (0, 850)]
 
 
 def centre(text, width):
@@ -55,13 +58,22 @@ def verdict(st):
 
 HOURGLASS_NONE, HOURGLASS_BLINK, HOURGLASS_STEADY = range(3)
 
+# The band's lines while the device is set up at Full-Speed, where it offers
+# no audio: a tall band, always red
+FULL_SPEED_WORD = "NEEDS|HIGH-SPEED|USB PORT"
+
 
 def expected_band(st):
     """The band rule: (word, colour, hourglass with packets moving, without).
     The word says what is going on; the frame's colour is the run's state:
     red once anything failed, green while every result is BIT_PERFECT, else
     blue. The hourglass blinks beside WAITING, and beside CHECKING while
-    packets arrive, steady when they stop."""
+    packets arrive, steady when they stop. At Full-Speed the device offers
+    no audio, so it waits for nothing: FULL_SPEED_WORD in three lines of a
+    tall band, red whatever the run, without an hourglass. Returns (word,
+    colour, hourglass, tall)."""
+    if not st["streaming"] and st["usb"] != 0 and not st["hs"]:
+        return FULL_SPEED_WORD, RED, (HOURGLASS_NONE, HOURGLASS_NONE), 1
     if st["streaming"]:
         word, hourglass = "CHECKING", (HOURGLASS_BLINK, HOURGLASS_STEADY)
     elif st["usb"] != 0:
@@ -70,7 +82,7 @@ def expected_band(st):
         word, hourglass = "NOT CONNECTED", (HOURGLASS_NONE, HOURGLASS_NONE)
     failed = st["fail"] or st["unknown"] or st["overrun"]
     colour = RED if failed else GREEN if st["pass"] else BLUE
-    return word, colour, hourglass
+    return word, colour, hourglass, 0
 
 
 def expected_labels(st):
@@ -111,9 +123,9 @@ class ScreenModel(unittest.TestCase):
         res = []
         for i in range(len(statuses)):
             o = out[i * per:(i + 1) * per]
-            _, state, colour, moving, stalled, word = o[0].split(" ", 5)
+            _, state, colour, moving, stalled, tall, word = o[0].split(" ", 6)
             band = {"state": int(state), "colour": int(colour, 16), "hourglass": (int(moving), int(stalled)),
-                    "word": word}
+                    "tall": int(tall), "word": word}
             texts = []
             for r, tag in zip(o[1:5], ("labels|", "file|", "file|", "fw|")):
                 self.assertTrue(r.startswith(tag) and r.endswith("|"), r)
@@ -137,20 +149,45 @@ class ScreenModel(unittest.TestCase):
 
     @staticmethod
     def all_statuses():
-        """Every USB state, streaming or not, and all 16 sets of the run's flags."""
-        return [{"usb": usb, "hs": 1, "streaming": streaming, "pass": flags & 1, "fail": flags >> 1 & 1,
+        """Every USB state at both speeds, streaming or not, and all 16 sets
+        of the run's flags."""
+        return [{"usb": usb, "hs": hs, "streaming": streaming, "pass": flags & 1, "fail": flags >> 1 & 1,
                  "unknown": flags >> 2 & 1, "overrun": flags >> 3 & 1}
-                for usb, streaming, flags in itertools.product((0, 1, 2), (0, 1), range(16))]
+                for usb, hs, streaming, flags in itertools.product((0, 1, 2), (0, 1), (0, 1), range(16))]
+
+    @staticmethod
+    def full_speed(st):
+        """Set up at Full-Speed, where the device offers no audio"""
+        return not st["streaming"] and st["usb"] != 0 and not st["hs"]
 
     def test_leds(self):
         """leds.c for every combination: blue shows the stream and the USB
-        state, red and green the run's highest verdict."""
+        state, red and green the run's highest verdict; at Full-Speed blue
+        double-blinks and green and red stay off."""
         statuses = self.all_statuses()
         for st, (_, _, leds) in zip(statuses, self.screens(statuses)):
             with self.subTest(**st):
-                state = "streaming" if st["streaming"] else "mounted" if st["usb"] else "not mounted"
+                if self.full_speed(st):
+                    state = "full speed"
+                else:
+                    state = "streaming" if st["streaming"] else "mounted" if st["usb"] else "not mounted"
                 self.assertEqual(leds["blue"], BLUE_LED[state])
-                self.assertEqual((leds["red"], leds["green"]), LEDS[verdict(st)])
+                want = LEDS[None] if self.full_speed(st) else LEDS[verdict(st)]
+                self.assertEqual((leds["red"], leds["green"]), want)
+
+    def test_double_blink(self):
+        """At Full-Speed, mounted or suspended, whatever the run: the blue
+        LED's double blink, run by run over 2.4 s from t = 0; the slow blink
+        (500 ms dark, 500 ms lit) and the fast one (125 ms each) keep theirs."""
+        cases = [({"usb": usb, "hs": 0, "fail": fail}, DOUBLE_BLINK * 2) for usb in (1, 2) for fail in (0, 1)]
+        cases += [({"usb": 1, "hs": 1}, [(0, 500), (1, 500)] * 2 + [(0, 400)]),
+                  ({"usb": 0, "hs": 0}, [(0, 125), (1, 125)] * 9 + [(0, 125), (1, 25)])]
+        for st, want in cases:
+            with self.subTest(**st):
+                out = self.run_tool(["status " + " ".join(f"{k}={v}" for k, v in st.items()), "trace blue 2400"])
+                self.assertEqual(out[0].split()[:2], ["trace", "blue"])
+                runs = [tuple(int(v) for v in r.split(":")) for r in out[0].split()[2:]]
+                self.assertEqual(runs, want)
 
     def test_band(self):
         """The band and the labels for every combination of USB state,
@@ -160,23 +197,28 @@ class ScreenModel(unittest.TestCase):
         seen = set()
         for st, (band, _, leds) in zip(statuses, self.screens(statuses)):
             with self.subTest(**st):
-                word, colour, hourglass = expected_band(st)
-                self.assertEqual((band["word"], band["colour"], band["hourglass"]), (word, colour, hourglass))
+                word, colour, hourglass, tall = expected_band(st)
+                self.assertEqual((band["word"], band["colour"], band["hourglass"], band["tall"]),
+                                 (word, colour, hourglass, tall))
                 self.assertEqual(band["labels"], expected_labels(st))
                 # the screen's blink is the red LED's slow blink (UNKNOWN_SIGNAL)
-                if st["unknown"] and not st["fail"]:
+                if st["unknown"] and not st["fail"] and word != FULL_SPEED_WORD:
                     self.assertEqual(band["blink_apart_from_red"], 0)
                 # the hourglass, packets moving: lit half the time; in WAITING
                 # on the blue LED's phase, lit together with it
-                self.assertEqual(band["lit"], 0 if word == "NOT CONNECTED" else 1000)
+                self.assertEqual(band["lit"], 0 if word in ("NOT CONNECTED", FULL_SPEED_WORD) else 1000)
                 if word == "WAITING":
                     self.assertEqual(band["apart_from_blue"], 0)
-                # the frame's colour is the run's as the LEDs show it
-                self.assertEqual(colour == RED, leds["red"] != "off")
-                self.assertEqual(colour == GREEN, leds["green"] == "on")
+                # the frame's colour is the run's as the LEDs show it; at
+                # Full-Speed red, with green and red off
+                if word == FULL_SPEED_WORD:
+                    self.assertEqual((leds["red"], leds["green"]), ("off", "off"))
+                else:
+                    self.assertEqual(colour == RED, leds["red"] != "off")
+                    self.assertEqual(colour == GREEN, leds["green"] == "on")
                 seen.add((word, colour))
-        # three words in three colours
-        self.assertEqual(len(seen), 9)
+        # three words in three colours, and Full-Speed's in red
+        self.assertEqual(len(seen), 10)
 
     def test_file_and_version(self):
         """The small screen's texts: the file as its header gives it, its kind

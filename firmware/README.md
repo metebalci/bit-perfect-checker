@@ -33,11 +33,13 @@ checker ([section 12.6](../docs/bpc1.md#126-verdicts)). It
 enumerates as a USB Audio Class 2 output device at High-Speed, records what
 the host sends, and checks every frame against the test signal:
 
-- **High-Speed only:** the user USB port needs a USB 2.0 High-Speed port,
-  hub and cable on the host's side. At Full-Speed the device refuses to
-  enumerate (it stalls the request for its device descriptor) and logs
-  `usb refused speed=full`, so it does not appear on the host at all. It
-  has no device qualifier and no other-speed configuration.
+- **Audio at High-Speed only:** to play, the user USB port needs a USB 2.0
+  High-Speed port, hub and cable on the host's side. At Full-Speed the
+  device enumerates, as USB 2.0 requires, but offers no audio: its
+  Full-Speed configuration holds only the audio function's AudioControl
+  interface, with no streaming interface. It logs `usb mounted speed=full`,
+  a screen shows `NEEDS` `HIGH-SPEED` `USB PORT` in a tall red frame, and
+  the blue LED double-blinks ([LEDs](#leds)).
 - **Rates:** 44.1, 48, 88.2, 96, 176.4, 192, 352.8, 384, 705.6 and 768 kHz,
   stereo.
 - **Formats:** 16-bit in 2-byte slots, 24-bit in 4-byte slots, 32-bit in
@@ -223,6 +225,10 @@ red do ([LEDs](#leds)). White text on black, in Spleen's fonts:
 - **Band:** one line in a thick frame, with a word for what is going on:
   `NOT CONNECTED` (no host has set the device up, or the cable is out),
   `WAITING` (connected, no stream) and `CHECKING` (a stream is open).
+- **Full-Speed:** set up by a host at Full-Speed, where the device offers no
+  audio, the band is tall instead and covers the labels and the file lines:
+  three lines, `NEEDS`, `HIGH-SPEED` and `USB PORT`, in a red frame, with no
+  hourglass. The version stays under it.
 - **Frame colour:** blue until the run has a result, green while every
   result is `BIT_PERFECT`, red as soon as anything failed (a file's first
   difference, `NOT_BIT_PERFECT`, `UNKNOWN_SIGNAL` or `OVERRUN`). It turns red
@@ -230,7 +236,7 @@ red do ([LEDs](#leds)). White text on black, in Spleen's fonts:
 - **Hourglass:** right of `WAITING` and `CHECKING`, an outline that blinks
   with the slow blink of the LEDs, so in `WAITING` it lights with the blue
   LED. In `CHECKING` it blinks while packets arrive and stays lit when none
-  has arrived for 20 ms. `NOT CONNECTED` has none.
+  has arrived for 20 ms. `NOT CONNECTED` and the Full-Speed band have none.
 - **Labels:** under the band, in red and steady, each only if it occurred in
   the run: `UNKNOWN` on the left (for `UNKNOWN_SIGNAL`) and `OVERRUN` on the
   right. `NOT_BIT_PERFECT` has no label: the red frame shows it.
@@ -449,7 +455,7 @@ their meaning.
 | `touch off after errors` | STM32U5G9J-DK2: three failed transfers to the touch controller in a row; touch stays off until the next reset. After a failed transfer the firmware waits 1 s before the next, and it reads the controller only while the receive FIFO holds less than 0.5 ms of audio |
 | `formats <list>` | the formats offered, as alt settings 1 to n; at boot, and after a `formats` command, with `changed=0` or `changed=1` |
 | `usb mounted speed=high` | a host has set the device up |
-| `usb refused speed=full` | the link came up at Full-Speed, not High-Speed (a Full-Speed port, hub or cable): the device refuses to enumerate and does not appear on the host. Once per attach, through the host's retries |
+| `usb mounted speed=full` | a host has set the device up at Full-Speed (a Full-Speed port, hub or cable on the way): the device offers no audio, so no stream can come |
 | `usb disconnected` | the cable was pulled (VBUS gone for 50 ms): once per pull, after the lines of a stream it cut and before `run start`, also when a host reset the bus first (`usb reset`) or never set the device up; or the host deconfigured the device while it was set up |
 | `usb suspended`, `usb resumed` | the host suspended or resumed the bus; with VBUS still present the device stays connected. A pulled cable logs `usb suspended` first, since the USB controller sees only the bus going idle, and `usb disconnected` once VBUS has been gone for 50 ms: measured 45 to 49 ms later on the NUCLEO-U5A5ZJ-Q and the STM32U5G9J-DK2, about 0.3 s later on the STM32F723E-DISCO. The stream the pull cut stops with `reason=idle` before `usb disconnected` |
 | `usb reset` | the host reset the bus while the device was set up: an open stream stops (`reason=reset`), and the host enumerates the device again |
@@ -616,7 +622,7 @@ One command per line, ended by CR or LF. Each answer is one line:
 
 | Command | Answer |
 |---|---|
-| `status` | `status usb=<mounted/suspended/not-connected> speed=<high/full> rate=<Hz> alt=<n> slot=<bytes> res=<bits> streaming=<0/1> id=<n> lost=<n> ovf=<n> formats=<list> allow_silence=<true/false>`; `usb=not-connected` while no host has the device set up or the cable is out (no VBUS); `lost` and `ovf` are those of stream `id`: as on its last `stat` line while the stream is open, as on its `stream stop` line once it stopped, with a negative `lost` shown as 0 |
+| `status` | `status usb=<mounted/suspended/not-connected> speed=<high/full> rate=<Hz> alt=<n> slot=<bytes> res=<bits> streaming=<0/1> id=<n> lost=<n> ovf=<n> formats=<list> allow_silence=<true/false>`; `usb=not-connected` while no host has the device set up or the cable is out (no VBUS); `speed=full` with `usb=mounted` or `usb=suspended`: set up at Full-Speed, where the device offers no audio; `lost` and `ovf` are those of stream `id`: as on its last `stat` line while the stream is open, as on its `stream stop` line once it stopped, with a negative `lost` shown as 0 |
 | `result` | the last `result` line again, or `result none` |
 | `mark <text>` | `mark <text>`, to tie a script's steps to the log; it also starts a new run (`run start`, [LEDs](#leds)). The echo comes at once, so a `result` line still waiting from the run before can come between `mark` and `run start`; `bpcctl` follows stream ids and is not affected |
 | `formats [<list> \| default]` | `formats <list>`; with a list, offer those formats from now on (`changed=1`, then the device reconnects; `changed=0` if they are the formats already offered); a list that is not valid answers `error formats=<text>` |
@@ -671,6 +677,7 @@ The DK2 has no blue LED, so its screen shows what blue shows
 |---|---|
 | blue, fast blink | not connected: the cable is out, or no host has set the device up |
 | blue, slow blink | set up by a host (mounted or suspended), waiting for a stream |
+| blue, double blink | set up by a host at Full-Speed, where the device offers no audio: it needs a High-Speed USB port, hub and cable. Two flashes of 100 ms, 150 ms apart, every 1.2 s; green and red stay off |
 | blue, steady | a stream is open |
 | red, steady | a file of the run is `NOT_BIT_PERFECT`, from its first difference on |
 | red, slow blink | the run has an `UNKNOWN_SIGNAL` result |

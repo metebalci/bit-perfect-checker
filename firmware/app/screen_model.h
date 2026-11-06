@@ -13,9 +13,12 @@
 // frame's colour is the run's state, as the LEDs show it: blue with no
 // result yet, green while every result is BIT_PERFECT, red as soon as
 // anything failed (a file's first difference, NOT_BIT_PERFECT,
-// UNKNOWN_SIGNAL, OVERRUN). Labels name the run's errors in red:
-// UNKNOWN and OVERRUN. Verdicts are written without the log's
-// underscores and BIT-PERFECT as in the project's name.
+// UNKNOWN_SIGNAL, OVERRUN). Set up at Full-Speed, where the device offers
+// no audio, so no stream can come, the band is tall instead, over the
+// texts under it, with three lines in a red frame: NEEDS, HIGH-SPEED, USB
+// PORT. Labels name the run's errors in red: UNKNOWN and OVERRUN. Verdicts
+// are written without the log's underscores and BIT-PERFECT as in the
+// project's name.
 
 #ifndef SCREEN_MODEL_H
 #define SCREEN_MODEL_H
@@ -42,6 +45,7 @@ typedef enum {
   SCREEN_NOT_CONNECTED,
   SCREEN_WAITING,
   SCREEN_CHECKING,
+  SCREEN_FULL_SPEED,
 } screen_state_t;
 
 // How the hourglass shows
@@ -51,11 +55,14 @@ typedef enum {
   SCREEN_HOURGLASS_STEADY,  // CHECKING while no packet arrives
 } screen_hourglass_t;
 
+#define SCREEN_BAND_WORD_MAX 31u
+
 typedef struct {
   uint8_t state;   // screen_state_t
   uint32_t colour; // the frame's
   bool hourglass;  // WAITING and CHECKING: an hourglass right of the word
-  char word[SCREEN_BAND_COLS + 1];
+  bool tall;       // the layout's tall band (screen.h), over the texts above its bottom
+  char word[SCREEN_BAND_WORD_MAX + 1];  // its lines separated by '\n'
 } screen_band_t;
 
 // The texts a layout can place, each padded with spaces to its width

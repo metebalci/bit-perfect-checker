@@ -6,7 +6,8 @@
 //
 //   status [<field>=<value> ...]    -> nothing; a zeroed status with these fields
 //   model <fw>                      -> "band <state> <colour> <hourglass with packets
-//                                      moving> <hourglass without> <word>"
+//                                      moving> <hourglass without> <tall> <word>",
+//                                      the word's lines separated by "|"
 //                                      (screen_hourglass_t), "labels|<20>|",
 //                                      "file|<15 characters>|" twice, "fw|<30>|",
 //                                      then one "row|<30 characters>|" per row
@@ -15,6 +16,9 @@
 //                                      "hourglass lit=<ms> apart_from_blue=<ms>
 //                                      blink_apart_from_red=<ms>" over 2 s,
 //                                      packets moving
+//   trace <led> <ms>                -> "trace <led> <lit>:<ms> ...": the LED's runs
+//                                      from t = 0, one leds_task() call per
+//                                      millisecond
 //
 // Fields: usb (0 not mounted, 1 mounted, 2 suspended), hs, rate, alt, slot,
 // res, streaming, id, bits, dop, lost, ovf, allow_silence, pass, fail,
@@ -168,6 +172,22 @@ static void led_pattern(led_t led) {
   }
 }
 
+static void led_trace(led_t led, uint32_t ms) {
+  printf("trace %s", board_led_name(led));
+  bool prev = false;
+  uint32_t run = 0;
+  for (now_ms = 0; now_ms < ms; now_ms++) {
+    leds_task();
+    if (now_ms > 0 && led_on[led] != prev) {
+      printf(" %u:%u", prev ? 1u : 0u, (unsigned) run);
+      run = 0;
+    }
+    prev = led_on[led];
+    run++;
+  }
+  printf(" %u:%u\n", prev ? 1u : 0u, (unsigned) run);
+}
+
 int main(void) {
   char line[1024];
   while (fgets(line, sizeof(line), stdin) != NULL) {
@@ -194,9 +214,14 @@ int main(void) {
       const char *fw = strtok(NULL, " ");
       screen_t sc;
       screen_model(&status, fw != NULL ? fw : "", &sc);
-      printf("band %u %06x %u %u %s\n", sc.band.state, (unsigned) sc.band.colour,
+      char word[sizeof(sc.band.word)];
+      memcpy(word, sc.band.word, sizeof(word));
+      for (char *nl = strchr(word, '\n'); nl != NULL; nl = strchr(nl, '\n')) {
+        *nl = '|';
+      }
+      printf("band %u %06x %u %u %u %s\n", sc.band.state, (unsigned) sc.band.colour,
              (unsigned) screen_hourglass(&sc.band, true), (unsigned) screen_hourglass(&sc.band, false),
-             sc.band.word);
+             sc.band.tall ? 1u : 0u, word);
       printf("labels|%s|\nfile|%s|\nfile|%s|\nfw|%s|\n", sc.labels, sc.file[0], sc.file[1], sc.fw);
       for (uint32_t r = 0; r < SCREEN_ROWS; r++) {
         printf("row|%s|\n", sc.rows[r]);
@@ -220,6 +245,20 @@ int main(void) {
       }
       printf("hourglass lit=%u apart_from_blue=%u blink_apart_from_red=%u\n", (unsigned) lit, (unsigned) apart,
              (unsigned) apart_red);
+    } else if (strcmp(cmd, "trace") == 0) {
+      const char *name = strtok(NULL, " ");
+      const char *ms = strtok(NULL, " ");
+      led_t led = LED_COUNT;
+      for (int i = 0; i < LED_COUNT; i++) {
+        if (name != NULL && strcmp(name, board_led_name((led_t) i)) == 0) {
+          led = (led_t) i;
+        }
+      }
+      if (led == LED_COUNT || ms == NULL) {
+        fprintf(stderr, "trace <led> <ms>\n");
+        return 1;
+      }
+      led_trace(led, (uint32_t) strtoul(ms, NULL, 10));
     } else {
       fprintf(stderr, "unknown command %s\n", cmd);
       return 1;

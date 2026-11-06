@@ -92,6 +92,53 @@ class ScreenDrawBase:
         bits = 8 * ((width + 7) // 8)
         return ["".join("1" if row >> (bits - 1 - i) & 1 else "0" for i in range(width)) for row in glyphs[ord(c)]]
 
+    # The tall band at Full-Speed: its lines, its height, the frame's width
+    # and the band's font; the version under it
+    full_speed_lines = ["NEEDS", "HIGH-SPEED", "USB PORT"]
+    tall = (208, 10, "16x32")
+    version = ("8x16", 220)
+
+    def check_full_speed(self):
+        """Set up at Full-Speed: NEEDS, HIGH-SPEED and USB PORT in the band's
+        font, each line centred in the area, the three centred in a tall band
+        (4 px between lines) with a red frame; inside the frame nothing but
+        their glyphs, so not the run's label or the file lines that it
+        covers; black from the band down to the version, which stays."""
+        h, f, font = self.tall
+        fw, fh = (int(v) for v in font.split("x"))
+        ax, aw = self.area
+        lines = self.full_speed_lines
+        top = (h - len(lines) * fh - (len(lines) - 1) * 4) // 2
+        lit = 0
+        for n, line in enumerate(lines):
+            self.assertLessEqual(len(line) * fw, aw - 2 * f, f"{line} does not fit")
+            x0 = ax + (aw - len(line) * fw) // 2
+            for i, c in enumerate(line):
+                if c == " ":
+                    continue
+                with self.subTest(line=line, char=c):
+                    want = self.expected(font, c)
+                    lit += "".join(want).count("1")
+                    self.assertEqual(self.drawn(x0 + i * fw, top + n * (fh + 4), fw, fh, "full-speed"), want)
+        inside = self.drawn(ax + f, f, aw - 2 * f, h - 2 * f, "full-speed")
+        self.assertEqual("".join(inside).count("1"), lit)
+        frame = [(ax, 0), (ax + f - 1, h // 2), (ax + aw - 1, h - 1), (ax + aw // 2, h - f), (ax + aw - f, 1)]
+        self.assertEqual(self.pixels(frame, "full-speed"), ["ff0000"] * len(frame))
+        vfont, vy = self.version
+        self.assertEqual(set("".join(self.drawn(ax, h, aw, vy - h, "full-speed"))), {"0"})
+        self.check_text(vfont, "1.1.0", 30, vy, "full-speed")
+
+    def check_full_speed_back(self):
+        """From Full-Speed back to High-Speed, also after High-Speed before it:
+        every pixel as if Full-Speed had never been drawn (the tall band
+        cleared, the texts it covered drawn again)."""
+        q = "hash\n"
+        hashes = [subprocess.run([self.exe, *a], input=q, capture_output=True, text=True, check=True).stdout
+                  for a in ([], ["full-speed-back"], ["full-speed-between"], ["full-speed"])]
+        self.assertEqual(hashes[1], hashes[0])
+        self.assertEqual(hashes[2], hashes[0])
+        self.assertNotEqual(hashes[3], hashes[0])
+
     def check_text(self, font, text, cols, y, *args):
         """text centred in cols columns centred in the area at y (full-width
         text: as given)"""
@@ -138,6 +185,12 @@ class ScreenDraw(ScreenDrawBase, unittest.TestCase):
         self.assertEqual(set("".join(self.drawn(0, 126, 240, 70, "old-run"))), {"0"})
         self.check_text("8x16", "1.1.0", 30, 220, "old-run")
 
+    def test_full_speed(self):
+        self.check_full_speed()
+
+    def test_full_speed_back(self):
+        self.check_full_speed_back()
+
 
 DK2_FONTS = {"12x24": "spleen-12x24.bdf", "16x32": "spleen-16x32.bdf", "32x64": "spleen-32x64.bdf"}
 
@@ -161,6 +214,8 @@ class ScreenDrawDK2(ScreenDrawBase, unittest.TestCase):
     fonts = DK2_FONTS
     doubled = {"24x48": "12x24"}
     cflags = layout_flags("stm32u5g9j_dk2", 800, 480)
+    tall = (416, 20, "32x64")
+    version = ("16x32", 440)
 
     def outside_black(self, *args):
         """Every pixel left and right of the area is black."""
@@ -236,6 +291,13 @@ class ScreenDrawDK2(ScreenDrawBase, unittest.TestCase):
     def test_outside_black(self):
         """Nothing outside the area (the right 320 columns of the DK2's)."""
         self.outside_black()
+
+    def test_full_speed(self):
+        self.check_full_speed()
+        self.outside_black("full-speed")
+
+    def test_full_speed_back(self):
+        self.check_full_speed_back()
 
 
 class ScreenDrawDK2Moved(ScreenDrawDK2):

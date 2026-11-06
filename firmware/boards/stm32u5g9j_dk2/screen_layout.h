@@ -34,7 +34,8 @@ static inline void screen_layout_init(void) {
 
 // The band, 136 lines, a frame of 20 px and one line of the large font 12 px
 // from it; the run's errors in red; the file being checked in two lines of
-// the large font; the firmware version at the bottom
+// the large font; the firmware version at the bottom; the tall band
+// (Full-Speed) 416 lines, over the errors and the file
 static const screen_place_t places[] = {
   {SCREEN_TEXT_LABELS, 156, &font_24x48, SCREEN_RED, false, 0, 0},
   {SCREEN_TEXT_FILE0, 252, &font_32x64, SCREEN_WHITE, false, 0, 0},
@@ -48,6 +49,7 @@ static const screen_layout_t layout = {
   .band_h = 136,
   .band_frame = 20,
   .band_margin = 12,
+  .band_tall_h = 416,
   .band_font = &font_32x64,
   .hourglass_scale = 2,
   .places = places,

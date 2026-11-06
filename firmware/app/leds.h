@@ -4,6 +4,9 @@
 //   blue, fast blink   not connected: no host has set the device up, or
 //                      the cable is out (no VBUS)
 //   blue, slow blink   waiting for a stream
+//   blue, double blink set up at Full-Speed, where the device offers no
+//                      audio: two flashes of 100 ms, 150 ms apart, every
+//                      1.2 s; green and red off
 //   blue, steady       streaming
 // Green and red show the run (since the user button, `mark`, a pulled USB
 // cable or reset), the

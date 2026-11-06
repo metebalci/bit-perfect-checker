@@ -33,6 +33,18 @@ void leds_test(void) {
   }
 }
 
+// The double blink at Full-Speed: two flashes of DOUBLE_FLASH_MS,
+// DOUBLE_GAP_MS apart, every DOUBLE_PERIOD_MS
+#define DOUBLE_FLASH_MS  100u
+#define DOUBLE_GAP_MS    150u
+#define DOUBLE_PERIOD_MS 1200u
+
+static bool double_blink(uint32_t now) {
+  uint32_t t = now % DOUBLE_PERIOD_MS;
+  uint32_t second = DOUBLE_FLASH_MS + DOUBLE_GAP_MS;
+  return t < DOUBLE_FLASH_MS || (t >= second && t < second + DOUBLE_FLASH_MS);
+}
+
 void leds_task(void) {
   uint32_t now = board_millis();
   bool slow = ((now / 500) & 1) != 0;
@@ -40,16 +52,22 @@ void leds_task(void) {
   bool blue;
   bool green = false;
   bool red = false;
+  // Set up at Full-Speed, where the device offers no audio
+  bool full_speed = !status.streaming && status.usb != USB_NOT_MOUNTED && !status.high_speed;
 
   if (status.streaming) {
     blue = true;
+  } else if (full_speed) {
+    blue = double_blink(now);
   } else if (status.usb != USB_NOT_MOUNTED) {
     blue = slow;
   } else {
     blue = fast;
   }
-  // The run's results, the first that holds
-  if (status.run_fail) {
+  // The run's results, the first that holds; none at Full-Speed
+  if (full_speed) {
+    // green and red off
+  } else if (status.run_fail) {
     red = true;
   } else if (status.run_unknown) {
     red = slow;

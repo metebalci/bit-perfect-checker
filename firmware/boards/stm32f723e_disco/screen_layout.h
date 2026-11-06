@@ -19,7 +19,10 @@ static inline void screen_layout_init(void) {
 // font 8 px from it (NOT CONNECTED fits with 6 px at the sides); the run's
 // errors in red in a line of the middle font; the file being checked in two
 // lines of the large font, centred between the errors and the version (24
-// lines above and below); the firmware version at the bottom
+// lines above and below); the firmware version at the bottom. The tall band
+// (Full-Speed) takes 208 lines, over the errors and the file, and leaves the
+// version: its three lines of the large font fit with 4 px between them, the
+// widest (HIGH-SPEED, 160 px) with 24 px at the sides inside the frame
 static const screen_place_t places[] = {
   {SCREEN_TEXT_LABELS, 78, &font_12x24, SCREEN_RED, false, 0, 0},
   {SCREEN_TEXT_FILE0, 126, &font_16x32, SCREEN_WHITE, false, 0, 0},
@@ -31,6 +34,7 @@ static const screen_layout_t layout = {
   .band_h = 68,
   .band_frame = 10,
   .band_margin = 6,
+  .band_tall_h = 208,
   .band_font = &font_16x32,
   .places = places,
   .n_places = sizeof(places) / sizeof(places[0]),

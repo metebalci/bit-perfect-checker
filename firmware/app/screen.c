@@ -46,6 +46,9 @@ static bool band_valid;
 static screen_band_t band_target;           // the band being drawn, if band_busy
 static bool band_busy;
 static uint16_t band_step;                  // its strips, then its word's characters
+static uint16_t band_cover;                 // the lines its strips cover: its height, more to clear a
+                                            // taller band
+static uint16_t band_painted;               // the lines a band may take on the panel
 static bool splash;                         // the splash shows, until splash_end_ms
 static uint32_t splash_end_ms;
 static uint16_t clear_line;                 // the screen cleared above this line after the splash
@@ -67,7 +70,7 @@ static uint32_t redraws, logged_ms, lag_max_ms;
 #endif
 
 static bool band_equal(const screen_band_t *a, const screen_band_t *b) {
-  return a->state == b->state && a->colour == b->colour && a->hourglass == b->hourglass
+  return a->state == b->state && a->colour == b->colour && a->hourglass == b->hourglass && a->tall == b->tall
          && strcmp(a->word, b->word) == 0;
 }
 
@@ -85,13 +88,22 @@ static const char *text_of(uint8_t text, uint32_t *width) {
   return text == SCREEN_TEXT_FW ? want.fw : want.rows[text - SCREEN_TEXT_ROW0];
 }
 
+static uint16_t band_height(const screen_band_t *b) {
+  return b->tall ? lay->band_tall_h : lay->band_h;
+}
+
+// A placed text that the tall band covers while it is to show
+static bool covered(uint32_t place) {
+  return want.band.tall && lay->places[place].y < lay->band_tall_h;
+}
+
 static uint16_t band_strips(void) {
-  return (uint16_t) ((lay->band_h + STRIP_LINES - 1u) / STRIP_LINES);
+  return (uint16_t) ((band_cover + STRIP_LINES - 1u) / STRIP_LINES);
 }
 
 // The lines of a strip: STRIP_LINES, fewer in the last
 static uint16_t strip_lines(uint16_t strip) {
-  uint32_t left = (uint32_t) lay->band_h - (uint32_t) strip * STRIP_LINES;
+  uint32_t left = (uint32_t) band_cover - (uint32_t) strip * STRIP_LINES;
   return (uint16_t) (left < STRIP_LINES ? left : STRIP_LINES);
 }
 
@@ -108,14 +120,18 @@ static uint16_t area_w(void) {
 // Units
 //--------------------------------------------------------------------+
 
+// Below the band, the lines a taller band took are cleared
 static void draw_strip(const screen_band_t *b, uint16_t strip) {
   uint16_t w = area_w();
   uint16_t y0 = (uint16_t) (strip * STRIP_LINES);
   uint16_t n = strip_lines(strip);
   uint16_t f = lay->band_frame;
+  uint16_t h = band_height(b);
   panel_window(area_x(), y0, w, n);
   for (uint16_t y = y0; y < y0 + n; y++) {
-    if (y < f || y >= lay->band_h - f) {
+    if (y >= h) {
+      panel_fill(SCREEN_BLACK, w);
+    } else if (y < f || y >= h - f) {
       panel_fill(b->colour, w);
     } else {
       panel_fill(b->colour, f);
@@ -225,21 +241,37 @@ static uint16_t hourglass_x(const screen_band_t *b) {
 }
 
 // Where character i of the band's word goes: false for a space, which the
-// strips drew, and for the space a long word breaks at
+// strips drew, and for a line break. The word's lines end at each '\n';
+// a word without one that is too wide breaks at its first space.
 static bool band_glyph_at(const screen_band_t *b, uint16_t i, uint16_t *x, uint16_t *y) {
   const font_t *font = lay->band_font;
   uint32_t n = strlen(b->word);
   uint32_t fits = (area_w() - 2u * (lay->band_frame + lay->band_margin)) / font->width;
   const char *space = strchr(b->word, ' ');
-  uint32_t first = (n > fits && space != NULL) ? (uint32_t) (space - b->word) : n;  // the first line's length
-  if (b->word[i] == ' ') {
+  bool newlines = strchr(b->word, '\n') != NULL;
+  uint32_t space_break = (!newlines && n > fits && space != NULL) ? (uint32_t) (space - b->word) : n;
+  if (b->word[i] == ' ' || b->word[i] == '\n') {
     return false;
   }
-  uint32_t lines = first < n ? 2u : 1u;
-  uint32_t top = (lay->band_h - lines * font->height - (lines - 1u) * BAND_LINE_GAP) / 2u;
-  uint32_t line = i < first ? 0u : 1u;
-  uint32_t col = i < first ? i : i - first - 1u;
-  uint32_t len = i < first ? first : n - first - 1u;
+  uint32_t lines = 1;
+  uint32_t line = 0;
+  uint32_t start = 0;  // of character i's line
+  for (uint32_t k = 0; k < n; k++) {
+    if (b->word[k] == '\n' || k == space_break) {
+      lines++;
+      if (k < i) {
+        line++;
+        start = k + 1u;
+      }
+    }
+  }
+  uint32_t end = start;
+  while (end < n && b->word[end] != '\n' && end != space_break) {
+    end++;
+  }
+  uint32_t len = end - start;
+  uint32_t col = i - start;
+  uint32_t top = (band_height(b) - lines * font->height - (lines - 1u) * BAND_LINE_GAP) / 2u;
   uint32_t left = b->hourglass ? hourglass_word_x(b) : area_x() + (area_w() - len * font->width) / 2u;
   *x = (uint16_t) (left + col * font->width);
   *y = (uint16_t) (top + line * (font->height + BAND_LINE_GAP));
@@ -318,6 +350,16 @@ static bool band_next(unit_t *u) {
     band_valid = false;
     band_step = 0;
     hourglass_shown = false;  // the strips clear it
+    uint16_t h = band_height(&band_target);
+    band_cover = h > band_painted ? h : band_painted;
+    band_painted = band_cover;
+    // The texts the strips draw over: drawn again once the band is done and
+    // does not cover them
+    for (uint32_t i = 0; i < lay->n_places; i++) {
+      if (lay->places[i].y < band_cover) {
+        memset(cells[i], 0, sizeof(cells[i]));
+      }
+    }
   }
   uint16_t strips = band_strips();
   if (band_step < strips) {
@@ -337,16 +379,18 @@ static bool band_next(unit_t *u) {
   band_shown = band_target;
   band_valid = true;
   band_busy = false;
+  band_painted = band_height(&band_target);
   return false;
 }
 
 // The next character of the placed texts that differs from the panel
 static bool texts_next(unit_t *u) {
   for (; cursor < (uint32_t) lay->n_places * SCREEN_COLS; cursor++) {
+    uint32_t place = cursor / SCREEN_COLS;
     uint32_t width;
-    (void) text_of(lay->places[cursor / SCREEN_COLS].text, &width);
+    (void) text_of(lay->places[place].text, &width);
     uint32_t c = cursor % SCREEN_COLS;
-    if (c < width && cells[cursor / SCREEN_COLS][c] != cell_want(cursor / SCREEN_COLS, c)) {
+    if (c < width && !covered(place) && cells[place][c] != cell_want(place, c)) {
       *u = (unit_t) {UNIT_TEXT_GLYPH, (uint16_t) cursor};
       return true;
     }
@@ -415,7 +459,7 @@ static bool panel_differs(void) {
   for (uint32_t i = 0; i < lay->n_places; i++) {
     uint32_t width;
     (void) text_of(lay->places[i].text, &width);
-    for (uint32_t c = 0; c < width; c++) {
+    for (uint32_t c = 0; c < width && !covered(i); c++) {
       if (cells[i][c] != cell_want(i, c)) {
         return true;
       }
@@ -541,11 +585,13 @@ void screen_init(const screen_layout_t *layout) {
   cycles_per_us = board_cpu_hz() / 1000000u;
   memset(cells, ' ', sizeof(cells));  // the panel is black
   band_valid = false;
+  band_cover = lay->band_h;  // for the strip's measurement
+  band_painted = 0;
   clear_line = panel_height();
 
   // Each unit's time, drawn in black on the black panel: the longest of a
   // few, and an eighth more
-  static const screen_band_t black = {SCREEN_WAITING, SCREEN_BLACK, false, "W"};
+  static const screen_band_t black = {.state = SCREEN_WAITING, .colour = SCREEN_BLACK, .word = "W"};
   for (uint32_t k = 0; k < 3u + lay->n_places; k++) {
     uint32_t longest = 0;
     for (int i = 0; i < 4; i++) {
@@ -633,6 +679,7 @@ void screen_task(void) {
     splash = false;
     clear_line = 0;
     band_valid = false;
+    band_painted = 0;
     memset(cells, ' ', sizeof(cells));
     cursor = 0;
     redraw_start();

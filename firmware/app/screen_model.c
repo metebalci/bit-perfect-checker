@@ -129,13 +129,21 @@ static void band(const status_t *s, screen_band_t *b) {
     [SCREEN_NOT_CONNECTED] = "NOT CONNECTED",
     [SCREEN_WAITING] = "WAITING",
     [SCREEN_CHECKING] = "CHECKING",
+    [SCREEN_FULL_SPEED] = "NEEDS\nHIGH-SPEED\nUSB PORT",
   };
-  b->state = s->streaming ? SCREEN_CHECKING : s->usb != USB_NOT_MOUNTED ? SCREEN_WAITING : SCREEN_NOT_CONNECTED;
-  b->hourglass = b->state != SCREEN_NOT_CONNECTED;
+  if (s->streaming) {
+    b->state = SCREEN_CHECKING;
+  } else if (s->usb == USB_NOT_MOUNTED) {
+    b->state = SCREEN_NOT_CONNECTED;
+  } else {
+    b->state = s->high_speed ? SCREEN_WAITING : SCREEN_FULL_SPEED;
+  }
+  b->hourglass = b->state == SCREEN_WAITING || b->state == SCREEN_CHECKING;
+  b->tall = b->state == SCREEN_FULL_SPEED;
   // The run's state, as the LEDs show it (leds.c): red for any failure,
-  // green for BIT_PERFECT only
+  // green for BIT_PERFECT only; red at Full-Speed
   bool failed = s->run_fail || s->run_unknown || s->run_overrun;
-  b->colour = failed ? SCREEN_RED : s->run_pass ? SCREEN_GREEN : SCREEN_BLUE;
+  b->colour = failed || b->tall ? SCREEN_RED : s->run_pass ? SCREEN_GREEN : SCREEN_BLUE;
   text_t word = {b->word, sizeof(b->word), 0};
   put(&word, words[b->state]);
 }
