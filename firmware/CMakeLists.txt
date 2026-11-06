@@ -44,7 +44,7 @@ option(BPC_TEST_INJECT "Test builds only: the inject console command" OFF)
 #   zlp      tinyusb-audio-out-zlp.patch (audio_device.c)
 #   iso_out  tinyusb-dwc2-iso-out-next.patch (dcd_dwc2.c)
 # or "none".
-set(BPC_TUSB_PATCHES "zlp" CACHE STRING "TinyUSB patches: a list of zlp and iso_out, or none")
+set(BPC_TUSB_PATCHES "zlp;iso_out" CACHE STRING "TinyUSB patches: a list of zlp and iso_out, or none")
 
 set(CMAKE_TOOLCHAIN_FILE ${CMAKE_CURRENT_LIST_DIR}/cmake/arm-none-eabi.cmake)
 if(NOT CMAKE_BUILD_TYPE)
