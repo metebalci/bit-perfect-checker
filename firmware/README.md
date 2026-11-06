@@ -387,7 +387,7 @@ their meaning.
 
 | Event | Meaning |
 |---|---|
-| `boot fw=<version> board=<board> usb=<vid>:<pid> allow_silence=<true/false>` | start-up, with the firmware version ([Release](#release)) and the [allowed silence](#allowed-silence) |
+| `boot fw=<version> board=<board> role=bit-perfect-checker usb=<vid>:<pid> allow_silence=<true/false>` | start-up, with the firmware version ([Release](#release)), which firmware this is (the [BPC1 generator](bpc1-generator/README.md) says `role=bpc1-generator`) and the [allowed silence](#allowed-silence) |
 | `led <colour> <pin>` | the LED test at start-up: red, green, blue, each for 0.3 s; no line for a colour the board lacks |
 | `display st7789h2 id=0x<hex> fill_us=<n>` | STM32F723E-DISCO, at start-up: the panel answered and the screen was cleared in `fill_us` microseconds; `display st7789h2 id=0x<hex> missing` if the panel did not answer (no screen is drawn) |
 | `display ltdc <w>x<h> l8 fb=0x<hex> fill_us=<n>` | STM32U5G9J-DK2, at start-up: the panel runs at that size from an 8-bit frame buffer at that address, and the screen was cleared in `fill_us` microseconds; `display ltdc missing` if the panel did not start (no screen is drawn); `display sram6 clock was off` if the frame buffer's RAM bank had no clock and the firmware switched it on |
@@ -562,7 +562,7 @@ One command per line, ended by CR or LF. Each answer is one line:
 | `mark <text>` | `mark <text>`, to tie a script's steps to the log; it also starts a new run (`run start`, [LEDs](#leds)). The echo comes at once, so a `result` line still waiting from the run before can come between `mark` and `run start`; `bpcctl` follows stream ids and is not affected |
 | `formats [<list> \| default]` | `formats <list>`; with a list, offer those formats from now on (`changed=1`, then the device reconnects; `changed=0` if they are the formats already offered); a list that is not valid answers `error formats=<text>` |
 | `allow_silence [true\|false]` | `allow_silence <value>`; with an argument, sets the [allowed silence](#allowed-silence) for the next stream; without one, only shows the setting; another argument answers `error allow_silence=<text>` |
-| `version` | `version fw=<version> board=<board> usb=<vid>:<pid>` |
+| `version` | `version fw=<version> board=<board> role=bit-perfect-checker usb=<vid>:<pid>` |
 | `stall <ms>` | test command: `stall <ms>` and then the main loop busy-waits for `<ms>` milliseconds (1 to 2000) with interrupts on, so the USB interrupt keeps filling the receive FIFO while nothing drains it; used to force `OVERRUN` on purpose. Other values answer `error stall=<value>` |
 | `help` | `help commands=status,result,mark,formats,allow_silence,version,help test=stall` |
 

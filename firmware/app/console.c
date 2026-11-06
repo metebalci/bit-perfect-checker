@@ -18,6 +18,7 @@
 #define RX_SIZE   256u  // power of two
 #define LINE_MAX  80u
 #define STALL_MAX_MS 2000u  // the test command stall: 1 to this many ms
+#define ROLE      "bit-perfect-checker"  // which firmware this is, on the boot and version lines
 
 static uint8_t rx[RX_SIZE];
 static volatile uint32_t rx_head;  // written by the interrupt
@@ -37,13 +38,13 @@ void console_rx_isr(uint8_t c) {
 }
 
 void console_version(const char *event) {
-  log_line("%s fw=%s board=%s usb=%04x:%04x", event, FW_VERSION, BOARD_NAME, (unsigned) USB_VID,
+  log_line("%s fw=%s board=%s role=" ROLE " usb=%04x:%04x", event, FW_VERSION, BOARD_NAME, (unsigned) USB_VID,
            (unsigned) USB_PID);
 }
 
 void console_boot(void) {
-  log_line("boot fw=%s board=%s usb=%04x:%04x allow_silence=%s", FW_VERSION, BOARD_NAME, (unsigned) USB_VID,
-           (unsigned) USB_PID, status.allow_silence ? "true" : "false");
+  log_line("boot fw=%s board=%s role=" ROLE " usb=%04x:%04x allow_silence=%s", FW_VERSION, BOARD_NAME,
+           (unsigned) USB_VID, (unsigned) USB_PID, status.allow_silence ? "true" : "false");
 }
 
 static const char *usb_name(usb_state_t usb) {

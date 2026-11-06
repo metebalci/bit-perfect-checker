@@ -238,9 +238,10 @@ class AllowSilenceTest(unittest.TestCase):
         self.assertEqual(self.call("true", None)[0], EXIT_NO_RESULT)
 
     def test_setting_in_json(self):
-        obj = json.loads(as_json(Line("0.1 boot fw=v1 board=nucleo usb=1209:0001 "
-                                      "allow_silence=true")))
+        obj = json.loads(as_json(Line("0.1 boot fw=v1 board=nucleo role=bit-perfect-checker "
+                                      "usb=1209:0001 allow_silence=true")))
         self.assertIs(obj["allow_silence"], True)
+        self.assertEqual(obj["role"], "bit-perfect-checker")
         obj = json.loads(as_json(Line("0.1 status formats=24/4 allow_silence=false")))
         self.assertIs(obj["allow_silence"], False)
         obj = json.loads(as_json(Line("2.0 stream stop id=3 reason=idle lost=0 ovf=0 outside=10 "

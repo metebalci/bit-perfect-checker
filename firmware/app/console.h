@@ -18,7 +18,8 @@
 //                 <list> changed=1", then the device disconnects and
 //                 reconnects ("usb disconnected", "usb connecting", "usb
 //                 mounted ..."); "changed=0" if they were offered already
-//   version       "version fw=... board=... usb=<vid>:<pid>"
+//   version       "version fw=... board=... role=bit-perfect-checker
+//                 usb=<vid>:<pid>"
 //   help          "help commands=status,result,mark,formats,allow_silence,version,help
 //                 test=stall"
 // Test command, not for normal use:
