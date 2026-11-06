@@ -2,8 +2,9 @@
 // Copyright (c) 2026 Mete Balci
 // The BPC1 generator: a USB host on the board's user USB port, which is to
 // play the BPC1 test signal to a UAC2 device such as the checker. So far it
-// sets up the High-Speed host and the port's VBUS switch, and has the
-// serial log with its commands; no class driver or isochronous code yet.
+// sets up the High-Speed host and the port's VBUS switch, reads a mounted
+// device's formats and rates (uac2_control.c), and has the serial log with
+// its commands; no isochronous code yet.
 
 #include "board.h"
 #include "board_host.h"
@@ -13,6 +14,7 @@
 #include "load.h"
 #include "log.h"
 #include "tusb.h"
+#include "uac2_control.h"
 #include "vbus_switch.h"
 
 static vbus_switch_t vbus;
@@ -27,13 +29,13 @@ const char *generator_vbus(void) {
 }
 
 void tuh_mount_cb(uint8_t daddr) {
-  (void) daddr;
   mounted = true;
+  uac2_control_mount(daddr);
 }
 
 void tuh_umount_cb(uint8_t daddr) {
-  (void) daddr;
   mounted = false;
+  uac2_control_umount(daddr);
 }
 
 // What vbus_switch.c asks for; a switch-on the board refuses (VBUS appeared
@@ -73,6 +75,7 @@ int main(void) {
   while (1) {
     load_loop();
     tuh_task();
+    uac2_control_task();
     console_task();
     vbus_act(vbus_switch_poll(&vbus, board_vbus(), board_vbus_overcurrent(), board_millis()));
     display_task();

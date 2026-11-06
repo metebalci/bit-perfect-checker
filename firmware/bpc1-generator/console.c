@@ -6,8 +6,9 @@
 // one log line:
 //
 //   status   "status usb=<mounted/not-connected> vbus=<on/fault/off>"
+//   device   the device's lines again (uac2_control_show())
 //   version  "version fw=... board=... role=bpc1-generator"
-//   help     "help commands=status,version,help"
+//   help     "help commands=status,device,version,help"
 //
 // Anything else gets "error unknown-command=<word>" or "error line-too-long".
 
@@ -18,6 +19,7 @@
 
 #include "generator.h"
 #include "log.h"
+#include "uac2_control.h"
 #include "version.h"
 
 #define RX_SIZE  256u  // power of two
@@ -57,10 +59,12 @@ static void run(char *cmd) {
 
   if (strcmp(cmd, "status") == 0) {
     log_line("status usb=%s vbus=%s", generator_usb_mounted() ? "mounted" : "not-connected", generator_vbus());
+  } else if (strcmp(cmd, "device") == 0) {
+    uac2_control_show();
   } else if (strcmp(cmd, "version") == 0) {
     console_version("version");
   } else if (strcmp(cmd, "help") == 0) {
-    log_line("help commands=status,version,help");
+    log_line("help commands=status,device,version,help");
   } else {
     log_line("error unknown-command=%s", cmd);
   }

@@ -31,4 +31,10 @@
 // alt settings is well over the default 256 bytes.
 #define CFG_TUH_ENUMERATION_BUFSIZE 2048
 
+// Host channels 14 and 15 (of the OTG HS core's 16, RM0431 Rev 4 32.7.3)
+// are the generator's own, for the isochronous OUT and feedback endpoints:
+// TinyUSB neither allocates them nor handles their interrupts
+// (lib/patches/tinyusb-host-reserved-channels.patch).
+#define CFG_TUH_DWC2_CHANNEL_RESERVED 0xC000u
+
 #endif

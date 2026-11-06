@@ -1,0 +1,50 @@
+TinyUSB 0.21.0, DWC2 host: channels reserved for the application.
+
+The BPC1 generator drives its isochronous OUT and feedback channels itself
+and leaves enumeration and control transfers to TinyUSB. Two places in
+hcd_dwc2.c would otherwise reach those channels: channel_alloc() could hand
+one to a TinyUSB transfer, and handle_channel_irq() walks every bit of
+HAINT and writes each channel's HCINT back to clear it, so it could clear
+an interrupt meant for the application's channel. CFG_TUH_DWC2_CHANNEL_RESERVED
+(a bit mask of channel numbers, default 0) keeps TinyUSB away from those
+channels in both places; the application handles their interrupts before it
+calls tusb_int_handler(). With the default of 0 the code does what it did.
+Only buffer DMA mode is covered: the slave mode's handle_txfifo_empty()
+still walks every channel.
+
+Applied by firmware/bpc1-generator/CMakeLists.txt to a copy in the build
+folder; the submodule stays at the release.
+
+--- a/src/portable/synopsys/dwc2/hcd_dwc2.c
++++ b/src/portable/synopsys/dwc2/hcd_dwc2.c
+@@ -45,6 +45,12 @@
+   #endif
+ 
+   #define DWC2_CHANNEL_COUNT_MAX 16u // absolute max channel count
++
++  // Channels the application drives itself: never allocated here, and their interrupts left to the application
++  #ifndef CFG_TUH_DWC2_CHANNEL_RESERVED
++    #define CFG_TUH_DWC2_CHANNEL_RESERVED 0u
++  #endif
++
+ TU_VERIFY_STATIC(CFG_TUH_DWC2_ENDPOINT_MAX <= 255, "currently only use 8-bit for index");
+ 
+ enum {
+@@ -167,7 +173,7 @@
+   const uint8_t max_channel = dwc2_channel_count(dwc2);
+   for (uint8_t ch_id = 0; ch_id < max_channel; ch_id++) {
+     hcd_xfer_t* xfer = &_hcd_data.xfer[ch_id];
+-    if (!xfer->allocated) {
++    if (!xfer->allocated && !tu_bit_test(CFG_TUH_DWC2_CHANNEL_RESERVED, ch_id)) {
+       tu_memclr(xfer, sizeof(hcd_xfer_t));
+       xfer->allocated = true;
+       return ch_id;
+@@ -1332,7 +1338,7 @@
+   const uint8_t max_channel = dwc2_channel_count(dwc2);
+ 
+   for (uint8_t ch_id = 0; ch_id < max_channel; ch_id++) {
+-    if (tu_bit_test(dwc2->haint, ch_id)) {
++    if (tu_bit_test(dwc2->haint & ~(uint32_t) CFG_TUH_DWC2_CHANNEL_RESERVED, ch_id)) {
+       dwc2_channel_t* channel = &dwc2->channel[ch_id];
+       hcd_xfer_t* xfer = &_hcd_data.xfer[ch_id];
+       TU_ASSERT(xfer->ep_id < CFG_TUH_DWC2_ENDPOINT_MAX,);
