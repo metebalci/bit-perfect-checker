@@ -676,6 +676,12 @@ iPad. macOS, Windows and Android are not tested.
 - **iPad.** No packet was lost at any rate, 768 kHz included. The iPad is
   therefore the reference test for the highest rates; whether every packet
   reaches the device depends on the host.
+- **Virtual machines are not recommended as hosts.** With the USB
+  controller passed through, the host's periodic schedule sometimes starts
+  late in a microframe or skips it; with an emulated controller, bursts of
+  packets were lost. Either way the checker reports losses that belong to
+  the virtualisation, not to the player under test, so a test host drives
+  its USB controller itself.
 - Two behaviours the tested hosts never show are tested with a test player
   that drives the device through libusb: zero-length audio packets, and a
   rate change while a stream stays open (the tested hosts close the stream,

@@ -76,7 +76,12 @@ test files.
    NUCLEO and the DK2, micro-AB on the F723). Connect both. The user USB
    port needs USB 2.0 High-Speed all the way to the host to play: port, hub
    and cable. At Full-Speed the checker enumerates, as USB 2.0 requires, but
-   offers no audio, so the host has nothing to play to. The boards' details,
+   offers no audio, so the host has nothing to play to. Play from a host
+   that drives its USB controller itself, not from a virtual machine: with
+   the controller passed through, the host's schedule sent some packets late
+   or skipped them, and with an emulated controller it lost bursts of
+   packets ([measurements](docs/measurements.md)), so the checker reports
+   losses that belong to the setup, not to the player. The boards' details,
    and what the screens show, are in the
    [firmware README](firmware/README.md).
 2. **The firmware.** Build and flash it yourself with ARM GCC, CMake, Ninja

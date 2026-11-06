@@ -40,6 +40,11 @@ the host sends, and checks every frame against the test signal:
   interface, with no streaming interface. It logs `usb mounted speed=full`,
   a screen shows `NEEDS` `HIGH-SPEED` `USB PORT` in a tall red frame, and
   the blue LED double-blinks ([LEDs](#leds)).
+- **Not from a virtual machine:** play from a host that drives its USB
+  controller itself. A virtual machine sends packets late or skips them,
+  with the controller passed through as well as with an emulated one, and
+  the device counts those as lost ([below](#tinyusb-patches),
+  [measurements](../docs/measurements.md)).
 - **Rates:** 44.1, 48, 88.2, 96, 176.4, 192, 352.8, 384, 705.6 and 768 kHz,
   stereo.
 - **Formats:** 16-bit in 2-byte slots, 24-bit in 4-byte slots, 32-bit in
