@@ -24,7 +24,7 @@ CC = shutil.which("gcc") or shutil.which("cc")
 DEVICE, CONFIGURATION, OTHER_SPEED_CONFIGURATION = 0x01, 0x02, 0x07
 
 # bcdDevice, raised with every change to the descriptors
-BCD_DEVICE = 0x0103
+BCD_DEVICE = 0x0104
 
 # The device descriptor at both speeds: USB 2.0, the IAD class codes (UAC2
 # 4.2), a 64-byte control endpoint, 16C0:27E0, one configuration
@@ -58,12 +58,26 @@ def high_speed_config(name):
     """The High-Speed configuration as the fixture holds it, read from a
     checker before the output terminal became a digital audio interface
     (0x0602, USB Audio 2.0 Terminal Types, Table 2-6) instead of a speaker
-    (0x0301)."""
+    (0x0301), and before the lock delay became zero (1 ms before)."""
     cfg = bytearray(fixture(name))
     ot = cfg.find(bytes([0x0C, 0x24, 0x03]))
     assert cfg[ot + 4:ot + 6] == bytes([0x01, 0x03])
     cfg[ot + 4:ot + 6] = bytes([0x02, 0x06])
+    for d in iso_data_ep(cfg):
+        assert cfg[d + 5:d + 8] == bytes([0x01, 0x01, 0x00])
+        cfg[d + 5:d + 8] = bytes(3)
     return bytes(cfg)
+
+
+def iso_data_ep(cfg):
+    """Offsets of the class-specific AS isochronous audio data endpoint
+    descriptors (UAC2 4.10.1.2: CS_ENDPOINT 0x25, EP_GENERAL 0x01)."""
+    offsets, i = [], 0
+    while i < len(cfg):
+        if cfg[i + 1:i + 3] == bytes([0x25, 0x01]):
+            offsets.append(i)
+        i += cfg[i]
+    return offsets
 
 
 def retyped(cfg, desc_type):
@@ -121,6 +135,21 @@ class UsbDescriptors(unittest.TestCase):
         for formats in (None, "24/3", "16/2,32/4"):
             with self.subTest(formats=formats):
                 self.assertEqual(self.descriptors(formats)[("full", "configuration")], FS_CONFIG)
+
+    def test_no_lock_delay(self):
+        """Every streaming alt setting's data endpoint has bLockDelayUnits
+        and wLockDelay zero: the endpoint is asynchronous, and UAC2 4.10.1.2
+        requires both to be zero for asynchronous endpoints. Also in the
+        other-speed configuration at Full-Speed."""
+        for formats, alts in ((None, 4), ("24/3", 1), ("16/2,32/4", 2), ("24/3,16/2", 2)):
+            with self.subTest(formats=formats):
+                d = self.descriptors(formats)
+                for cfg in (d[("high", "configuration")], d[("full", "other_speed")]):
+                    eps = iso_data_ep(cfg)
+                    self.assertEqual(len(eps), alts)
+                    for ep in eps:
+                        self.assertEqual(cfg[ep], 8)
+                        self.assertEqual(cfg[ep + 5:ep + 8], bytes(3))
 
     def test_other_speed(self):
         """The other-speed configuration is the other speed's configuration,

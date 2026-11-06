@@ -350,6 +350,29 @@ the player. On the bare-metal laptop no completion came late, so the re-arm
 patch arms there exactly what the unpatched driver arms. Windows and macOS
 were not measured for this; the iPad never lost a packet (section 4).
 
+TinyUSB's maintainer then reproduced the late completions on a matching
+setup, a NUCLEO-U5A5 behind a hub on a uPD720201 passed through to a
+virtual machine, with a wire capture, and reported in
+[pull request 4444](https://github.com/hathach/tinyusb/pull/4444):
+
+- The host's OUT tokens normally came about 7 us after the SOF, but up to
+  0.05 % of them 30 us or more after it, as late as 106 us, with no other
+  traffic ahead of them: late tokens from the host's periodic schedule,
+  which the maintainer attributes to the virtual machine's passthrough,
+  not to TinyUSB's device driver.
+- The device's handler ran 2 to 4 us after each packet ended, so the late
+  completions were not interrupt latency.
+- In the maintainer's build the re-arm patch lost more packets, not fewer:
+  30, 38 and 34 against 20, 27 and 15 per 20 s stream at 768 kHz in DMA
+  mode. The pull request was closed without merging, and the patch stays
+  local to this firmware.
+
+The measurements of section 2.10 still stand: in this firmware the re-arm
+runs in the transfer-complete interrupt, 0 to 4.5 us into the next
+microframe after a late packet, and on the PCIe controller setup the
+device's own misses went from 66, 17 and 15 to 0. The patch helps here,
+but it is not a safe general change.
+
 ### 2.13 Firmware 1.1.0 on all three boards
 
 Builds of 1.1.0 with both patches, PCIe controller setup:

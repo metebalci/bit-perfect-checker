@@ -135,14 +135,18 @@ the build. `-DBPC_TUSB_PATCHES=<list>` chooses them: `zlp`, `iso_out`, both
   re-arms for P+1 as long as P+1 has not passed; otherwise the rule is as
   before. The cost: a re-arm that lands after the host's packet of P+1 now
   waits for P+3 and loses 2 packets instead of 1. Measured, 169 of 170 late
-  re-arms on real traffic received the next packet. The patch is submitted
+  re-arms on real traffic received the next packet. The patch was offered
   to TinyUSB as
-  [pull request 4444](https://github.com/hathach/tinyusb/pull/4444), under
-  review.
+  [pull request 4444](https://github.com/hathach/tinyusb/pull/4444) and
+  closed without merging: TinyUSB's maintainer reproduced the late
+  completions on a matching setup, but in the maintainer's build the patch
+  lost more packets, not fewer, so it stays a local patch here.
 
 What the `iso_out` patch gains depends on the host. The late completions
 came from one host setup: Linux in a virtual machine with a Renesas
-uPD720201 USB 3 card passed through to it, the board behind a hub. There,
+uPD720201 USB 3 card passed through to it, the board behind a hub. A wire
+capture on such a setup showed late OUT tokens from the host's periodic
+schedule, most likely caused by the virtual machine's passthrough. There,
 without the patch, the device missed 66, 17 and 15 packets the host had sent
 (NUCLEO-U5A5ZJ-Q, STM32U5G9J-DK2 and STM32F723E-DISCO, in 40, 20 and 60
 streams at 705.6 and 768 kHz); with it, none, and every lost packet was one
@@ -154,6 +158,9 @@ Windows and macOS were not measured for this. On a host that never
 completes a packet late, the patch arms exactly what the unpatched driver
 arms. It adds about 5 % to the USB interrupt's longest run
 ([measurements](../docs/measurements.md#210-late-completions-and-the-re-arm-patch)).
+The patch helps this firmware, whose re-arm runs in the transfer-complete
+interrupt a few us into the next microframe; it is not a safe change for
+every TinyUSB device.
 
 `-DBPC_TEST_INJECT=ON`, for test builds only and never in a release, adds
 the console command `inject <every> <us>|off`, which re-arms every Nth

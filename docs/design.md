@@ -490,6 +490,8 @@ The firmware uses TinyUSB, not ST's own USB middleware.
 - A UAC2 High-Speed sink, asynchronous, with an explicit feedback endpoint that
   always sends the constant nominal rate (16.16). There is no audio clock to
   follow, so the host's USB timing paces the stream (`firmware/app/uac2.c`).
+  The data endpoint declares no lock delay, as UAC2 requires of an
+  asynchronous endpoint (4.10.1.2).
 - Four streaming alt settings: 16-bit in 2-byte slots, 24-bit in 4-byte
   slots, 32-bit in 4-byte slots and 24-bit in 3-byte slots (`16/2`, `24/4`,
   `32/4`, `24/3`), all integer PCM.
@@ -567,14 +569,17 @@ the release, has both.
   P+1 is lost although its token has not come yet. The patch notes P at the
   completion and re-arms for P+1 while P+1 has not passed. A re-arm that
   lands after the host's packet of P+1 then loses 2 packets instead of 1;
-  measured, almost every late re-arm lands before it. The patch is
-  submitted upstream.
+  measured, almost every late re-arm lands before it. TinyUSB did not take
+  the patch: in its maintainer's build, on a matching host, it lost more
+  packets, not fewer, so it is not a safe general change and stays local.
 
 What the re-arm patch gains depends on the host. Of the hosts measured,
 late completions came from one host path only, a virtual machine with a
-USB 3 card passed through and the board behind a hub; there the patch
-removes the device's own misses, so every lost packet is one the host
-skipped. On a host that never completes a packet late, such as the
+USB 3 card passed through and the board behind a hub. A wire capture on
+such a setup showed late OUT tokens from the host's periodic schedule, most
+likely caused by the passthrough. There this firmware's re-arm runs a few
+us into the next microframe, and the patch removes the device's own misses,
+so every lost packet is one the host skipped. On a host that never completes a packet late, such as the
 bare-metal Linux laptop measured, it arms exactly what the unpatched driver
 arms; an iPad lost no packet without it. It adds about 5 % to the USB
 interrupt's longest run. The highest is on the STM32F723E-DISCO at 705.6 kHz with 24-bit

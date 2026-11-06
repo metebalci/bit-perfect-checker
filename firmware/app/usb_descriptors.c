@@ -83,7 +83,10 @@ uint8_t const *tud_descriptor_device_qualifier_cb(void) {
 // One streaming alt setting, numbered 0 here and renumbered when the
 // configuration is put together: asynchronous isochronous OUT every
 // microframe, plus the explicit feedback IN endpoint polled every 8
-// microframes (1 ms).
+// microframes (1 ms). No lock delay: "For asynchronous endpoints, the clock
+// is generated internally in the audio function and is completely
+// independent. In this case, bLockDelayUnits and wLockDelay must be set to
+// zero." (USB Audio Device Class 2.0, 4.10.1.2)
 #define AS_ALT(_slot, _resolution, _epsize)                                                      \
   TUD_AUDIO20_DESC_STD_AS_INT(ITF_NUM_AUDIO_STREAMING, 0, 2, 0),                                 \
   TUD_AUDIO20_DESC_CS_AS_INT(UAC2_ENTITY_INPUT_TERMINAL, AUDIO20_CTRL_NONE, AUDIO20_FORMAT_TYPE_I, \
@@ -96,7 +99,7 @@ uint8_t const *tud_descriptor_device_qualifier_cb(void) {
                                  _epsize, 1),                                                    \
   TUD_AUDIO20_DESC_CS_AS_ISO_EP(AUDIO20_CS_AS_ISO_DATA_EP_ATT_NON_MAX_PACKETS_OK,                \
                                 AUDIO20_CTRL_NONE,                                               \
-                                AUDIO20_CS_AS_ISO_DATA_EP_LOCK_DELAY_UNIT_MILLISEC, 1),          \
+                                AUDIO20_CS_AS_ISO_DATA_EP_LOCK_DELAY_UNIT_UNDEFINED, 0),       \
   TUD_AUDIO20_DESC_STD_AS_ISO_FB_EP(EP_AUDIO_FB, 4, 4)
 
 // The streaming interface descriptor's bAlternateSetting

@@ -30,7 +30,7 @@
 #endif
 
 // Raise with every change to the descriptors, so hosts that cache them notice.
-#define USB_BCD   0x0103
+#define USB_BCD   0x0104
 
 enum {
   ITF_NUM_AUDIO_CONTROL = 0,
