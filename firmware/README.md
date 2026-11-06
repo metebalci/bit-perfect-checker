@@ -369,8 +369,8 @@ USB drive writes at the flash's start.
 
 ## Release
 
-The firmware is to be released as `bit-perfect-checker-firmware-<version>.zip`.
-The first published binary is to come with 1.1.0. The zip holds, in one
+Each firmware release, from 1.1.0 on, publishes
+`bit-perfect-checker-firmware-<version>.zip`. The zip holds, in one
 folder of its name, `bpc-<board>-<version>.bin` for every board (the flash
 image for 0x08000000), a `README.txt` on flashing and the USB ID, a
 `NOTICES.txt` with the licences and copyright notices of everything in the
