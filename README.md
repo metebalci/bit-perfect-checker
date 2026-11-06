@@ -401,7 +401,7 @@ containers (a FLAC part 1 and an ALAC part 2, for example).
 ### Automate with bpcctl
 
 `bpcctl` talks to the hardware checker over its serial port, the ST-LINK's
-virtual COM port (115200 8N1); the port is `$BPC_PORT`, default
+virtual COM port (115200 8N1); the port is `$BPC_CHECKER_PORT`, default
 `/dev/ttyACM0`. `python3 -m bpcctl monitor` prints the log. `python3 -m
 bpcctl run` plays a file and reads the results. For example, on Linux:
 

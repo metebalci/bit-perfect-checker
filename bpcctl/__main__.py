@@ -51,7 +51,7 @@ device then disconnects and reconnects; the command waits until a host has
 it mounted again, and exits 0, or 1 for an invalid list, 2 if no host
 mounts it within the timeout.
 
-The port defaults to $BPC_PORT, else /dev/ttyACM0.
+The port defaults to $BPC_CHECKER_PORT, else /dev/ttyACM0.
 """
 
 import argparse
@@ -276,7 +276,7 @@ def allow_silence(port, wanted, json_out):
 
 def main(argv=None):
     ap = argparse.ArgumentParser(prog="python3 -m bpcctl", description=__doc__.split("\n\n")[0])
-    ap.add_argument("--port", default=os.environ.get("BPC_PORT", "/dev/ttyACM0"))
+    ap.add_argument("--port", default=os.environ.get("BPC_CHECKER_PORT", "/dev/ttyACM0"))
     sub = ap.add_subparsers(dest="cmd", required=True)
     p = sub.add_parser("monitor", help="print the log")
     p.add_argument("--json", action="store_true", help="print each line as a JSON object")

@@ -5,11 +5,13 @@
 import contextlib
 import io
 import json
+import os
 import sys
 import unittest
+from unittest import mock
 
 from bpcctl.__main__ import (EXIT_COMMAND, EXIT_FAIL, EXIT_NO_RESULT, EXIT_OVERRUN, EXIT_PASS,
-                             RESULT_FIELDS, Tracker, allow_silence, as_json, exit_code,
+                             RESULT_FIELDS, Tracker, allow_silence, as_json, exit_code, main,
                              result_record, run)
 from bpcctl.port import Line
 
@@ -403,6 +405,42 @@ class RunTest(unittest.TestCase):
             "2.0 stream stop id=4 reason=idle",
             "2.1 result id=4 verdict=BIT_PERFECT frames=480")
         self.assertEqual((code, out), (EXIT_PASS, ["result id=4 verdict=BIT_PERFECT frames=480"]))
+
+
+class OpenedPort(CommandPort):
+    """Records the path main() opens, and answers nothing."""
+
+    paths = []
+
+    def __init__(self, path):
+        super().__init__(None)
+        self.paths.append(path)
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        return False
+
+
+class PortTest(unittest.TestCase):
+    def opened(self, env, argv=("version",)):
+        OpenedPort.paths = []
+        with mock.patch.dict(os.environ, env, clear=True), \
+                mock.patch("bpcctl.__main__.Port", OpenedPort), \
+                contextlib.redirect_stderr(io.StringIO()):
+            self.assertEqual(main(list(argv)), EXIT_NO_RESULT)
+        return OpenedPort.paths
+
+    def test_checker_port_from_environment(self):
+        self.assertEqual(self.opened({"BPC_CHECKER_PORT": "/dev/checker"}), ["/dev/checker"])
+
+    def test_old_variable_ignored(self):
+        self.assertEqual(self.opened({"BPC_PORT": "/dev/old"}), ["/dev/ttyACM0"])
+
+    def test_option_overrides_environment(self):
+        self.assertEqual(self.opened({"BPC_CHECKER_PORT": "/dev/checker"},
+                                     ("--port", "/dev/given", "version")), ["/dev/given"])
 
 
 if __name__ == "__main__":

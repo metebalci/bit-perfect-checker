@@ -595,7 +595,7 @@ else 4 when any is `OVERRUN` or the reporting is incomplete (a
 `stream stop` line with `results_lost` above 0, fewer result lines than its
 `results=`, or a stream unfinished at the timeout), else 0: at least one
 result arrived and all are `BIT_PERFECT`. `--json` prints each line as one JSON object. The port
-is `$BPC_PORT`, else `/dev/ttyACM0`; `--port` overrides it. Without
+is `$BPC_CHECKER_PORT`, else `/dev/ttyACM0`; `--port` overrides it. Without
 `bpcctl`, the same steps by hand: open the port, send `mark <id>`, wait
 for the echo, play, then wait for the `stream stop` line after the
 `result` lines.
