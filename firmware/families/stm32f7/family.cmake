@@ -15,13 +15,14 @@ string(REPLACE "XX" "xx" MCU_DEFINE ${MCU_DEFINE})  # stm32f723xx -> STM32F723xx
 
 add_compile_options(${CPU_FLAGS})
 # TinyUSB port 0 is OTG FS and port 1 OTG HS on the STM32F7; the device
-# runs on OTG HS
+# (the checker) and the host (the BPC1 generator) run on OTG HS
 add_compile_definitions(${MCU_DEFINE} USE_HAL_DRIVER HSE_VALUE=${HSE_VALUE}UL CFG_TUSB_MCU=OPT_MCU_STM32F7
-                        BOARD_TUD_RHPORT=1)
-# TinyUSB's USB buffers (CFG_TUD_MEM_SECTION) in DTCM, where the CPU reads
-# them at zero wait states and the OTG HS DMA reaches them through the core's
-# AHBS port; the linker script places .dtcm_usb.
-add_compile_definitions("CFG_TUD_MEM_SECTION=__attribute__((section(\".dtcm_usb\")))")
+                        BOARD_TUD_RHPORT=1 BOARD_TUH_RHPORT=1)
+# TinyUSB's USB buffers (CFG_TUD_MEM_SECTION, CFG_TUH_MEM_SECTION) in DTCM,
+# where the CPU reads them at zero wait states and the OTG HS DMA reaches
+# them through the core's AHBS port; the linker script places .dtcm_usb.
+add_compile_definitions("CFG_TUD_MEM_SECTION=__attribute__((section(\".dtcm_usb\")))"
+                        "CFG_TUH_MEM_SECTION=__attribute__((section(\".dtcm_usb\")))")
 
 # The HAL modules in use
 add_library(family_hal STATIC
@@ -40,5 +41,8 @@ target_include_directories(family_hal PUBLIC ${CMAKE_CURRENT_LIST_DIR})  # stm32
 set(FAMILY_SOURCES
   ${CMAKE_CURRENT_LIST_DIR}/family.c
   ${CMSIS_DEVICE}/Source/Templates/gcc/startup_${MCU_VARIANT}.s)
+# The BPC1 generator's USB host part, which replaces the USB device part of
+# family.c (FAMILY_USB_HOST)
+set(FAMILY_HOST_SOURCES ${CMAKE_CURRENT_LIST_DIR}/family_usb_host.c)
 
 include(${FIRMWARE}/cmake/stm32cubeprog.cmake)

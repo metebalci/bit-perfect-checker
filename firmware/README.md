@@ -11,10 +11,12 @@ are the NUCLEO-U5A5ZJ-Q, the STM32F723E-DISCO and the STM32U5G9J-DK2
 |---|---|
 | `app/` | everything that is the same on every board: USB descriptors and audio class requests, the stream probe and checker, the log and console, LED patterns, load figures, the status, and the status screen's content and drawing |
 | `bpc1/` | the BPC1 signal and the online checker engine in portable C, which host tests also build |
-| `include/` | what `app/` needs from a board ([`board.h`](include/board.h)) and from a display ([`display.h`](include/display.h)) |
+| `include/` | what `app/` needs from a board ([`board.h`](include/board.h)) and from a display ([`display.h`](include/display.h)), and what the BPC1 generator needs from a board with a USB host port ([`board_host.h`](include/board_host.h)) |
 | `families/<family>/` | one MCU family: CPU flags, ST's CMSIS and HAL modules, HAL configuration, linker scripts, and the code all boards of the family share (USB controller and PHY, log UART, tick) |
 | `boards/<board>/` | one board: `board.cmake` (family, MCU, crystal, linker script, sources) and `board.c` (clock tree, LEDs, button, VBUS, which UART is the log), and for a board with a display its panel driver, screen layout and touch driver |
 | `shields/<shield>/` | an add-on for a board, such as a display shield; none yet |
+| `bpc1-generator/` | the BPC1 generator, a USB host that is to play the BPC1 test signal to a checker: its own CMake project on the same boards and families ([its README](bpc1-generator/README.md)) |
+| `cmake/` | the toolchain file, the version stamp, the flash target, and `common.cmake`, which the checker and the BPC1 generator share |
 | `tools/` | `fontgen.py`, which turns [Spleen](https://github.com/fcambus/spleen) bitmap fonts into C arrays at build time, and `package.py`, which builds the release zip ([Release](#release)) |
 | `lib/` | pinned submodules: [TinyUSB](https://github.com/hathach/tinyusb) 0.21.0, ST's CMSIS device files ([STM32U5](https://github.com/STMicroelectronics/cmsis_device_u5), [STM32F7](https://github.com/STMicroelectronics/cmsis_device_f7)) and HAL ([STM32U5](https://github.com/STMicroelectronics/stm32u5xx_hal_driver), [STM32F7](https://github.com/STMicroelectronics/stm32f7xx_hal_driver)), Arm's [CMSIS 5](https://github.com/ARM-software/CMSIS_5) core headers, at the commits TinyUSB 0.21.0 tests with, and Spleen 2.2.0 for the screens' fonts; `patches/` holds our fix to TinyUSB ([below](#tinyusb-patch)) |
 
@@ -112,9 +114,10 @@ NUCLEO-U5A5ZJ-Q's user port is a USB-C connector.
 
 ### STM32F723E-DISCO
 
-- **Ports:** the user port is CN19 (micro-AB, USB OTG HS). Its VBUS switch
-  stays off, since the board is a device on that port, never a host. The
-  ST-LINK port is CN1, the board's default supply. The log is on USART6
+- **Ports:** the user port is CN19 (micro-AB, USB OTG HS). The checker
+  leaves the port's VBUS switch off, since it is a device on that port; the
+  [BPC1 generator](bpc1-generator/README.md) is a host there and switches it
+  on. The ST-LINK port is CN1, the board's default supply. The log is on USART6
   (PC6, PC7), behind the ST-LINK's virtual COM port.
 - **LEDs:** red LD5 (PA7), green LD6 (PB1) and blue LD1 (PA5, through the
   solder bridge SB14), as in [LEDs](#leds).

@@ -13,7 +13,12 @@
 #include "log.h"
 #include "tusb.h"
 
+// The BPC1 generator defines FAMILY_USB_HOST and links family_usb_host.c,
+// which has the USB host's versions of family_usb_init(),
+// board_usb_microframe() and OTG_HS_IRQHandler() instead of this file's.
+#ifndef FAMILY_USB_HOST
 #define USB_DEVICE ((USB_OTG_DeviceTypeDef *) (USB_OTG_HS_PERIPH_BASE + USB_OTG_DEVICE_BASE))
+#endif
 
 //--------------------------------------------------------------------+
 // Core: caches, MPU, cycle counter
@@ -101,6 +106,7 @@ uint32_t board_cpu_hz(void) {
 // USB
 //--------------------------------------------------------------------+
 
+#ifndef FAMILY_USB_HOST
 void family_usb_init(void) {
   // DM/DP (PB14/PB15) stay in their reset state, as in ST's examples: the
   // HS PHY drives them. The OTG ID and VBUS pins are left alone: this is a
@@ -120,6 +126,7 @@ void family_usb_init(void) {
 uint32_t board_usb_microframe(void) {
   return (USB_DEVICE->DSTS & USB_OTG_DSTS_FNSOF_Msk) >> USB_OTG_DSTS_FNSOF_Pos;
 }
+#endif
 
 //--------------------------------------------------------------------+
 // Log UART: sends from the transmit-empty interrupt, passes received bytes
@@ -190,11 +197,13 @@ void SysTick_Handler(void) {
   HAL_IncTick();
 }
 
+#ifndef FAMILY_USB_HOST
 void OTG_HS_IRQHandler(void) {
   uint32_t t0 = DWT->CYCCNT;
   tusb_int_handler(BOARD_TUD_RHPORT, true);
   load_isr(DWT->CYCCNT - t0);
 }
+#endif
 
 // A fault lights every LED and stops. The M7 has no stack limit register:
 // the stack sits at the bottom of DTCM, so an overflow runs off the start of

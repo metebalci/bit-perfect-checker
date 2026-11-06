@@ -89,8 +89,9 @@ void board_init(void) {
     HAL_GPIO_Init(leds[i].port, &gpio);
   }
 
-  // The OTG HS port's VBUS switch (U13, enable PH12, active high) stays
-  // off: the board is a device on that port, never a host.
+  // The OTG HS port's VBUS switch (U13, enable PH12, active high) starts
+  // off. The checker is a device on that port and leaves it off; the BPC1
+  // generator, a host there, switches it (board_host.c).
   gpio.Pin = GPIO_PIN_12;
   HAL_GPIO_WritePin(GPIOH, GPIO_PIN_12, GPIO_PIN_RESET);
   HAL_GPIO_Init(GPIOH, &gpio);
