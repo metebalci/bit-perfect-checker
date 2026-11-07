@@ -19,7 +19,8 @@ stage it was made with, because the device changed during the work:
 Verdicts are named as the spec names them now. Firmware 1.0.0 logged the
 `OVERRUN` verdict under an earlier, longer name.
 
-Nothing here was measured on macOS, Windows or Android. A bare-metal Linux
+Nothing here was played from macOS, Windows or Android; only the compliance
+test of section 7 ran on Windows. A bare-metal Linux
 laptop was used for one comparison (section 2.12), and a bare-metal Linux PC
 with an AMD controller for the check at the end of section 2.13; every other
 Linux figure comes from the virtual machine of section 1.
@@ -32,6 +33,7 @@ Contents:
 4. [iPad](#4-ipad)
 5. [Load and the receive FIFO at 768 kHz](#5-load-and-the-receive-fifo-at-768-khz)
 6. [Testing on Linux](#6-testing-on-linux)
+7. [USB-IF Chapter 9 tests](#7-usb-if-chapter-9-tests)
 
 ## 1. Setups
 
@@ -552,3 +554,13 @@ affects only the console's input.
 - Expect about 20 ms more frames than the file on a Linux stream
   (section 2.7), and a few hundred ms of zeros before a file from an iPad
   (section 4). Both are inside what the device accepts.
+
+## 7. USB-IF Chapter 9 tests
+
+USB-IF's USB3CV (USB 3 Gen X Command Verifier) on Windows 11, suite
+"Chapter 9 Tests [USB 2 devices]", all 36 tests, on firmware 1.1.1
+(`v1.1.1-5762032`) on the NUCLEO-U5A5ZJ-Q at High-Speed: passed, 0 fails,
+0 aborts. This includes the device qualifier and other-speed configuration
+requests, suspend and resume, and 150 enumerations. The only warnings came
+from the tool, which had no vendor name for 16C0. The Full-Speed run and the
+other two boards were not tested.
