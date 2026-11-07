@@ -9,8 +9,9 @@ system, USB audio stack) delivers a file bit-perfect. It consists of:
   (in WAV, FLAC, AIFF and ALAC) for DSD64 to DSD256, plus a separate
   code-sweep set and a gapless set;
 - firmware that turns a development board into a class-compliant USB Audio
-  Class 2 output device (the "DAC" from the host's point of view) that checks
-  every sample it receives, the hardware checker;
+  Class 2 (UAC2) asynchronous sink with an explicit feedback endpoint (the
+  "DAC" from the host's point of view) that checks every sample it receives,
+  the hardware checker;
 - a reference software checker, which also gives an informative diagnosis of
   what changed;
 - `bpcctl`, a client for test automation.
