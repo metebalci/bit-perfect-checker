@@ -161,11 +161,29 @@ void SysTick_Handler(void) {
   HAL_IncTick();
 }
 
+// The RX FIFO in words for the audio OUT endpoint's largest packet, as
+// TinyUSB sizes it when the endpoint opens (dcd_dwc2.c,
+// calc_device_grxfsiz(): 13 + 1 + 2 x (packet words + 1) + 2 x 9 endpoints).
+#define USB_RX_FIFO_WORDS (13u + 1u + 2u * (UAC2_EP_OUT_SZ_4BYTE / 4u + 1u) + 2u * 9u)
+
 void OTG_HS_IRQHandler(void) {
   uint32_t t0 = DWT->CYCCNT;
   usb_entry_dsts = USB_DEVICE->DSTS;
   usb_entry_doepctl = USB_AUDIO_OUT->DOEPCTL;
+  bool reset = (USB_OTG_HS->GINTSTS & USB_OTG_GINTSTS_USBRST) != 0;
   tusb_int_handler(0, true);
+  // TinyUSB's bus reset sizes the RX FIFO for EP0 alone (dfifo_device_init()).
+  // With that size, after a bus reset within frames 0-255 of the host's
+  // 2048-frame count, this controller NAKs the status stage of the next
+  // control read until frame 256, although EP0 OUT is armed: up to 127 ms,
+  // where USB 2.0 9.2.6.4 allows 50. Measured on the STM32U5A5 and U5G9,
+  // in DMA and in slave mode; the STM32F723 does not do it. With the RX
+  // FIFO kept at the audio endpoint's size from the reset on, it did not
+  // happen. TinyUSB has just flushed the FIFO, and its TX FIFOs start at
+  // the top of the FIFO RAM, far above this size.
+  if (reset && USB_OTG_HS->GRXFSIZ < USB_RX_FIFO_WORDS) {
+    USB_OTG_HS->GRXFSIZ = USB_RX_FIFO_WORDS;
+  }
   load_isr(DWT->CYCCNT - t0);
 }
 

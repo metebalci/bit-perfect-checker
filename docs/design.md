@@ -593,6 +593,14 @@ slots: 2,106 cycles, 9.8 us, within the 10 us (2,160 cycles at 216 MHz)
 budgeted for that board's interrupt. With the patch that class of streams
 reached 2,219 cycles, 10.3 us, over that budget.
 
+On the STM32U5 boards, the firmware keeps the RX FIFO at the audio OUT
+endpoint's size from each bus reset on, where TinyUSB sizes it for EP0
+alone. With the smaller FIFO, after a bus reset within frames 0 to 255 of
+the host's 2,048-frame count, the U5's controller NAKs the status stage of
+the next control read until frame 256, although the firmware has armed it.
+That took up to 127 ms, where USB 2.0 (9.2.6.4) allows 50 ms. The
+STM32F723 does not do this, and its firmware is unchanged.
+
 Handling the controller's "incomplete isochronous OUT" interrupt as well is
 not used: that interrupt comes at 80 % of the microframe, so re-arming from
 it lost the packets that arrive later in the microframe, and the device
