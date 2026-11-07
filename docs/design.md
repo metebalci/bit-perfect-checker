@@ -545,11 +545,13 @@ The firmware uses TinyUSB, not ST's own USB middleware.
 
 ### TinyUSB
 
-The submodule stays at release 0.21.0. The build applies two local patches
+The submodule stays at release 0.21.0. The build applies local patches
 from `firmware/lib/patches/` to copies of the files in the build folder. The
 submodule is not modified, and a patch that no longer applies fails the
 build. The build option `BPC_TUSB_PATCHES` selects them; the default, and
-the release, has both.
+the release, has the zero-length packet patch only. The re-arm patch is an
+option for hosts that send packets late in the microframe, such as a
+virtual machine with a passed-through USB controller.
 
 - **Zero-length packets** (`tinyusb-audio-out-zlp.patch`, the audio
   driver). USB Audio Data Formats 2.0 allows a zero-length packet in place
@@ -579,12 +581,17 @@ USB 3 card passed through and the board behind a hub. A wire capture on
 such a setup showed late OUT tokens from the host's periodic schedule, most
 likely caused by the passthrough. There this firmware's re-arm runs a few
 us into the next microframe, and the patch removes the device's own misses,
-so every lost packet is one the host skipped. On a host that never completes a packet late, such as the
-bare-metal Linux laptop measured, it arms exactly what the unpatched driver
-arms; an iPad lost no packet without it. It adds about 5 % to the USB
-interrupt's longest run. The highest is on the STM32F723E-DISCO at 705.6 kHz with 24-bit
-samples in 3-byte slots: 2,219 cycles, 10.3 us, within the 11 us (2,376
-cycles at 216 MHz) budgeted for that board's interrupt.
+so every lost packet is one the host skipped. On the bare-metal hosts
+measured, Linux with an Intel and with an AMD controller, no packet
+completed late, and the patch arms exactly what the unpatched driver arms;
+an iPad lost no packet without it. The patch is therefore not in the
+default build. Its costs: about 5 % more on the USB interrupt's longest
+run, a loss of 2 packets instead of 1 when a re-arm lands after the host's
+packet, and a rebase onto each TinyUSB update. Without it, the longest run
+is on the STM32F723E-DISCO at 705.6 kHz with 24-bit samples in 3-byte
+slots: 2,106 cycles, 9.8 us, within the 10 us (2,160 cycles at 216 MHz)
+budgeted for that board's interrupt. With the patch that class of streams
+reached 2,219 cycles, 10.3 us, over that budget.
 
 Handling the controller's "incomplete isochronous OUT" interrupt as well is
 not used: that interrupt comes at 80 % of the microframe, so re-arming from
@@ -670,9 +677,11 @@ iPad. macOS, Windows and Android are not tested.
   lost a few packets now and then. At 705.6 and 768 kHz streams lost a few
   packets each with 3- and 4-byte slots, about one in 3,800 to 17,000, in
   holes of one or two microframes, and sometimes with 2-byte slots too. With
-  firmware 1.1.0 every lost packet was one the host's controller skipped.
+  the re-arm patch every lost packet was one the host's controller skipped.
 - **Linux, a bare-metal laptop with an Intel controller.** No packet was lost
   in 15 streams at 705.6 and 768 kHz.
+- **Linux, a bare-metal PC with an AMD controller.** No packet was lost in
+  30 streams at 705.6 and 768 kHz, nor in the published WAV set.
 - **iPad.** No packet was lost at any rate, 768 kHz included. The iPad is
   therefore the reference test for the highest rates; whether every packet
   reaches the device depends on the host.

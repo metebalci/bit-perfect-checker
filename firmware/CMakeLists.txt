@@ -42,9 +42,11 @@ option(BPC_TEST_INJECT "Test builds only: the inject console command" OFF)
 
 # The TinyUSB patches in lib/patches/ that the build applies: a list of
 #   zlp      tinyusb-audio-out-zlp.patch (audio_device.c)
-#   iso_out  tinyusb-dwc2-iso-out-next.patch (dcd_dwc2.c)
-# or "none".
-set(BPC_TUSB_PATCHES "zlp;iso_out" CACHE STRING "TinyUSB patches: a list of zlp and iso_out, or none")
+#   iso_out  tinyusb-dwc2-iso-out-next.patch (dcd_dwc2.c), for hosts that
+#            send packets late in the microframe, such as a virtual machine
+#            with a passed-through USB controller
+# or "none". The default is zlp only.
+set(BPC_TUSB_PATCHES "zlp" CACHE STRING "TinyUSB patches: a list of zlp and iso_out, or none")
 
 set(CMAKE_TOOLCHAIN_FILE ${CMAKE_CURRENT_LIST_DIR}/cmake/arm-none-eabi.cmake)
 if(NOT CMAKE_BUILD_TYPE)
@@ -109,6 +111,11 @@ foreach(name IN LISTS TUSB_PATCHES)
     message(FATAL_ERROR "BPC_TUSB_PATCHES: unknown patch '${name}' (zlp, iso_out or none)")
   endif()
 endforeach()
+if(TUSB_PATCHES)
+  message(STATUS "TinyUSB patches: ${TUSB_PATCHES}")
+else()
+  message(STATUS "TinyUSB patches: none")
+endif()
 set(TUSB_PATCHED_DIR ${CMAKE_BINARY_DIR}/tinyusb-patched)
 find_program(PATCH patch REQUIRED)
 foreach(name zlp iso_out)

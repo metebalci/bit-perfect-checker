@@ -555,9 +555,10 @@ submodule in `generator/third_party/alac`.
 The firmware uses:
 
 - [TinyUSB](https://github.com/hathach/tinyusb) (MIT), by Ha Thach and
-  contributors, release 0.21.0 with two local patches, one for zero-length
-  audio packets and one for the re-arm of the isochronous OUT endpoint (see
-  the [firmware README](firmware/README.md#tinyusb-patches))
+  contributors, release 0.21.0 with a local patch for zero-length audio
+  packets, and an optional one, off by default, for the re-arm of the
+  isochronous OUT endpoint (see the
+  [firmware README](firmware/README.md#tinyusb-patches))
 - ST's CMSIS device files ([STM32U5](https://github.com/STMicroelectronics/cmsis_device_u5),
   [STM32F7](https://github.com/STMicroelectronics/cmsis_device_f7); Apache-2.0)
   and HAL ([STM32U5](https://github.com/STMicroelectronics/stm32u5xx_hal_driver),

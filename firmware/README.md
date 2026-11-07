@@ -91,8 +91,8 @@ a stream lost a few packets now and then; at 705.6 and 768 kHz streams lost a
 few packets each with 3- and 4-byte slots (about one in 3 800 to 17 000, in
 holes of one or two microframes) and sometimes with 2-byte slots too. Most
 of them were packets the host's controller skipped, two in a row; the
-few the device missed are gone with the re-arm patch
-([below](#tinyusb-patches)). A lost packet shows as `lost`, so it is told
+few the device missed came late in their microframe, and the optional
+re-arm patch removes them ([below](#tinyusb-patches)). A lost packet shows as `lost`, so it is told
 apart from an altered sample. A loss in a file's body makes the file
 `NOT_BIT_PERFECT`; a loss in its lead-in or tail is counted in `lost` but
 does not change the verdict ([12.6](../docs/bpc1.md#126-verdicts)).
@@ -109,8 +109,9 @@ selects alt 3; all 32 bits still arrive. A Linux stream carries 17 to
 The submodule stays at TinyUSB 0.21.0, unmodified. The build applies the
 patches in `lib/patches/` to copies of the files in the build folder and
 compiles those copies instead; a patch that no longer applies exactly fails
-the build. `-DBPC_TUSB_PATCHES=<list>` chooses them: `zlp`, `iso_out`, both
-(`zlp;iso_out`, the default, which firmware 1.1.0 is built with), or `none`.
+the build. `-DBPC_TUSB_PATCHES=<list>` chooses them: `zlp`, the default,
+`iso_out`, both (`zlp;iso_out`, which firmware 1.1.0 was built with), or
+`none`.
 
 - **`zlp`**,
   [`tinyusb-audio-out-zlp.patch`](lib/patches/tinyusb-audio-out-zlp.patch),
@@ -132,7 +133,9 @@ the build. `-DBPC_TUSB_PATCHES=<list>` chooses them: `zlp`, `iso_out`, both
   release contains it.
 - **`iso_out`**,
   [`tinyusb-dwc2-iso-out-next.patch`](lib/patches/tinyusb-dwc2-iso-out-next.patch),
-  on `src/portable/synopsys/dwc2/dcd_dwc2.c`. The endpoint holds one
+  on `src/portable/synopsys/dwc2/dcd_dwc2.c`, off by default: an option
+  for hosts that send packets late in the microframe, such as a virtual
+  machine with a passed-through USB controller. The endpoint holds one
   transfer at a time and is re-armed from the interrupt of each packet. The
   controller receives an isochronous OUT packet only in a microframe whose
   parity is the endpoint's EONUM bit, and TinyUSB 0.21.0 sets that bit from
@@ -161,12 +164,16 @@ streams at 705.6 and 768 kHz); with it, none, and every lost packet was one
 the host skipped. On a bare-metal Linux laptop with an Intel controller the
 NUCLEO-U5A5ZJ-Q, with the same test build as on the first host and without
 the patch, never had a late completion (the latest came 50 us into the
-microframe) and lost nothing in 15 streams, and an iPad never lost a packet.
-Windows and macOS were not measured for this. On a host that never
-completes a packet late, the patch arms exactly what the unpatched driver
-arms. It adds about 5 % to the USB interrupt's longest run
-([measurements](../docs/measurements.md#210-late-completions-and-the-re-arm-patch)).
-The patch helps this firmware, whose re-arm runs in the transfer-complete
+microframe) and lost nothing in 15 streams. A bare-metal Linux PC with an
+AMD controller, the board directly on its root port, never had one either
+(the latest came 75 us into the microframe) and lost nothing in 30 streams,
+and an iPad never lost a packet. Windows and macOS were not measured for
+this. On a host that never completes a packet late, the patch arms exactly
+what the unpatched driver arms. It adds about 5 % to the USB interrupt's
+longest run
+([measurements](../docs/measurements.md#210-late-completions-and-the-re-arm-patch))
+and must be rebased onto each TinyUSB update, so the default build leaves
+it out. The patch helps this firmware, whose re-arm runs in the transfer-complete
 interrupt a few us into the next microframe; it is not a safe change for
 every TinyUSB device.
 

@@ -20,8 +20,9 @@ Verdicts are named as the spec names them now. Firmware 1.0.0 logged the
 `OVERRUN` verdict under an earlier, longer name.
 
 Nothing here was measured on macOS, Windows or Android. A bare-metal Linux
-laptop was used for one comparison (section 2.12); every other Linux figure
-comes from the virtual machine of section 1.
+laptop was used for one comparison (section 2.12), and a bare-metal Linux PC
+with an AMD controller for the check at the end of section 2.13; every other
+Linux figure comes from the virtual machine of section 1.
 
 Contents:
 
@@ -39,6 +40,7 @@ Contents:
 | Linux, PCIe controller | A Linux virtual machine with a PCIe USB 3 card (Renesas uPD720201, driver `xhci-pci-renesas`) passed through to it. The board's user USB port was on the card, directly or behind a hub. |
 | Linux, port passthrough | The same virtual machine with the board's USB port passed through by the hypervisor, which emulates an xHCI controller. |
 | Linux, bare metal | A Linux laptop with an Intel xHCI controller, the board on a root port with no hub, playing with `aplay` to `hw:`. |
+| Linux, bare metal (AMD) | A Linux PC with an AMD FCH xHCI controller, the board on a root port with no hub, playing to `hw:`. |
 | iPad | An iPad playing the files from a player app, the board as its USB DAC. |
 
 - **Linux playback** was raw ALSA `hw:CARD=Checker` with snd-usb-audio: no
@@ -407,6 +409,10 @@ Builds of 1.1.0 with both patches, PCIe controller setup:
   `run start`.
 
 Every test passed, with 0 device misses. The load figures are in section 5.
+After 1.1.0 the default build went back to `zlp` only, because on a
+bare-metal Linux PC with an AMD controller, as on the laptop of section
+2.12, no packet completed late (the latest 75 us into the microframe), so
+`iso_out` changed nothing there.
 
 ### 2.14 Packets neither received nor counted
 
