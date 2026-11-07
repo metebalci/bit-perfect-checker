@@ -64,10 +64,13 @@ the host sends, and checks every frame against the test signal:
   from a host that only suspends the bus, and a new run starts. Without
   VBUS the device keeps its D+ pull-up off, as USB 2.0 (7.1.5.1) requires,
   also from boot; VBUS back for 50 ms turns it on (`usb connecting`), and
-  the host enumerates the device again. The pins: PC2 (VBUS_SENSE, VBUS
-  divided by 7.61, read with ADC1) on the NUCLEO-U5A5ZJ-Q, PB13 (VBUS of
-  CN19) on the STM32F723E-DISCO, and PA1 (USBC_DETECT) on the
-  STM32U5G9J-DK2.
+  the host enumerates the device again. With VBUS present at reset, the
+  device turns its pull-up on first, within 100 ms of the reset (USB 2.0
+  7.1.7.3, TSIGATT), and starts the display and the LED test after it. The
+  USB stack keeps running during both, so the host enumerates the device
+  meanwhile. The pins: PC2 (VBUS_SENSE, VBUS divided by 7.61, read with
+  ADC1) on the NUCLEO-U5A5ZJ-Q, PB13 (VBUS of CN19) on the
+  STM32F723E-DISCO, and PA1 (USBC_DETECT) on the STM32U5G9J-DK2.
 
 For each stream it counts packets and frames, the average rate, packets lost
 (microframes without a packet, and receive FIFO overflows), the bits in use,
@@ -464,7 +467,7 @@ their meaning.
 | Event | Meaning |
 |---|---|
 | `boot fw=<version> board=<board> role=bit-perfect-checker usb=<vid>:<pid> allow_silence=<true/false>` | start-up, with the firmware version ([Release](#release)), which firmware this is (the [BPC1 generator](bpc1-generator/README.md) says `role=bpc1-generator`) and the [allowed silence](#allowed-silence) |
-| `led <colour> <pin>` | the LED test at start-up: red, green, blue, each for 0.3 s; no line for a colour the board lacks |
+| `led <colour> <pin>` | the LED test at start-up, after `usb connecting` (or after the pull-up went off for want of VBUS): red, green, blue, each for 0.3 s; no line for a colour the board lacks. The host may set the device up meanwhile |
 | `display st7789h2 id=0x<hex> fill_us=<n>` | STM32F723E-DISCO, at start-up: the panel answered and the screen was cleared in `fill_us` microseconds; `display st7789h2 id=0x<hex> missing` if the panel did not answer (no screen is drawn) |
 | `display ltdc <w>x<h> l8 fb=0x<hex> fill_us=<n>` | STM32U5G9J-DK2, at start-up: the panel runs at that size from an 8-bit frame buffer at that address, and the screen was cleared in `fill_us` microseconds; `display ltdc missing` if the panel did not start (no screen is drawn); `display sram6 clock was off` if the frame buffer's RAM bank had no clock and the firmware switched it on |
 | `display green=<n>` | STM32U5G9J-DK2, after its `display ltdc` line: the panel's full green is (0, `<n>`, 0) (`PANEL_GREEN_MAX`, [Boards](#stm32u5g9j-dk2)); not logged when it is 255 |
@@ -478,7 +481,7 @@ their meaning.
 | `usb suspended`, `usb resumed` | the host suspended or resumed the bus; with VBUS still present the device stays connected. A pulled cable logs `usb suspended` first, since the USB controller sees only the bus going idle, and `usb disconnected` once VBUS has been gone for 50 ms: measured 45 to 49 ms later on the NUCLEO-U5A5ZJ-Q and the STM32U5G9J-DK2, about 0.3 s later on the STM32F723E-DISCO. The stream the pull cut stops with `reason=idle` before `usb disconnected` |
 | `usb reset` | the host reset the bus while the device was set up: an open stream stops (`reason=reset`), and the host enumerates the device again |
 | `usb disconnected`, `usb connecting` | the device leaves the bus to change its formats (the D+ pull-up goes off for 0.3 s), and comes back when that time has passed and VBUS is present |
-| `usb connecting` | VBUS is back for 50 ms after a pull, or after a boot without VBUS: the device turns its D+ pull-up on, and the host enumerates it (`usb mounted`) |
+| `usb connecting` | at start-up with VBUS present, before the LED test; or VBUS is back for 50 ms after a pull, or after a boot without VBUS: the device turns its D+ pull-up on, and the host enumerates it (`usb mounted`) |
 | `rate <Hz>` | the host set the sample rate; at boot, the rate the device reports before a host sets one (48000) |
 | `rate unsupported=<Hz>` | the host asked for a rate that is not offered (stalled) |
 | `alt <n> slot=<bytes> res=<bits>` | the host selected a streaming alt setting; `alt 0` closes it |
@@ -758,8 +761,11 @@ list(APPEND DISPLAY_SOURCES ${CMAKE_CURRENT_LIST_DIR}/display.c)
 `display_update()` gets the [status](app/status.h) after every change and
 does not draw. `display_task()` is called on every pass of the main loop and
 draws at most about 0.2 ms at a time, because the receive FIFO holds about
-5 ms of audio at 768 kHz. `display_led_test()` (optional) is called as the
-start-up LED test lights each LED, for a splash that shows the same colours.
+5 ms of audio at 768 kHz. `display_init()` runs after the device has
+attached, so it waits only with `display_wait()`, which keeps the USB stack
+running for the host's enumeration. `display_led_test()` (optional) is
+called as the start-up LED test lights each LED, for a splash that shows the
+same colours.
 The fault handler calls `board_fault()` before it stops; a board with a
 display turns its backlight off there. A board without a display builds
 `app/display_none.c` instead.

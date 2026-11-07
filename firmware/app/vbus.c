@@ -13,7 +13,7 @@ uint8_t vbus_start(vbus_t *v, bool level, uint32_t now) {
   v->present = false;
   v->connected = level;
   v->held = false;
-  return level ? 0u : VBUS_DISCONNECT;
+  return level ? VBUS_CONNECT : VBUS_DISCONNECT;
 }
 
 uint8_t vbus_poll(vbus_t *v, bool level, uint32_t now) {

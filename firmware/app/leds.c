@@ -16,21 +16,32 @@ __attribute__((weak)) void display_led_test(led_t led) {
   (void) led;
 }
 
-void leds_test(void) {
-  static const led_t order[LED_COUNT] = {LED_RED, LED_GREEN, LED_BLUE};
-  for (int i = 0; i < LED_COUNT; i++) {
-    display_led_test(order[i]);  // also for an LED the board does not have
-    const char *name = board_led_name(order[i]);
-    if (name == NULL) {
-      continue;
+// The LED test, run by leds_task() so that the main loop, tud_task()
+// included, keeps running while it lasts
+#define TEST_MS 300u  // each LED's time
+
+static const led_t test_order[LED_COUNT] = {LED_RED, LED_GREEN, LED_BLUE};
+static int test_step = LED_COUNT;  // the lit LED's place in test_order; LED_COUNT: no test
+static uint32_t test_since;
+
+// From place i on: shows each LED on the display, and lights the first the
+// board has
+static void test_next(int i, uint32_t now) {
+  for (; i < LED_COUNT; i++) {
+    display_led_test(test_order[i]);  // also for an LED the board does not have
+    const char *name = board_led_name(test_order[i]);
+    if (name != NULL) {
+      log_line("led %s", name);
+      board_led(test_order[i], true);
+      break;
     }
-    log_line("led %s", name);
-    board_led(order[i], true);
-    uint32_t t0 = board_millis();
-    while (board_millis() - t0 < 300) {
-    }
-    board_led(order[i], false);
   }
+  test_step = i;
+  test_since = now;
+}
+
+void leds_test(void) {
+  test_next(0, board_millis());
 }
 
 // The double blink at Full-Speed: two flashes of DOUBLE_FLASH_MS,
@@ -47,6 +58,16 @@ static bool double_blink(uint32_t now) {
 
 void leds_task(void) {
   uint32_t now = board_millis();
+  if (test_step < LED_COUNT) {
+    if (now - test_since < TEST_MS) {
+      return;
+    }
+    board_led(test_order[test_step], false);
+    test_next(test_step + 1, now);
+    if (test_step < LED_COUNT) {
+      return;
+    }
+  }
   bool slow = ((now / 500) & 1) != 0;
   bool fast = ((now / 125) & 1) != 0;
   bool blue;

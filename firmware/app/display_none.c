@@ -13,3 +13,9 @@ void display_update(const status_t *s) {
 
 void display_task(void) {
 }
+
+__attribute__((weak)) void display_wait(uint32_t ms) {
+  uint32_t t0 = board_millis();
+  while (board_millis() - t0 <= ms) {
+  }
+}

@@ -25,6 +25,7 @@
 
 #include "panel.h"
 
+#include "display.h"
 #include "family.h"
 #include "panel_st7789h2.h"
 
@@ -229,13 +230,13 @@ bool panel_init(void) {
 
   // Hardware reset as in ST's BSP (BSP_LCD_InitEx): low 5 ms, high 10 ms,
   // low 20 ms, high 10 ms
-  HAL_Delay(5);
+  display_wait(5);
   HAL_GPIO_WritePin(GPIOH, GPIO_PIN_7, GPIO_PIN_SET);
-  HAL_Delay(10);
+  display_wait(10);
   HAL_GPIO_WritePin(GPIOH, GPIO_PIN_7, GPIO_PIN_RESET);
-  HAL_Delay(20);
+  display_wait(20);
   HAL_GPIO_WritePin(GPIOH, GPIO_PIN_7, GPIO_PIN_SET);
-  HAL_Delay(10);
+  display_wait(10);
 
   // RDDID: a dummy read, then ID1 on D7-D0
   PANEL_REG = CMD_RDDID;
@@ -250,7 +251,7 @@ bool panel_init(void) {
     command(step->cmd, step->params, step->n);
     if (step->delay_ms != 0) {
       __DSB();  // the command is on the bus before the wait starts
-      HAL_Delay(step->delay_ms);
+      display_wait(step->delay_ms);
     }
   }
 

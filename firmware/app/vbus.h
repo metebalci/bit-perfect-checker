@@ -36,9 +36,9 @@ typedef struct {
   void (*pullup)(bool on);  // the D+ pull-up: tud_connect() or tud_disconnect()
 } vbus_ops_t;
 
-// At start, after tusb_init(), which turns the pull-up on: VBUS_DISCONNECT
-// when VBUS is absent, since a device must not pull D+ up without VBUS
-// (USB 2.0 7.1.5.1).
+// At start, after tusb_init(), which turns the pull-up on: VBUS_CONNECT when
+// VBUS is present, so that the attach is logged; VBUS_DISCONNECT when it is
+// absent, since a device must not pull D+ up without VBUS (USB 2.0 7.1.5.1).
 uint8_t vbus_start(vbus_t *v, bool level, uint32_t now);
 
 // level: board_vbus(); now: board_millis(). VBUS_GONE once each time VBUS
@@ -62,8 +62,8 @@ void vbus_hold_pullup(uint32_t ms);
 // the configuration ends (a stream's lines first), "usb disconnected" is
 // logged, whatever TinyUSB's state (a host may reset the bus as the plug
 // leaves, so the device is no longer set up when VBUS goes), a new run
-// starts, and the pull-up goes off. VBUS back, or a hold's end: the pull-up
-// goes on and "usb connecting" is logged.
+// starts, and the pull-up goes off. VBUS at start or back, or a hold's end:
+// the pull-up goes on and "usb connecting" is logged.
 void vbus_act(uint8_t act, const vbus_ops_t *ops);
 
 #endif

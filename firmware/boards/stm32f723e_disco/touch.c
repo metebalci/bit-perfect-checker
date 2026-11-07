@@ -15,6 +15,7 @@
 #include "touch.h"
 
 #include "board.h"
+#include "display.h"
 #include "family.h"
 #include "log.h"
 
@@ -154,7 +155,9 @@ static bool reg_read(uint8_t reg, uint8_t *value) {
 }
 
 void touch_init(void) {
-  while (board_millis() - released_ms < START_MS) {
+  uint32_t since = board_millis() - released_ms;
+  if (since < START_MS) {
+    display_wait(START_MS - since);
   }
   i2c_init();
 

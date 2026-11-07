@@ -21,11 +21,13 @@
 #ifndef LEDS_H
 #define LEDS_H
 
-// At start-up: red, green, then blue, each for 0.3 s, logged as "led <name>";
-// a display shows each colour too (display_led_test()).
+// At start-up, after the USB start: red, green, then blue, each for 0.3 s,
+// logged as "led <name>"; a display shows each colour too
+// (display_led_test()). Lights red and returns: leds_task() runs the rest,
+// so the main loop does not wait for it.
 void leds_test(void);
 
-// From the main loop.
+// From the main loop: the LED test while it lasts, then the status.
 void leds_task(void);
 
 #endif

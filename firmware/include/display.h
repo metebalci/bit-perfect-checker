@@ -20,6 +20,13 @@ void display_init(void);
 void display_update(const status_t *status);
 void display_task(void);
 
+// For the waits of display_init() (a panel's or touch controller's start-up
+// times): waits at least ms milliseconds. The device is attached by then,
+// and the checker keeps its USB stack running meanwhile (main.c), so that
+// the host can enumerate the device; app/display_none.c has a plain wait as
+// a default.
+void display_wait(uint32_t ms);
+
 // From the start-up LED test, as it lights each LED (also one the board does
 // not have): a display can show the same colour. Optional: app/leds.c has a
 // default that does nothing.

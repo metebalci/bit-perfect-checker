@@ -61,18 +61,33 @@ void vbus_hold_pullup(uint32_t ms) {
   vbus_act(vbus_hold(&vbus, board_millis(), ms), &vbus_ops);
 }
 
+// The waits of display_init() (display.h): the device is attached by then,
+// so the USB stack and the VBUS debounce run meanwhile, and the host can
+// enumerate the device. At least ms, as HAL_Delay() waits.
+void display_wait(uint32_t ms) {
+  uint32_t t0 = board_millis();
+  while (board_millis() - t0 <= ms) {
+    tud_task();
+    vbus_act(vbus_poll(&vbus, board_vbus(), board_millis()), &vbus_ops);
+  }
+}
+
 int main(void) {
   board_init();
   status.allow_silence = ALLOW_SILENCE_DEFAULT;
   console_boot();
   stream_run_start();
-  display_init();  // before the LED test, which the display's splash shows too
-  leds_test();
   uac2_init();
 
+  // The D+ pull-up first: with VBUS present, within 100 ms of reset (USB 2.0
+  // 7.1.7.3, TSIGATT). The display's start-up and the LED test come after
+  // it, and both keep tud_task() running, so the host can reset and
+  // enumerate the device meanwhile.
   tusb_rhport_init_t dev_init = {.role = TUSB_ROLE_DEVICE, .speed = TUSB_SPEED_HIGH};
   tusb_init(BOARD_TUD_RHPORT, &dev_init);
   vbus_act(vbus_start(&vbus, board_vbus(), board_millis()), &vbus_ops);
+  display_init();  // before the LED test, which the display's splash shows too
+  leds_test();     // started: leds_task() runs it
 
   uint32_t shown = status.version - 1;  // show the initial status
   while (1) {

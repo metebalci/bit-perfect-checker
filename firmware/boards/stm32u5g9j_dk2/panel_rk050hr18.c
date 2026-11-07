@@ -23,6 +23,7 @@
 
 #include "board.h"
 #include "clut_rgb332.h"
+#include "display.h"
 #include "family.h"
 #include "panel_rk050hr18.h"
 
@@ -275,9 +276,7 @@ bool panel_init(void) {
 
   // Panel on, then the backlight once it has had about two frames
   HAL_GPIO_WritePin(DISP_PORT, DISP_PIN, GPIO_PIN_SET);
-  uint32_t t0 = board_millis();
-  while (board_millis() - t0 < 2u * FRAME_MS + 2u) {
-  }
+  display_wait(2u * FRAME_MS + 2u);
   HAL_GPIO_WritePin(BL_PORT, BL_PIN, GPIO_PIN_SET);
 
   // Flags from the start-up do not count

@@ -37,6 +37,7 @@
 #include "touch.h"
 
 #include "board.h"
+#include "display.h"
 #include "family.h"
 #include "log.h"
 
@@ -178,7 +179,9 @@ static bool int_level(void) {
 }
 
 void touch_init(void) {
-  while (board_millis() < START_MS) {
+  uint32_t now = board_millis();
+  if (now < START_MS) {
+    display_wait(START_MS - now);
   }
   i2c_init();
 
@@ -230,17 +233,17 @@ void touch_task(bool may_read) {
   }
   last_read_ms = now;
   reads++;
-  uint8_t status = 0;
+  uint8_t value = 0;  // REG_STATUS
   bool level = int_level();
-  bool ok = reg_read(REG_STATUS, &status, 1u);
-  if (!ok || (status & STATUS_READY) == 0u) {
+  bool ok = reg_read(REG_STATUS, &value, 1u);
+  if (!ok || (value & STATUS_READY) == 0u) {
     if (ok) {
       int_idle = level;  // no report pending: INT is at rest
     }
     transfer_done(ok);
     return;
   }
-  down = (status & STATUS_TOUCHES) != 0u;
+  down = (value & STATUS_TOUCHES) != 0u;
   if (down) {
     last_down_ms = now;
   }
