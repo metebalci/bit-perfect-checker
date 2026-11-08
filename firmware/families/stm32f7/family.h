@@ -10,6 +10,12 @@
 
 #include "stm32f7xx_hal.h"
 
+// The USB interrupt's own code, the app's included, runs from ITCM RAM (zero
+// wait states): a function marked FAMILY_ISR_CODE goes in .itcm_text, which
+// the linker script places in ITCM RAM and family_core_init() copies there
+// from flash. The families without ITCM RAM define it empty.
+#define FAMILY_ISR_CODE __attribute__((section(".itcm_text")))
+
 // First in board_init(): the I-cache (the D-cache stays off), the MPU's
 // background region and the DWT cycle counter.
 void family_core_init(void);

@@ -45,6 +45,7 @@
 
 #include "board.h"
 #include "bpc1_checker.h"
+#include "family.h"
 #include "load.h"
 #include "log.h"
 #include "status.h"
@@ -106,7 +107,7 @@ typedef struct {
 static isr_event_t isr_events[ISR_EVENTS];
 static uint32_t isr_n_events;  // the main loop changes it with interrupts off
 
-static void isr_event(int32_t lost, uint32_t uframe) {
+static FAMILY_ISR_CODE void isr_event(int32_t lost, uint32_t uframe) {
   isr_event_t *newest = isr_n_events ? &isr_events[isr_n_events - 1u] : NULL;
   bool ours = newest != NULL && newest->seq == isr.seq;
   // A doubled microframe takes back the hole before it: the packet was late,
@@ -126,7 +127,7 @@ static void isr_event(int32_t lost, uint32_t uframe) {
 // else and served the packet's completion in the same pass), this gives
 // P - 2, before the packet before; a fresh read of the microframe number
 // then gives P.
-static uint32_t packet_uframe(void) {
+static FAMILY_ISR_CODE uint32_t packet_uframe(void) {
   uint32_t fn;
   bool odd;
   board_usb_entry(&fn, &odd);
@@ -138,7 +139,7 @@ static uint32_t packet_uframe(void) {
   return uframe;
 }
 
-void stream_packet_isr(uint16_t n_bytes) {
+FAMILY_ISR_CODE void stream_packet_isr(uint16_t n_bytes) {
   // A zero-length packet carries no frames (UAC2 calls it a transfer
   // delimiter): it counts like a microframe without a packet.
   if (n_bytes == 0) {

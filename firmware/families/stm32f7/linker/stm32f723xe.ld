@@ -33,7 +33,9 @@ SECTIONS
   } > FLASH
 
   /* The USB interrupt's code: TinyUSB's DWC2 driver, device core, audio
-     class and FIFO, and memcpy. Copied from flash by family_core_init. */
+     class and FIFO, its interrupt entry, memcpy and memset, and the
+     functions marked FAMILY_ISR_CODE (family.h). Copied from flash by
+     family_core_init. */
   .itcm :
   {
     . = ALIGN(4);
@@ -42,7 +44,10 @@ SECTIONS
     *audio_device.c.obj(.text .text.*)
     *tusb_fifo.c.obj(.text .text.*)
     *usbd.c.obj(.text .text.*)
+    *tusb.c.obj(.text.tusb_int_handler)
     *:*memcpy*.o(.text .text.*)
+    *:*memset*.o(.text .text.*)
+    *(.itcm_text .itcm_text.*)
     . = ALIGN(4);
     _eitcm = .;
   } > ITCM AT > FLASH
@@ -154,4 +159,15 @@ ASSERT(audiod_xfer_isr >= _sitcm && audiod_xfer_isr < _eitcm, "audiod_xfer_isr m
 ASSERT(usbd_edpt_xfer >= _sitcm && usbd_edpt_xfer < _eitcm, "usbd_edpt_xfer must be in .itcm")
 ASSERT(tu_fifo_write_n_access_mode >= _sitcm && tu_fifo_write_n_access_mode < _eitcm,
        "tu_fifo_write_n_access_mode must be in .itcm")
+ASSERT(tusb_int_handler >= _sitcm && tusb_int_handler < _eitcm, "tusb_int_handler must be in .itcm")
 ASSERT(memcpy >= _sitcm && memcpy < _eitcm, "memcpy must be in .itcm")
+ASSERT(memset >= _sitcm && memset < _eitcm, "memset must be in .itcm")
+/* The app's part, marked FAMILY_ISR_CODE. The linker cannot name static
+   functions: packet_uframe and isr_event (stream.c) are marked too. */
+ASSERT(OTG_HS_IRQHandler >= _sitcm && OTG_HS_IRQHandler < _eitcm, "OTG_HS_IRQHandler must be in .itcm")
+ASSERT(board_usb_entry >= _sitcm && board_usb_entry < _eitcm, "board_usb_entry must be in .itcm")
+ASSERT(board_usb_microframe >= _sitcm && board_usb_microframe < _eitcm, "board_usb_microframe must be in .itcm")
+ASSERT(tud_audio_rx_done_isr >= _sitcm && tud_audio_rx_done_isr < _eitcm, "tud_audio_rx_done_isr must be in .itcm")
+ASSERT(stream_packet_isr >= _sitcm && stream_packet_isr < _eitcm, "stream_packet_isr must be in .itcm")
+ASSERT(load_isr >= _sitcm && load_isr < _eitcm, "load_isr must be in .itcm")
+ASSERT(load_fifo >= _sitcm && load_fifo < _eitcm, "load_fifo must be in .itcm")

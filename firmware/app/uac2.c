@@ -11,6 +11,7 @@
 #include <string.h>
 
 #include "board.h"
+#include "family.h"
 #include "log.h"
 #include "status.h"
 #include "stream.h"
@@ -311,8 +312,8 @@ void tud_audio_feedback_params_cb(uint8_t func_id, uint8_t alt_itf, audio_feedba
   param->sample_freq = current_rate;
 }
 
-bool tud_audio_rx_done_isr(uint8_t rhport, uint16_t n_bytes_received, uint8_t func_id, uint8_t ep_out,
-                           uint8_t cur_alt_setting) {
+FAMILY_ISR_CODE bool tud_audio_rx_done_isr(uint8_t rhport, uint16_t n_bytes_received, uint8_t func_id, uint8_t ep_out,
+                                           uint8_t cur_alt_setting) {
   (void) rhport;
   (void) func_id;
   (void) ep_out;

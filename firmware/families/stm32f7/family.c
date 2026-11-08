@@ -46,8 +46,9 @@ void family_core_init(void) {
   __DSB();
 
   // The USB interrupt's code into ITCM RAM (zero wait states), before
-  // anything calls it. memcpy is part of that code, and GCC turns a plain copy
-  // loop into a call to memcpy: the volatile pointer prevents that.
+  // anything calls it. memcpy is part of that code (memset too, in the
+  // checker), and GCC turns a plain copy loop into a call to memcpy: the
+  // volatile pointer prevents that.
   const uint32_t *src = _siitcm;
   for (volatile uint32_t *p = _sitcm; p < _eitcm; p++) {
     *p = *src++;
@@ -131,7 +132,7 @@ void family_usb_init(void) {
   NVIC_SetPriority(OTG_HS_IRQn, 1);
 }
 
-uint32_t board_usb_microframe(void) {
+FAMILY_ISR_CODE uint32_t board_usb_microframe(void) {
   return (USB_DEVICE->DSTS & USB_OTG_DSTS_FNSOF_Msk) >> USB_OTG_DSTS_FNSOF_Pos;
 }
 
@@ -140,7 +141,7 @@ uint32_t board_usb_microframe(void) {
 static uint32_t usb_entry_dsts;
 static uint32_t usb_entry_doepctl;
 
-void board_usb_entry(uint32_t *uframe, bool *odd) {
+FAMILY_ISR_CODE void board_usb_entry(uint32_t *uframe, bool *odd) {
   *uframe = (usb_entry_dsts & USB_OTG_DSTS_FNSOF_Msk) >> USB_OTG_DSTS_FNSOF_Pos;
   *odd = (usb_entry_doepctl & USB_OTG_DOEPCTL_EONUM) != 0;
 }
@@ -216,7 +217,7 @@ void SysTick_Handler(void) {
 }
 
 #ifndef FAMILY_USB_HOST
-void OTG_HS_IRQHandler(void) {
+FAMILY_ISR_CODE void OTG_HS_IRQHandler(void) {
   uint32_t t0 = DWT->CYCCNT;
   usb_entry_dsts = USB_DEVICE->DSTS;
   usb_entry_doepctl = USB_AUDIO_OUT->DOEPCTL;

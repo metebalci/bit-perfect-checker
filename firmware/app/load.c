@@ -5,6 +5,7 @@
 #include "load.h"
 
 #include "board.h"
+#include "family.h"
 
 static volatile uint32_t isr_cycles;
 static volatile uint32_t isr_max;
@@ -12,14 +13,14 @@ static volatile uint32_t fifo_max;
 static uint32_t loop_last;
 static uint32_t loop_max;
 
-void load_isr(uint32_t cycles) {
+FAMILY_ISR_CODE void load_isr(uint32_t cycles) {
   isr_cycles += cycles;
   if (cycles > isr_max) {
     isr_max = cycles;
   }
 }
 
-void load_fifo(uint32_t bytes) {
+FAMILY_ISR_CODE void load_fifo(uint32_t bytes) {
   if (bytes > fifo_max) {
     fifo_max = bytes;
   }

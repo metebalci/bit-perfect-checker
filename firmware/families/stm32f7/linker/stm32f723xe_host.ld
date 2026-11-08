@@ -34,14 +34,16 @@ SECTIONS
     KEEP(*(.isr_vector))
   } > FLASH
 
-  /* The USB interrupt's code: TinyUSB's DWC2 host driver and memcpy.
-     Copied from flash by family_core_init. */
+  /* The USB interrupt's code: TinyUSB's DWC2 host driver, memcpy and the
+     functions marked FAMILY_ISR_CODE (family.h). Copied from flash by
+     family_core_init. */
   .itcm :
   {
     . = ALIGN(4);
     _sitcm = .;
     *hcd_dwc2.c.obj(.text .text.*)
     *:*memcpy*.o(.text .text.*)
+    *(.itcm_text .itcm_text.*)
     . = ALIGN(4);
     _eitcm = .;
   } > ITCM AT > FLASH
@@ -142,3 +144,4 @@ ASSERT(_sdtcm_usb >= _estack && _edtcm_usb <= ORIGIN(DTCM) + LENGTH(DTCM),
    member would otherwise leave it in flash, silently slower */
 ASSERT(hcd_int_handler >= _sitcm && hcd_int_handler < _eitcm, "hcd_int_handler must be in .itcm")
 ASSERT(memcpy >= _sitcm && memcpy < _eitcm, "memcpy must be in .itcm")
+ASSERT(load_isr >= _sitcm && load_isr < _eitcm, "load_isr must be in .itcm")

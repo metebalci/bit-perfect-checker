@@ -9,6 +9,10 @@
 
 #include "stm32u5xx_hal.h"
 
+// The STM32U5 has no ITCM RAM: the USB interrupt's code stays in flash
+// (FAMILY_ISR_CODE, see families/stm32f7/family.h).
+#define FAMILY_ISR_CODE
+
 // First in board_init(): the stack limit (MSPLIM) and the DWT cycle counter.
 void family_core_init(void);
 
