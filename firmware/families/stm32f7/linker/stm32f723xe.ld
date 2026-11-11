@@ -8,8 +8,9 @@
    - The USB interrupt's code runs from ITCM RAM (zero wait states); the
      first 32 bytes stay unused, for the MPU's NULL guard.
    - The stack takes the bottom 16 KB of DTCM, so that an overflow runs off
-     the start of RAM instead of into data; above it the USB buffers and the
-     receive FIFO's storage. .data and .bss go in SRAM1 and SRAM2. */
+     the start of RAM instead of into data; above it the USB data: the
+     stream's class memory, the stream's queue, and u2ps's DMA memory and
+     packet-path state. .data and .bss go in SRAM1 and SRAM2. */
 
 ENTRY(Reset_Handler)
 
@@ -32,19 +33,16 @@ SECTIONS
     KEEP(*(.isr_vector))
   } > FLASH
 
-  /* The USB interrupt's code: TinyUSB's DWC2 driver, device core, audio
-     class and FIFO, its interrupt entry, memcpy and memset, and the
-     functions marked FAMILY_ISR_CODE (family.h). Copied from flash by
-     family_core_init. */
+  /* The USB interrupt's code: u2ps's packet path (section .text.u2ps_fast:
+     the DWC2 port's interrupt handler, its stream passes, the device
+     stack's packet, hole and release functions and the feedback value),
+     memcpy and memset, and the functions marked FAMILY_ISR_CODE
+     (family.h). Copied from flash by family_core_init. */
   .itcm :
   {
     . = ALIGN(4);
     _sitcm = .;
-    *dcd_dwc2.c.obj(.text .text.*)
-    *audio_device.c.obj(.text .text.*)
-    *tusb_fifo.c.obj(.text .text.*)
-    *usbd.c.obj(.text .text.*)
-    *tusb.c.obj(.text.tusb_int_handler)
+    *(.text.u2ps_fast)
     *:*memcpy*.o(.text .text.*)
     *:*memset*.o(.text .text.*)
     *(.itcm_text .itcm_text.*)
@@ -103,14 +101,23 @@ SECTIONS
     . = . + _stack_size;
   } > DTCM
 
-  /* TinyUSB's buffers (CFG_TUD_MEM_SECTION) and the audio FIFO's storage,
-     zeroed by family_core_init */
+  /* The USB data, zeroed by family_core_init: the stream's class memory
+     (FAMILY_CLASS_MEM, u2ps_glue.c), the app's other USB data
+     (FAMILY_USB_DATA: the stream's queue, stream.c), u2ps's DMA memory
+     (.bss.u2ps_dma) and its packet-path state (.bss.u2ps_fast: the DWC2
+     port's and the device stack's) */
   .dtcm_usb (NOLOAD) :
   {
     . = ALIGN(32);
     _sdtcm_usb = .;
+    _sclass_mem = .;
+    *(.dtcm_usb.class_mem)
+    _eclass_mem = .;
     *(.dtcm_usb .dtcm_usb.*)
-    *(.bss.ep_out_sw_buf)  /* audio_device.c */
+    *(.bss.u2ps_dma)
+    _su2ps_fast = .;
+    *(.bss.u2ps_fast)
+    _eu2ps_fast = .;
     . = ALIGN(4);
     _edtcm_usb = .;
   } > DTCM
@@ -146,28 +153,42 @@ ASSERT(ADDR(.stack) == _sstack && ADDR(.stack) + SIZEOF(.stack) == _estack,
        "the stack must fill the bottom of DTCM up to _estack")
 ASSERT(_sdtcm_usb >= _estack && _edtcm_usb <= ORIGIN(DTCM) + LENGTH(DTCM),
        "the USB buffers must be in DTCM, above the stack")
-/* ep_out_sw_buf is static, so its size stands for it: the FIFO alone is
-   CFG_TUD_AUDIO_FUNC_1_EP_OUT_SW_BUF_SZ (32760) bytes */
-ASSERT(_edtcm_usb - _sdtcm_usb >= 32760,
-       "the audio FIFO's storage (ep_out_sw_buf, audio_device.c) must be in .dtcm_usb")
+/* The class memory is static, so its section stands for it: at least 40
+   buffers of 800 bytes, the stride of 32/4 at 768 kHz (u2ps_glue.c) */
+ASSERT(_eclass_mem - _sclass_mem >= 40 * 800, "the class memory (u2ps_glue.c) must be in .dtcm_usb")
+/* u2ps's state is checked by its section, not by name: with U2PS_LTO its
+   variables become local symbols, which the script cannot name */
+ASSERT(_eu2ps_fast > _su2ps_fast, "u2ps's packet-path state (.bss.u2ps_fast) must be in .dtcm_usb")
 
 /* The interrupt path must be in ITCM RAM: a renamed object file or libc
    member would otherwise leave it in flash, silently slower */
-ASSERT(dcd_int_handler >= _sitcm && dcd_int_handler < _eitcm, "dcd_int_handler must be in .itcm")
-ASSERT(dcd_event_handler >= _sitcm && dcd_event_handler < _eitcm, "dcd_event_handler must be in .itcm")
-ASSERT(audiod_xfer_isr >= _sitcm && audiod_xfer_isr < _eitcm, "audiod_xfer_isr must be in .itcm")
-ASSERT(usbd_edpt_xfer >= _sitcm && usbd_edpt_xfer < _eitcm, "usbd_edpt_xfer must be in .itcm")
-ASSERT(tu_fifo_write_n_access_mode >= _sitcm && tu_fifo_write_n_access_mode < _eitcm,
-       "tu_fifo_write_n_access_mode must be in .itcm")
-ASSERT(tusb_int_handler >= _sitcm && tusb_int_handler < _eitcm, "tusb_int_handler must be in .itcm")
+ASSERT(u2ps_dwc2_dcd_irq >= _sitcm && u2ps_dwc2_dcd_irq < _eitcm, "u2ps_dwc2_dcd_irq must be in .itcm")
+ASSERT(u2ps_dev_release >= _sitcm && u2ps_dev_release < _eitcm, "u2ps_dev_release must be in .itcm")
 ASSERT(memcpy >= _sitcm && memcpy < _eitcm, "memcpy must be in .itcm")
 ASSERT(memset >= _sitcm && memset < _eitcm, "memset must be in .itcm")
-/* The app's part, marked FAMILY_ISR_CODE. The linker cannot name static
-   functions: packet_uframe and isr_event (stream.c) are marked too. */
+/* The app's part, marked FAMILY_ISR_CODE: the vector, u2ps's callbacks in
+   the USB interrupt (u2ps_glue.c; the static ev_put, ev_commit and
+   ev_simple are marked too), the stream's (stream.c) and the load
+   figures'. */
 ASSERT(OTG_HS_IRQHandler >= _sitcm && OTG_HS_IRQHandler < _eitcm, "OTG_HS_IRQHandler must be in .itcm")
-ASSERT(board_usb_entry >= _sitcm && board_usb_entry < _eitcm, "board_usb_entry must be in .itcm")
-ASSERT(board_usb_microframe >= _sitcm && board_usb_microframe < _eitcm, "board_usb_microframe must be in .itcm")
-ASSERT(tud_audio_rx_done_isr >= _sitcm && tud_audio_rx_done_isr < _eitcm, "tud_audio_rx_done_isr must be in .itcm")
+ASSERT(u2ps_app_on_packet >= _sitcm && u2ps_app_on_packet < _eitcm, "u2ps_app_on_packet must be in .itcm")
+ASSERT(u2ps_app_on_hole >= _sitcm && u2ps_app_on_hole < _eitcm, "u2ps_app_on_hole must be in .itcm")
+ASSERT(u2ps_app_on_pause >= _sitcm && u2ps_app_on_pause < _eitcm, "u2ps_app_on_pause must be in .itcm")
+ASSERT(u2ps_app_on_request >= _sitcm && u2ps_app_on_request < _eitcm, "u2ps_app_on_request must be in .itcm")
+ASSERT(u2ps_app_on_sampling_frequency >= _sitcm && u2ps_app_on_sampling_frequency < _eitcm,
+       "u2ps_app_on_sampling_frequency must be in .itcm")
+ASSERT(u2ps_app_on_configured >= _sitcm && u2ps_app_on_configured < _eitcm, "u2ps_app_on_configured must be in .itcm")
+ASSERT(u2ps_app_on_stream_start >= _sitcm && u2ps_app_on_stream_start < _eitcm,
+       "u2ps_app_on_stream_start must be in .itcm")
+ASSERT(u2ps_app_on_stream_stop >= _sitcm && u2ps_app_on_stream_stop < _eitcm,
+       "u2ps_app_on_stream_stop must be in .itcm")
+ASSERT(u2ps_app_on_fault >= _sitcm && u2ps_app_on_fault < _eitcm, "u2ps_app_on_fault must be in .itcm")
+ASSERT(u2ps_app_on_reset >= _sitcm && u2ps_app_on_reset < _eitcm, "u2ps_app_on_reset must be in .itcm")
+ASSERT(u2ps_app_on_suspend >= _sitcm && u2ps_app_on_suspend < _eitcm, "u2ps_app_on_suspend must be in .itcm")
+ASSERT(u2ps_app_on_resume >= _sitcm && u2ps_app_on_resume < _eitcm, "u2ps_app_on_resume must be in .itcm")
+ASSERT(u2ps_app_on_control >= _sitcm && u2ps_app_on_control < _eitcm, "u2ps_app_on_control must be in .itcm")
 ASSERT(stream_packet_isr >= _sitcm && stream_packet_isr < _eitcm, "stream_packet_isr must be in .itcm")
+ASSERT(stream_hole_isr >= _sitcm && stream_hole_isr < _eitcm, "stream_hole_isr must be in .itcm")
+ASSERT(stream_restart_isr >= _sitcm && stream_restart_isr < _eitcm, "stream_restart_isr must be in .itcm")
 ASSERT(load_isr >= _sitcm && load_isr < _eitcm, "load_isr must be in .itcm")
 ASSERT(load_fifo >= _sitcm && load_fifo < _eitcm, "load_fifo must be in .itcm")

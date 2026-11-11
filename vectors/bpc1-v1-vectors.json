@@ -4170,7 +4170,7 @@
      {"op": "xor", "frame": 36100, "count": 24, "value": "0xC0000000"}
     ],
     "results": [
-     {"verdict": "BIT_PERFECT", "end": "STOP", "diff": "-"}
+     {"verdict": "NOT_BIT_PERFECT", "end": "STOP", "diff": "2.102"}
     ]
    },
    {
@@ -4188,7 +4188,7 @@
      {"op": "xor", "frame": 36028, "count": 24, "value": "0xC0000000"}
     ],
     "results": [
-     {"verdict": "BIT_PERFECT", "end": "STOP", "diff": "-"},
+     {"verdict": "NOT_BIT_PERFECT", "end": "STOP", "diff": "0.737"},
      {"verdict": "UNKNOWN_SIGNAL", "end": "STOP", "diff": "-"}
     ]
    },

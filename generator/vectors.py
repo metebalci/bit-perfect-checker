@@ -624,21 +624,23 @@ def verdict_cases():
          [{"file": "pcm48_24_lead10"}, {"zeros": 3 * B}],
          [{"op": "xor", "frame": 15 * B + 3, "value": "0x00100000"}]
          + _rhdr_bits(8, {1: 0x0008, 5: 0x0002}), [(bp, None), (unk, None)]),
-        # Several R-headers give a count: the first sets the extent (12.6). The
-    # file has 28 blocks, its LAST X-sync (block 27) is erased, the last
-    # X-sync is block 26's. The lead-in R-header (block 8, not compared) is
-    # changed to spell 40 with a valid CRC: the extent covers the zeros; the
-    # body R-header's 28 does not replace it. Spelling 20, no greater than
-    # 26, it gives no count: the extent ends a block after block 26, and the
-    # body R-header's 28 does not replace that either.
+        # Several R-headers give a count: the first sets the extent and the
+    # file's declared size (12.6). The file has 28 blocks, its LAST X-sync
+    # (block 27) is erased, the last X-sync is block 26's. The lead-in
+    # R-header (block 8, not compared) is changed to spell 40 with a valid
+    # CRC: the extent covers the zeros, and the body R-header's 28 differs
+    # from the declared size, a difference at its first r5 unit. Spelling
+    # 20, no greater than 26, it disagrees with the X-syncs that arrived: a
+    # difference at its own first r5 unit; it gives no extent, which ends a
+    # block after block 26, and the body R-header's 28 does not replace it.
     ("the LAST X-sync erased, the lead-in R-header's count 40, the body R-header's 28, "
      "5 blocks of zeros after", [{"file": "pcm48_24_10_16_2"}, {"zeros": 5 * B}],
      [{"op": "and", "frame": 27 * B, "count": 8, "value": "0x00000000"}]
-     + _rhdr_bits(8, {5: 28 ^ 40}), [(bp, None)]),
+     + _rhdr_bits(8, {5: 28 ^ 40}), [(nbp, _diff(r5(24), R))]),
     ("the LAST X-sync erased, the lead-in R-header's count 20, the body R-header's 28, "
      "a block of zeros after", [{"file": "pcm48_24_10_16_2"}, {"zeros": B}],
      [{"op": "and", "frame": 27 * B, "count": 8, "value": "0x00000000"}]
-     + _rhdr_bits(8, {5: 28 ^ 20}), [(bp, None), (unk, None)]),
+     + _rhdr_bits(8, {5: 28 ^ 20}), [(nbp, _diff(r5(8), R)), (unk, None)]),
     ("the LAST X-sync erased, both R-headers' count 28, a block of zeros after",
      [{"file": "pcm48_24_10_16_2"}, {"zeros": B}],
      [{"op": "and", "frame": 27 * B, "count": 8, "value": "0x00000000"}], [(bp, None)]),

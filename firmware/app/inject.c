@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) 2026 Mete Balci
-// Late re-arms on purpose, for test builds only. See inject.h.
+// Late re-arms on purpose, for test builds only, on u2ps's injection hook
+// (u2ps_dwc2_inject(), which BPC_TEST_INJECT builds with U2PS_TEST_INJECT).
+// See inject.h.
 
 #include "inject.h"
 
@@ -10,57 +12,9 @@
 
 #include "board.h"
 #include "log.h"
-#include "tusb.h"
-#include "usb_descriptors.h"
+#include "u2ps_dwc2_dcd.h"
 
 #define INJECT_US_MAX 1000u
-
-bool __real_dcd_edpt_xfer(uint8_t rhport, uint8_t ep_addr, uint8_t *buffer, uint16_t total_bytes, bool is_isr);
-bool __wrap_dcd_edpt_xfer(uint8_t rhport, uint8_t ep_addr, uint8_t *buffer, uint16_t total_bytes, bool is_isr);
-
-static volatile uint32_t every;   // 0: off
-static volatile uint32_t wait_cycles;
-static uint32_t wait_us;
-
-// Written by the USB interrupt
-static uint32_t rearms;  // since the last injection
-static uint32_t injected, skipped, timeouts;
-static uint32_t d_min, d_max;  // cycles
-
-bool __wrap_dcd_edpt_xfer(uint8_t rhport, uint8_t ep_addr, uint8_t *buffer, uint16_t total_bytes, bool is_isr) {
-  uint32_t n = every;
-  if (n != 0u && is_isr && ep_addr == EP_AUDIO_OUT && ++rearms >= n) {
-    uint32_t fn;
-    bool odd;
-    board_usb_entry(&fn, &odd);
-    if (((fn ^ (odd ? 1u : 0u)) & 1u) == 0u && board_usb_microframe() == fn) {
-      rearms = 0;
-      uint32_t t0 = board_cycles();
-      uint32_t limit = board_cpu_hz() / 4000u;  // two microframes
-      while (board_usb_microframe() == fn && board_cycles() - t0 < limit) {
-      }
-      if (board_usb_microframe() == fn) {
-        timeouts++;
-      }
-      uint32_t t1 = board_cycles();
-      uint32_t w = wait_cycles;
-      while (board_cycles() - t1 < w) {
-      }
-      bool ok = __real_dcd_edpt_xfer(rhport, ep_addr, buffer, total_bytes, is_isr);
-      uint32_t d = board_cycles() - t1;
-      if (injected == 0u || d < d_min) {
-        d_min = d;
-      }
-      if (d > d_max) {
-        d_max = d;
-      }
-      injected++;
-      return ok;
-    }
-    skipped++;
-  }
-  return __real_dcd_edpt_xfer(rhport, ep_addr, buffer, total_bytes, is_isr);
-}
 
 static bool parse_u32(const char **s, uint32_t *v) {
   const char *p = *s;
@@ -83,9 +37,29 @@ static uint32_t ns(uint32_t cycles) {
   return (uint32_t) (((uint64_t) cycles * 1000u) / (board_cpu_hz() / 1000000u));
 }
 
+// "inject passes [clear]": u2ps's handler time by kind of pass, one line per
+// kind: passes, the longest, the mean and the sum, in DWT cycles
+static void passes(bool clear) {
+  static const char *const kinds[U2PS_DWC2_PASS_KINDS] = {
+    "reset", "ep0_stop", "fb_flush", "setup", "out", "iiso", "eopf", "other",
+  };
+  u2ps_dwc2_passes_t p;
+  u2ps_dwc2_passes_get(&p, clear);
+  for (int k = 0; k < U2PS_DWC2_PASS_KINDS; k++) {
+    // newlib-nano's printf has no 64-bit conversions: the sum in kilocycles
+    log_line("passes kind=%s n=%lu max=%lu mean=%lu sum_k=%lu", kinds[k], (unsigned long) p.n[k],
+             (unsigned long) p.max[k], (unsigned long) (p.n[k] ? p.sum[k] / p.n[k] : 0u),
+             (unsigned long) (p.sum[k] / 1000u));
+  }
+}
+
 void inject_command(const char *arg) {
+  if (arg != NULL && strncmp(arg, "passes", 6) == 0) {
+    passes(strcmp(arg, "passes clear") == 0);
+    return;
+  }
   if (arg != NULL && strcmp(arg, "off") == 0) {
-    every = 0;
+    u2ps_dwc2_inject(0, 0);
   } else if (arg != NULL) {
     const char *p = arg;
     uint32_t n, us;
@@ -93,23 +67,12 @@ void inject_command(const char *arg) {
       log_line("error inject=%s", arg);
       return;
     }
-    every = 0;
-    board_irq_disable();
-    rearms = 0;
-    injected = 0;
-    skipped = 0;
-    timeouts = 0;
-    d_min = 0;
-    d_max = 0;
-    board_irq_enable();
-    wait_us = us;
-    wait_cycles = (uint32_t) (((uint64_t) us * board_cpu_hz()) / 1000000u);
-    every = n;
+    u2ps_dwc2_inject(n, us);
   }
-  board_irq_disable();
-  uint32_t i = injected, s = skipped, t = timeouts, lo = d_min, hi = d_max;
-  board_irq_enable();
+  u2ps_dwc2_inject_t st;
+  u2ps_dwc2_inject_get(&st);
   log_line("inject every=%lu us=%lu injected=%lu skipped=%lu timeouts=%lu d_min_ns=%lu d_max_ns=%lu",
-           (unsigned long) every, (unsigned long) wait_us, (unsigned long) i, (unsigned long) s, (unsigned long) t,
-           (unsigned long) ns(lo), (unsigned long) ns(hi));
+           (unsigned long) st.every, (unsigned long) st.us, (unsigned long) st.injected,
+           (unsigned long) st.skipped, (unsigned long) st.timeouts, (unsigned long) ns(st.d_min),
+           (unsigned long) ns(st.d_max));
 }

@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) 2026 Mete Balci
 // Load figures from the CPU's cycle counter: the time the USB interrupt
-// takes, the longest main-loop iteration, and the fullest the receive FIFO
-// got. The stream code reads and resets them once per second.
+// takes, the longest main-loop iteration, and the most received audio not
+// read yet. The stream code reads and resets them once per second.
 
 #ifndef LOAD_H
 #define LOAD_H
@@ -12,8 +12,8 @@
 // From the family's USB interrupt handler: the cycles one call took.
 void load_isr(uint32_t cycles);
 
-// From the stream code in the USB interrupt: bytes waiting in the receive
-// FIFO after a packet.
+// From the stream code in the USB interrupt: bytes received and not read
+// yet after a packet.
 void load_fifo(uint32_t bytes);
 
 // From the main loop, once per iteration.

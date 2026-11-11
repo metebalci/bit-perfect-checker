@@ -13,7 +13,6 @@
 #include "load.h"
 #include "status.h"
 #include "stream.h"
-#include "tusb.h"
 #include "uac2.h"
 #include "vbus.h"
 
@@ -45,11 +44,7 @@ static vbus_t vbus;
 // the formats change (vbus_hold_pullup()); on again when VBUS is back or the
 // hold ends, and the host's reset and enumeration follow
 static void pullup(bool on) {
-  if (on) {
-    tud_connect();
-  } else {
-    tud_disconnect();
-  }
+  uac2_pullup(on);
 }
 
 // A pulled cable (vbus.h): uac2_unplug() ends the configuration, then a new
@@ -61,14 +56,22 @@ void vbus_hold_pullup(uint32_t ms) {
   vbus_act(vbus_hold(&vbus, board_millis(), ms), &vbus_ops);
 }
 
+// VBUS: debounced for the pull-up (vbus.h), and the level for u2ps
+// (uac2_vbus()): the first reading until a level has held, as vbus_start()
+// takes it
+static void vbus_task(void) {
+  vbus_act(vbus_poll(&vbus, board_vbus(), board_millis()), &vbus_ops);
+  uac2_vbus(vbus.known ? vbus.present : vbus.level);
+}
+
 // The waits of display_init() (display.h): the device is attached by then,
 // so the USB stack and the VBUS debounce run meanwhile, and the host can
 // enumerate the device. At least ms, as HAL_Delay() waits.
 void display_wait(uint32_t ms) {
   uint32_t t0 = board_millis();
   while (board_millis() - t0 <= ms) {
-    tud_task();
-    vbus_act(vbus_poll(&vbus, board_vbus(), board_millis()), &vbus_ops);
+    uac2_task();
+    vbus_task();
   }
 }
 
@@ -81,22 +84,22 @@ int main(void) {
 
   // The D+ pull-up first: with VBUS present, within 100 ms of reset (USB 2.0
   // 7.1.7.3, TSIGATT). The display's start-up and the LED test come after
-  // it, and both keep tud_task() running, so the host can reset and
+  // it, and both keep the USB stack running, so the host can reset and
   // enumerate the device meanwhile.
-  tusb_rhport_init_t dev_init = {.role = TUSB_ROLE_DEVICE, .speed = TUSB_SPEED_HIGH};
-  tusb_init(BOARD_TUD_RHPORT, &dev_init);
+  uac2_start();
   vbus_act(vbus_start(&vbus, board_vbus(), board_millis()), &vbus_ops);
+  uac2_vbus(vbus.level);
   display_init();  // before the LED test, which the display's splash shows too
   leds_test();     // started: leds_task() runs it
 
   uint32_t shown = status.version - 1;  // show the initial status
   while (1) {
     load_loop();
-    tud_task();
+    uac2_task();
     stream_task();
     console_task();
     button_task();
-    vbus_act(vbus_poll(&vbus, board_vbus(), board_millis()), &vbus_ops);
+    vbus_task();
     leds_task();
     display_task();
     if (status.version != shown) {

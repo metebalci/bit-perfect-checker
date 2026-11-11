@@ -40,6 +40,7 @@ FUZZ_TRIALS = 1500
 MULTI_TRIALS = 300
 SWEEP_TRIALS = 200
 RHDR_TRIALS = 150
+R5_TRIALS = 300
 
 _streams = {}
 
@@ -97,6 +98,39 @@ def chip_frame(cfg, k, q, offset=0):
     m = cfg.block_len // 4096
     L = (11 if cfg.rate % 44100 == 0 else 12) * m
     return k * cfg.block_len + 512 * m + q * L + offset
+
+
+def with_count(w, cfg, k, count, channels=(0, 1)):
+    """PCM words w with the R-header of block k spelling the block count
+    `count` and a CRC that passes: both chips of each r5 bit that changes,
+    and of the r6 bits that keep the CRC, negated."""
+    d = [0] * 5 + [(count ^ cfg.total_blocks) & 0xFFFF]
+    d.append(spec.crc16(spec.words_to_bytes(d)) ^ spec.crc16(spec.words_to_bytes([0] * 6)))
+    x = w.copy()
+    for i, m in enumerate(d):
+        for b in range(16):
+            if m >> (15 - b) & 1:
+                a = chip_frame(cfg, k, 13 + 2 * (16 * i + b))
+                for c in channels:
+                    x[a:a + 2 * (chip_frame(cfg, k, 1) - chip_frame(cfg, k, 0)), c] *= -1
+    return x
+
+
+def with_count_dop(w, cfg, k, count, channels=(0, 1)):
+    """DoP words w (24-bit DSD bytes in bits 23 to 8) with the R-header of
+    block k spelling the block count `count` and a CRC that passes: the DSD
+    bytes of both chips of each bit that changes inverted (0xEE <-> 0x11)."""
+    d = [0] * 5 + [(count ^ cfg.total_blocks) & 0xFFFF]
+    d.append(spec.crc16(spec.words_to_bytes(d)) ^ spec.crc16(spec.words_to_bytes([0] * 6)))
+    x = w.view(np.uint32).copy()
+    for i, m in enumerate(d):
+        for b in range(16):
+            if m >> (15 - b) & 1:
+                a = chip_frame(cfg, k, 13 + 2 * (16 * i + b)) // 16
+                n = 2 * (chip_frame(cfg, k, 1) - chip_frame(cfg, k, 0)) // 16
+                for c in channels:
+                    x[a:a + n, c] ^= np.uint32(0x00FFFF00)
+    return x.view(np.int32)
 
 
 def sweep_stream(cfg, w, size, how, p):
@@ -280,6 +314,70 @@ def rhdr_case(rng, dop):
         x = x[:at(k, CHIP_R5 + 64)]
         ops.append(("stop after chip 236", k))
     return x.view(np.int32), cfg.rate // d, 32, ops
+
+
+def r5_case(rng):
+    """A file whose R-headers, in the lead-in, the body or the tail, spell
+    random block counts with CRCs that pass, in one channel or both: PCM at
+    44.1 to 192 kHz in 16, 24 or 32 bits, or DoP at DSD64 or DSD128 in
+    24- or 32-bit slots; the LAST X-sync mostly present, sometimes erased;
+    sometimes a payload bit changed; the stream whole, stopped in the tail
+    or the LAST block, or followed by silence or by the file again. Returns
+    the stream, its rate, slot and a chunk size, and the changes."""
+    layout = rng.choice((SHORT, LONG, dict(lead_blocks=10, body_blocks=4, tail_blocks=2),
+                         dict(lead_blocks=10, body_blocks=16, tail_blocks=2),
+                         dict(lead_blocks=10, body_blocks=1, tail_blocks=10),
+                         dict(lead_blocks=2, body_blocks=4, tail_blocks=10),
+                         dict(lead_blocks=2, body_blocks=4, tail_blocks=2)))
+    dop = rng.random() < 0.35
+    if dop:
+        rate = rng.choice(spec.DSD_RATES[:2])
+        cfg, w = words(spec.KIND_DSD, rate, 1, layout)
+        rate, slot, d = rate // 16, rng.choice((24, 32)), 16
+        quiet, recount = dop_idle, with_count_dop
+    else:
+        rate, depth = rng.choice((44100, 48000, 88200, 96000, 176400, 192000)), rng.choice((16, 24, 32))
+        cfg, w = words(spec.KIND_PCM, rate, depth, layout)
+        slot, d = 32, 1
+        quiet, recount = zeros, with_count
+    B, T = frames_per_block(cfg), cfg.total_blocks
+    x, ops = w, []
+    for k in range(8, T, 16):
+        if rng.random() < 0.6:
+            n = rng.choice((T - 1, T + 1, T + 2, k, k + 1, k + 2, rng.randrange(1, 64), 0, 1, max(k - 1, 0),
+                            max(T - 3, 0), rng.randrange(0, max(T, 1))))
+            ch = rng.choice(((0, 1), (0, 1), (0,), (1,)))
+            x = recount(x, cfg, k, n, ch)
+            ops.append(("count", k, n, ch))
+    if rng.random() < 0.3:
+        x = x.copy()
+        x[(T - 1) * B:(T - 1) * B + 8 * (2 if dop else 1)] = quiet(8 * (2 if dop else 1))
+        ops.append(("LAST erased",))
+    if rng.random() < 0.2:
+        f = rng.randrange(cfg.lead_blocks * B, (cfg.lead_blocks + cfg.body_blocks) * B)
+        x = flip(x, f, rng.randrange(2), 8)
+        ops.append(("flip", f))
+    end = rng.random()
+    if end < 0.1 and T > 8:
+        n = chip_frame(cfg, 8, CHIP_R5 + 64) // d + rng.randrange(1, 251)
+        x = x[:n]
+        ops.append(("stop after the first R-header's chip 236", n))
+    elif end < 0.2:
+        n = (T - 1) * B + rng.choice((8 * (2 if dop else 1), 100, B // 2))
+        x = x[:n]
+        ops.append(("stop in the LAST block", n))
+    elif end < 0.33:
+        n = (cfg.lead_blocks + cfg.body_blocks) * B + rng.choice((8 * (2 if dop else 1), 100))
+        x = x[:n]
+        ops.append(("stop in the tail", n))
+    elif end < 0.5:
+        n = rng.choice((B // 2, B, 3 * B, 20 * B))
+        x = np.concatenate([x, quiet(n)])
+        ops.append(("silence after", n))
+    elif end < 0.7:
+        x = np.concatenate([x, w])
+        ops.append(("the file again",))
+    return x, rate, slot, rng.choice((1, 333, 4096)), ops
 
 
 def py_verify(w, rate, slot=32, silence=False):
@@ -854,6 +952,77 @@ class Checker(unittest.TestCase):
                                  want)
                 self.assertEqual(c_key(res), py_results(st.data, st.rate, st.slot_bits, sil))
 
+    def test_units_against_verify(self):
+        """The engine and checker/verify.py split a stream alike (12.6 Files
+        in a stream): every result ends at the same unit, so a file's dur
+        (from its first X-sync, the same in both) agrees, and every stretch
+        of unknown signal starts at the same unit."""
+        cfg, w = words(spec.KIND_PCM, 48000, 24, LONG)
+        B = cfg.block_len
+        _, a = words(spec.KIND_PCM, 48000, 24)
+        _, v = words(spec.KIND_PCM, 48000, 16, LONG)
+        lost0 = w.copy()
+        lost0[:8] = 0  # block 0's X-sync lost
+        v0 = v.copy()
+        v0[:8] = 0
+        rate = spec.DSD_RATES[0]
+        cp, p176 = words(spec.KIND_PCM, rate // 16, 24)
+        c3, d3 = words(spec.KIND_DSD, rate, 1)
+        d0 = d3.copy()
+        d0[:16] = dop_idle(16)  # block 0's X-sync lost
+        F = frames_per_block(c3)
+        for name, x, r in (("LAST, then unknown signal", np.concatenate([a, zeros(3 * B)]), 48000),
+                           ("LAST, then the next file", np.concatenate([a, a]), 48000),
+                           ("NEXT, the next file's block 0 X-sync lost", np.concatenate([w[: 10 * B], v0]), 48000),
+                           ("BACK, the next file's block 0 X-sync lost", np.concatenate([w[: 10 * B + 2000], lost0]), 48000),
+                           ("BACK, cut inside a block", np.concatenate([w[: 10 * B + 2000], w]), 48000),
+                           ("cut, then unknown signal", np.concatenate([w[: 10 * B], zeros(3 * B)]), 48000),
+                           ("PCM, then DoP, cut inside a block", np.concatenate([p176[: 10 * cp.block_len + 2000], d3]), rate // 16),
+                           ("DoP, then DoP, its block 0 X-sync lost", np.concatenate([d3[: 10 * F], d0]), rate // 16),
+                           # another transport: the boundary is at the next file's first X-sync seen
+                           ("PCM, then DoP, its block 0 X-sync lost", np.concatenate([p176[: 10 * cp.block_len], d0]),
+                            rate // 16)):
+            with self.subTest(name):
+                c = self.results(x, r)
+                py = py_verify(x, r)
+                self.assertEqual([(q["verdict"], q["end"], int(q["first_frame"]) + int(q["frames"])) for q in c],
+                                 [(q["verdict"], q["end"], q["first"] + q["units"]) for q in py])
+                self.assertEqual([int(q["first_frame"]) for q in c if q["verdict"] == "UNKNOWN_SIGNAL"],
+                                 [q["first"] for q in py if q["verdict"] == "UNKNOWN_SIGNAL"])
+
+    def test_diagnosis_splits_alike(self):
+        """The diagnosis (checker/check.py, by checker/exact.py split_files)
+        ends a file that another file follows where checker/verify.py does:
+        at its LAST block's end, or a cut file at the next file's first
+        X-sync (12.6 Files in a stream)."""
+        from checker import check
+        cfg, w = words(spec.KIND_PCM, 48000, 24, LONG)
+        B = cfg.block_len
+        _, a = words(spec.KIND_PCM, 48000, 24)
+        _, v = words(spec.KIND_PCM, 48000, 16, LONG)
+        v0 = v.copy()
+        v0[:8] = 0
+        lost0 = w.copy()
+        lost0[:8] = 0
+        rate = spec.DSD_RATES[0]
+        c3, d3 = words(spec.KIND_DSD, rate, 1)
+        d0 = d3.copy()
+        d0[:16] = dop_idle(16)
+        F = frames_per_block(c3)
+        for name, x, r in (("LAST, then the next file", np.concatenate([a, a]), 48000),
+                           ("NEXT, the next file's block 0 X-sync lost", np.concatenate([w[:10 * B], v0]), 48000),
+                           ("BACK, the next file's block 0 X-sync lost", np.concatenate([w[:10 * B + 2000], lost0]), 48000),
+                           ("BACK, cut inside a block", np.concatenate([w[:10 * B + 2000], w]), 48000),
+                           ("DoP, then DoP, its block 0 X-sync lost", np.concatenate([d3[:10 * F], d0]), rate // 16)):
+            with self.subTest(name):
+                x32 = np.ascontiguousarray(x)
+                st = readers.Stream(False, r, 2, x32, "test", slot_bits=32, valid_bits=32)
+                py = [q for q in verify.verify_stream(st) if q["verdict"] != "UNKNOWN_SIGNAL"]
+                dg = check.diagnose_stream(st)
+                scale = 2 if py[0]["dop"] else 1
+                self.assertEqual([d["received"]["first"] + d["received"]["units"] for d in dg[:-1]],
+                                 [scale * (q["first"] + q["units"]) for q in py[:-1]])
+
     def test_fuzz_against_verify(self):
         """Random changes (fixed seed): the same results as checker/verify.py."""
         rng = random.Random(1)
@@ -1064,16 +1233,172 @@ class Checker(unittest.TestCase):
         with self.subTest("a body left after an overrun"):
             r = self.one(w[: 10 * B], 48000, overruns=(8 * B,))
             self.assertEqual((r["verdict"], r["diff"]), ("OVERRUN", "-"))
+        # The stream stops where the overrun is (a device that told it at
+        # the end): the first unit that did not arrive is at the overrun,
+        # not before it
+        for cut in (10 * B, 10 * B + 100, 10 * B + 1):
+            with self.subTest("an overrun where the received frames end", cut=cut):
+                r = self.one(w[:cut], 48000, overruns=(cut,))
+                self.assertEqual((r["verdict"], r["diff"]), ("OVERRUN", "-"))
+        with self.subTest("a difference, then an overrun where the received frames end"):
+            r = self.one(x[: 10 * B], 48000, overruns=(10 * B,))
+            self.assertEqual((r["verdict"], r["diff"]), ("NOT_BIT_PERFECT", "0.429"))
         res = self.results(np.concatenate([a, zeros(40000), a]), 48000, overruns=(len(a) + 20000,))
         self.assertEqual([r["verdict"] for r in res], ["BIT_PERFECT", "OVERRUN", "BIT_PERFECT"])
         res = self.results(np.concatenate([a, zeros(40000)]), 48000, overruns=(len(a) + 30000,), silence=True)
         self.assertEqual([r["verdict"] for r in res], ["BIT_PERFECT", "OVERRUN"])
 
 
+    def test_overrun_at_the_stream_end(self):
+        """An overrun where the stream ends (a device that tells it at its
+        stop) stands before a unit that never came: it is the result's that
+        holds the last unit received. That is the open file's in every
+        state, OVERRUN where it would have been NOT_BIT_PERFECT and where
+        it would have passed. Outside its extent it is the stretch's after
+        it; after the file's LAST block, with no stretch after it, no
+        result's."""
+        cfg, w = words(spec.KIND_PCM, 48000, 24, LONG)
+        B = cfg.block_len  # LONG: blocks 0-1 lead-in, 2-25 body, 26-27 tail, 27 LAST
+        for name, n, without in (("in the lead-in", B + 100, ("NOT_BIT_PERFECT", "0.171", "STOP")),
+                                 ("the body done, the tail's X-sync not in", 26 * B, ("NOT_BIT_PERFECT", "2.219", "STOP")),
+                                 ("after the tail's X-sync, a passed body", 26 * B + 2000, ("BIT_PERFECT", "-", "STOP")),
+                                 ("inside the LAST block", 27 * B + 2000, ("BIT_PERFECT", "-", "LAST"))):
+            with self.subTest(name):
+                r = self.one(w[:n], 48000)
+                self.assertEqual((r["verdict"], r["diff"], r["end"]), without)
+                r = self.one(w[:n], 48000, overruns=(n,))
+                self.assertEqual((r["verdict"], r["diff"], r["end"]), ("OVERRUN", "-", without[2]))
+        with self.subTest("at the LAST block's end: no result's"):
+            res = self.results(w, 48000, overruns=(len(w),))
+            self.assertEqual([(r["verdict"], r["kind"], r["end"], r["first_frame"], r["frames"]) for r in res],
+                             [("BIT_PERFECT", "PCM", "LAST", "0", str(len(w)))])
+        with self.subTest("DoP, in the body"):
+            rate = spec.DSD_RATES[0]
+            c2, d = words(spec.KIND_DSD, rate, 1, LONG)
+            n = 10 * frames_per_block(c2) + 37
+            self.assertEqual(self.one(d[:n], rate // 16)["verdict"], "NOT_BIT_PERFECT")
+            r = self.one(d[:n], rate // 16, overruns=(n,))
+            self.assertEqual((r["verdict"], r["diff"]), ("OVERRUN", "-"))
+        _, a = words(spec.KIND_PCM, 48000, 24)
+        with self.subTest("outside the extent: the trailing stretch's"):
+            x = np.concatenate([a, zeros(3 * B)])
+            res = self.results(x, 48000, overruns=(len(x),))
+            self.assertEqual([(r["verdict"], r["end"]) for r in res], [("BIT_PERFECT", "LAST"), ("OVERRUN", "STOP")])
+        with self.subTest("where the extent ends too: the file's, no stretch after it"):
+            cfg3, a3 = words(spec.KIND_PCM, 48000, 24, dict(lead_blocks=2, body_blocks=8, tail_blocks=2))
+            x = a3.copy()
+            x[11 * B:11 * B + 8] = 0  # the LAST X-sync: the extent ends a block after block 11
+            y = np.concatenate([x, zeros(B)])  # the stream ends there, at 13 blocks
+            self.assertEqual([(r["verdict"], r["end"]) for r in self.results(y, 48000)], [("BIT_PERFECT", "STOP")])
+            res = self.results(y, 48000, overruns=(13 * B,))
+            self.assertEqual([(r["verdict"], r["end"]) for r in res], [("OVERRUN", "STOP")])
+
+    def test_overrun_boundaries(self):
+        """An overrun belongs to the result that holds the units it stands
+        before (12.6 verdict 2). A file cut without completing its LAST
+        block holds the units up to the next file's first X-sync, and an
+        overrun there; after a complete file or a stretch, an overrun at
+        the boundary is the later result's."""
+        cfg, w = words(spec.KIND_PCM, 48000, 24, LONG)
+        B = cfg.block_len
+        _, v = words(spec.KIND_PCM, 48000, 16, LONG)  # another file
+        v = v.copy()
+        v[:8] = 0  # its block 0 X-sync: its first X-sync seen is block 1's
+        nxt = np.concatenate([w[: 10 * B], v])  # NEXT: file 2 from 10 B, its first X-sync seen at 11 B
+        # the first file is cut at 11 B, the second's first X-sync seen
+        for name, over, want in (("NEXT, before the second file's start", 10 * B - 100, [("OVERRUN", "-"), ("BIT_PERFECT", "-")]),
+                                 ("NEXT, at the second file's start", 10 * B, [("OVERRUN", "-"), ("BIT_PERFECT", "-")]),
+                                 # the first file's first difference, at 10 B, came before it
+                                 ("NEXT, between the second file's start and the cut", 10 * B + 100,
+                                  [("NOT_BIT_PERFECT", "0.853"), ("BIT_PERFECT", "-")]),
+                                 ("NEXT, at the cut", 11 * B, [("NOT_BIT_PERFECT", "0.853"), ("BIT_PERFECT", "-")]),
+                                 ("NEXT, after the cut", 11 * B + 1,
+                                  [("NOT_BIT_PERFECT", "0.853"), ("OVERRUN", "-")])):
+            with self.subTest(name):
+                res = self.results(nxt, 48000, overruns=(over,))
+                self.assertEqual([(r["verdict"], r["diff"]) for r in res], want)
+                # the first file's frames end at the second's first X-sync seen
+                self.assertEqual((res[0]["end"], res[0]["frames"]), ("NEXT", str(11 * B)))
+        u = w.copy()
+        u[:8] = 0
+        back = np.concatenate([w[: 10 * B], u])  # BACK: the same file again
+        for name, over, want in (("BACK, before the second file's start", 10 * B - 1, [("OVERRUN", "-"), ("BIT_PERFECT", "-")]),
+                                 ("BACK, at the second file's start", 10 * B, [("OVERRUN", "-"), ("BIT_PERFECT", "-")])):
+            with self.subTest(name):
+                res = self.results(back, 48000, overruns=(over,))
+                self.assertEqual([(r["verdict"], r["end"], r["diff"]) for r in res][0][1], "BACK")
+                self.assertEqual([(r["verdict"], r["diff"]) for r in res], want)
+        _, a = words(spec.KIND_PCM, 48000, 24)  # SHORT: blocks 0-10, LAST at 10, its end 11 B, extent 12 B
+        n = len(a)
+        tail = np.concatenate([a, zeros(3 * B)])
+        for name, over, want in (("LAST, then unknown signal: before the end", n - 1, [("OVERRUN", "LAST"), ("UNKNOWN_SIGNAL", "STOP")]),
+                                 ("LAST, then unknown signal: at the end", n, [("BIT_PERFECT", "LAST"), ("OVERRUN", "STOP")]),
+                                 ("LAST, then unknown signal: in the margin", n + 100, [("BIT_PERFECT", "LAST"), ("OVERRUN", "STOP")])):
+            with self.subTest(name):
+                res = self.results(tail, 48000, overruns=(over,))
+                self.assertEqual([(r["verdict"], r["end"]) for r in res], want)
+        margin = np.concatenate([a, zeros(B // 2)])  # the stream ends in the margin block
+        for name, over in (("the stream's end in the margin", n + B // 2), ("in the margin, the stream ending there", n + 10)):
+            with self.subTest(name):
+                res = self.results(margin, 48000, overruns=(over,))
+                # no result's: the device shows it on its stream stop line only
+                self.assertEqual([(r["verdict"], r["kind"], r["end"], r["first_frame"], r["frames"]) for r in res],
+                                 [("BIT_PERFECT", "PCM", "LAST", "0", str(n))])
+        lead = np.concatenate([zeros(2 * B), a])  # the file's extent starts a block before its first frame, at B
+        for name, over, want in (("unknown signal, then a file: before its extent", B - 1, [("OVERRUN", "STOP"), ("BIT_PERFECT", "LAST")]),
+                                 ("unknown signal, then a file: at its extent's start", B, [("UNKNOWN_SIGNAL", "STOP"), ("OVERRUN", "LAST")]),
+                                 ("the stream's first frame", 0, [("OVERRUN", "STOP"), ("BIT_PERFECT", "LAST")])):
+            with self.subTest(name):
+                res = self.results(lead, 48000, overruns=(over,))
+                self.assertEqual([(r["verdict"], r["end"]) for r in res], want)
+        with self.subTest("the stream's first frame, a file there"):
+            self.assertEqual(self.one(a, 48000, overruns=(0,))["verdict"], "OVERRUN")
+        rate = spec.DSD_RATES[0]
+        c2, d = words(spec.KIND_DSD, rate, 1)
+        F = frames_per_block(c2)
+        nd = len(d)
+        dtail = np.concatenate([d, dop_idle(3 * F)])
+        for name, over, want in (("DoP: LAST, then idle: before the end", nd - 1, [("OVERRUN", "LAST"), ("UNKNOWN_SIGNAL", "STOP")]),
+                                 ("DoP: LAST, then idle: at the end", nd, [("BIT_PERFECT", "LAST"), ("OVERRUN", "STOP")])):
+            with self.subTest(name):
+                res = self.results(dtail, rate // 16, overruns=(over,))
+                self.assertEqual([(r["verdict"], r["end"]) for r in res], want)
+        # The next file's first X-sync inside the earlier file's latest
+        # block: the earlier file is cut there and holds an overrun at that
+        # X-sync; one after it is the next file's
+        cut = 10 * B + 2000
+        _, w2 = words(spec.KIND_PCM, 48000, 24, LONG)
+        _, v2 = words(spec.KIND_PCM, 48000, 16, LONG)
+        for name, x, want in (("BACK, cut inside a block", np.concatenate([w2[:cut], w2]), [("NOT_BIT_PERFECT", "BACK"), ("OVERRUN", "LAST")]),
+                              ("NEXT, cut inside a block", np.concatenate([w2[:cut], v2]), [("NOT_BIT_PERFECT", "NEXT"), ("OVERRUN", "LAST")]),
+                              ("the LAST block cut by the next file", np.concatenate([a[:cut], a]), [("BIT_PERFECT", "LAST"), ("OVERRUN", "LAST")])):
+            for over, first, second in ((cut - 1, "OVERRUN", "BIT_PERFECT"), (cut, "OVERRUN", "BIT_PERFECT"),
+                                        (cut + 1, want[0][0], want[1][0])):
+                with self.subTest(name, over=over - cut):
+                    res = self.results(x, 48000, overruns=(over,))
+                    self.assertEqual([(r["verdict"], r["end"]) for r in res],
+                                     [(first, want[0][1]), (second, "LAST")])
+        rate = spec.DSD_RATES[0]
+        cp, p176 = words(spec.KIND_PCM, rate // 16, 24)  # PCM at the DoP frame rate
+        c3, d3 = words(spec.KIND_DSD, rate, 1)
+        F3 = frames_per_block(c3)
+        for name, x, at in (("PCM, then DoP, cut inside a block", np.concatenate([p176[: 10 * cp.block_len + 2000], d3]),
+                             10 * cp.block_len + 2000),
+                            ("DoP, then DoP, cut inside a block", np.concatenate([d3[: 10 * F3 + 500], d3]), 10 * F3 + 500)):
+            for over, want in ((at - 1, ["OVERRUN", "BIT_PERFECT"]), (at, ["OVERRUN", "BIT_PERFECT"]),
+                               (at + 1, ["BIT_PERFECT", "OVERRUN"])):
+                with self.subTest(name, over=over - at):
+                    res = self.results(x, rate // 16, overruns=(over,))
+                    self.assertEqual([r["verdict"] for r in res], want)
+        with self.subTest("5 overruns in a file's last frames and 1 in the next, one more than the queue holds"):
+            two = np.concatenate([a, a])
+            res = self.results(two, 48000, overruns=tuple(range(n - 15, n - 10)) + (n + 1,))
+            self.assertEqual([(r["verdict"], r["end"]) for r in res], [("OVERRUN", "LAST"), ("OVERRUN", "LAST")])
+
     def test_overrun_before_the_next_file(self):
-        """An overrun in a file's units, up to the frame where they end, is
-        that file's: the gapless file after it is judged (12.6 verdict 2: its
-        units start where the earlier file's end)."""
+        """An overrun before a frame of a file's units is that file's; one
+        at the frame where a file's LAST block ends stands before the next
+        file's first frame, so it is the next file's (12.6 verdict 2)."""
         cfg, a = words(spec.KIND_PCM, 48000, 24, dict(lead_blocks=2, body_blocks=8, tail_blocks=2))
         B, n = cfg.block_len, len(a)
         x = np.concatenate([a, a])
@@ -1082,7 +1407,7 @@ class Checker(unittest.TestCase):
         for name, w, over, want in (
                 ("in the first file's last block", x, n - B // 2, [("OVERRUN", "-"), ("BIT_PERFECT", "-")]),
                 ("at its last frame", x, n - 1, [("OVERRUN", "-"), ("BIT_PERFECT", "-")]),
-                ("before the second file's first frame", x, n, [("OVERRUN", "-"), ("BIT_PERFECT", "-")]),
+                ("before the second file's first frame", x, n, [("BIT_PERFECT", "-"), ("OVERRUN", "-")]),
                 ("after the second file's first frame", x, n + 1, [("BIT_PERFECT", "-"), ("OVERRUN", "-")]),
                 ("in the first file's last block, a difference in the second", y, n - B // 2,
                  [("OVERRUN", "-"), ("NOT_BIT_PERFECT", "0.429")]),
@@ -1108,7 +1433,11 @@ class Checker(unittest.TestCase):
                  [("BIT_PERFECT", "STOP"), ("OVERRUN", "STOP")]),
                 ("at the extent's last frame", 13 * B - 1, False,
                  [("OVERRUN", "STOP"), ("UNKNOWN_SIGNAL", "STOP")]),
+                # without its LAST X-sync the file is cut: it holds its
+                # units to its extent's end, and an overrun there
                 ("at the extent's end", 13 * B, False,
+                 [("OVERRUN", "STOP"), ("UNKNOWN_SIGNAL", "STOP")]),
+                ("a frame after the extent's end", 13 * B + 1, False,
                  [("BIT_PERFECT", "STOP"), ("OVERRUN", "STOP")])):
             with self.subTest(name):
                 res = self.results(y, 48000, overruns=(over,), silence=sil)
@@ -1133,6 +1462,274 @@ class Checker(unittest.TestCase):
         # the extent: to the end of block 11 (count 12 from the R-header of block 8), and one block more
         self.assertEqual((res[0]["first_frame"], res[0]["frames"], res[0]["dur"]), ("0", str(13 * B), "1.109"))
         self.assertEqual((res[1]["first_frame"], res[1]["frames"], st["outside"]), (str(13 * B), str(2 * B), str(2 * B)))
+
+    # One span per file, and the declared size ------------------------------
+
+    def assert_units(self, x, rate, want, **kw):
+        """The engine's results (verdict, end, source unit of the first
+        difference or None) are want; without overruns checker/verify.py's
+        are too, and both end every result at the same unit."""
+        res = self.results(x, rate, **kw)
+        self.assertEqual([(r["verdict"], r["end"], int(r["diff_unit"]) if r["verdict"] == "NOT_BIT_PERFECT" else None)
+                          for r in res], want)
+        if not kw.get("overruns"):
+            py = py_verify(x, rate, kw.get("slot", 32))
+            self.assertEqual(unit_key(res), unit_key(py))
+            self.assertEqual([int(q["first_frame"]) + int(q["frames"]) for q in res], [q["first"] + q["units"] for q in py])
+        return res
+
+    def test_cut_file_holds_to_the_next_x_sync(self):
+        """A file that ends without completing its LAST block is cut: it
+        holds its units up to the next file's first X-sync, at most to its
+        extent's end, and an overrun there; one after it is the next
+        result's (12.6 Files in a stream, verdict 2). A file cut in its tail
+        passes."""
+        cfg, w = words(spec.KIND_PCM, 48000, 24, LONG)
+        B = cfg.block_len
+        _, v = words(spec.KIND_PCM, 48000, 16, LONG)
+        for name, x, end in (("NEXT, at a block's edge", np.concatenate([w[:10 * B], v]), "NEXT"),
+                             ("BACK, at a block's edge", np.concatenate([w[:10 * B], w]), "BACK")):
+            for over, want in ((10 * B - 1, [("OVERRUN", "-"), ("BIT_PERFECT", "-")]),
+                               (10 * B, [("OVERRUN", "-"), ("BIT_PERFECT", "-")]),
+                               (10 * B + 1, [("NOT_BIT_PERFECT", "0.853"), ("OVERRUN", "-")])):
+                with self.subTest(name, over=over - 10 * B):
+                    res = self.results(x, 48000, overruns=(over,))
+                    self.assertEqual([(r["verdict"], r["diff"]) for r in res], want)
+                    self.assertEqual((res[0]["end"], res[0]["frames"]), (end, str(10 * B)))
+            with self.subTest(name, over=None):
+                # the cut file's difference: the first unit that did not arrive, at the cut
+                self.assert_units(x, 48000, [("NOT_BIT_PERFECT", end, 10 * B), ("BIT_PERFECT", "LAST", None)])
+        # Cut in its tail after the tail X-syncs of blocks 10 and 11, then
+        # silence: the extent ends at 14 B (count 13 from block 8's R-header)
+        _, t = words(spec.KIND_PCM, 48000, 24, dict(lead_blocks=2, body_blocks=8, tail_blocks=3))
+        x = np.concatenate([t[:11 * B + 100], zeros(5 * B)])
+        for over, want in ((14 * B - 1, ["OVERRUN", "UNKNOWN_SIGNAL"]), (14 * B, ["OVERRUN", "UNKNOWN_SIGNAL"]),
+                           (14 * B + 1, ["BIT_PERFECT", "OVERRUN"])):
+            with self.subTest("cut in the tail, then a stretch", over=over - 14 * B):
+                res = self.results(x, 48000, overruns=(over,))
+                self.assertEqual([(r["verdict"], r["end"]) for r in res], [(want[0], "STOP"), (want[1], "STOP")])
+                self.assertEqual((res[0]["frames"], res[1]["first_frame"]), (str(14 * B), str(14 * B)))
+        with self.subTest("cut in the tail, then a stretch, no overrun"):
+            self.assert_units(x, 48000, [("BIT_PERFECT", "STOP", None), ("UNKNOWN_SIGNAL", "STOP", None)])
+        # Without its LAST X-sync a file is cut even where its R-header gives
+        # its size: it holds the stream's end inside its extent
+        _, a4 = words(spec.KIND_PCM, 48000, 24, dict(lead_blocks=2, body_blocks=8, tail_blocks=2))  # LAST 11
+        x = a4.copy()
+        x[11 * B:11 * B + 8] = 0
+        for name, y, over, want in (
+                ("LAST erased, an overrun at the stream's end in the margin", np.concatenate([x, zeros(B // 2)]),
+                 12 * B + B // 2, [("OVERRUN", "STOP")]),
+                ("LAST erased, an overrun in the margin", np.concatenate([x, zeros(B // 2)]), 12 * B + 10,
+                 [("OVERRUN", "STOP")]),
+                ("LAST intact, an overrun at the stream's end in the margin", np.concatenate([a4, zeros(B // 2)]),
+                 12 * B + B // 2, [("BIT_PERFECT", "LAST")]),
+                ("LAST intact, an overrun in the margin", np.concatenate([a4, zeros(B // 2)]), 12 * B + 10,
+                 [("BIT_PERFECT", "LAST")])):
+            with self.subTest(name):
+                res = self.results(y, 48000, overruns=(over,))
+                self.assertEqual([(r["verdict"], r["end"]) for r in res], want)
+
+    def test_declared_size(self):
+        """A file's declared size is the count of its first R-header (12.6
+        Extent), else its LAST block's index + 1. A count that disagrees with
+        the file is a difference at that R-header's first r5 unit, also in
+        the lead-in: an intact LAST X-sync whose index + 1 is not the count,
+        and a count no greater than the block index of an X-sync of the file
+        that arrived; so is a body R-header whose count is not the declared
+        size (the R-header rule's Words step). An earlier difference comes
+        first. Such a file is not complete: it is cut, and holds an overrun
+        at the next file's first X-sync."""
+        cfg, w = words(spec.KIND_PCM, 48000, 24, dict(lead_blocks=10, body_blocks=4, tail_blocks=2))  # LAST 15
+        B = cfg.block_len
+        r8 = chip_frame(cfg, 8, CHIP_R5)  # block 8, an R-header in the lead-in
+        no_last = w.copy()
+        no_last[15 * B:15 * B + 8] = 0
+        barker = with_count(w, cfg, 8, 17)
+        barker[chip_frame(cfg, 8, 0):chip_frame(cfg, 8, 1)] = 0  # its first Barker chip: no count
+        for name, x, want in (
+                ("the lead-in R-header's count one more than the LAST block's", with_count(w, cfg, 8, 17),
+                 [("NOT_BIT_PERFECT", "LAST", r8)]),
+                ("the lead-in R-header's count one less", with_count(w, cfg, 8, 15), [("NOT_BIT_PERFECT", "LAST", r8)]),
+                ("the lead-in R-header's count the LAST block's", w, [("BIT_PERFECT", "LAST", None)]),
+                ("a payload bit of body block 11, the lead-in R-header's count 17",
+                 flip(with_count(w, cfg, 8, 17), 11 * B + 100, 0, 8), [("NOT_BIT_PERFECT", "LAST", r8)]),
+                ("a payload bit of body block 11", flip(w, 11 * B + 100, 0, 8), [("NOT_BIT_PERFECT", "LAST", 11 * B + 100)]),
+                ("the lead-in R-header unreadable, its count 17", barker, [("BIT_PERFECT", "LAST", None)]),
+                ("the LAST X-sync erased, the lead-in R-header's count 17", with_count(no_last, cfg, 8, 17),
+                 [("BIT_PERFECT", "STOP", None)]),
+                ("the LAST X-sync erased, the lead-in R-header's count 15", with_count(no_last, cfg, 8, 15),
+                 [("BIT_PERFECT", "STOP", None)]),
+                # block 14's X-sync arrived: a count of 14 is too small
+                ("the LAST X-sync erased, the lead-in R-header's count 14", with_count(no_last, cfg, 8, 14),
+                 [("NOT_BIT_PERFECT", "STOP", r8)]),
+                ("the LAST X-sync erased, the lead-in R-header's count 3", with_count(no_last, cfg, 8, 3),
+                 [("NOT_BIT_PERFECT", "STOP", r8)]),
+                ("the stream stopped in the tail after block 14's X-sync, the lead-in R-header's count 14",
+                 with_count(w, cfg, 8, 14)[:14 * B + 100], [("NOT_BIT_PERFECT", "STOP", r8)]),
+                ("the same, its count 15", with_count(w, cfg, 8, 15)[:14 * B + 100], [("BIT_PERFECT", "STOP", None)]),
+                # the stream ends right after the centre of the lead-in
+                # R-header's last chip: read, its count 3 is too small
+                ("the stream stopped right after the centre of block 8's chip 236, its count 3",
+                 with_count(w, cfg, 8, 3)[:chip_frame(cfg, 8, CHIP_R5 + 63) + (chip_frame(cfg, 8, 1) - chip_frame(cfg, 8, 0)) // 2 + 1],
+                 [("NOT_BIT_PERFECT", "STOP", r8)])):
+            with self.subTest(name):
+                self.assert_units(x, 48000, want)
+        # Block 8 in the lead-in, block 24 in the body (vectors: 28 blocks,
+        # the lead-in R-header changed)
+        c2, f = words(spec.KIND_PCM, 48000, 24, dict(lead_blocks=10, body_blocks=16, tail_blocks=2))
+        r24 = chip_frame(c2, 24, CHIP_R5)
+        nl = f.copy()
+        nl[27 * B:27 * B + 8] = 0
+        for name, x, want in (
+                ("the LAST X-sync erased, the lead-in count 40: the body R-header's 28 differs",
+                 np.concatenate([with_count(nl, c2, 8, 40), zeros(5 * B)]), [("NOT_BIT_PERFECT", "STOP", r24)]),
+                # too small: X-syncs up to block 26 arrived; it gives no
+                # extent, so the zeros after block 27 are unknown signal
+                ("the LAST X-sync erased, the lead-in count 20",
+                 np.concatenate([with_count(nl, c2, 8, 20), zeros(B)]),
+                 [("NOT_BIT_PERFECT", "STOP", r8), ("UNKNOWN_SIGNAL", "STOP", None)]),
+                ("the LAST X-sync intact, the lead-in count 40", with_count(f, c2, 8, 40),
+                 [("NOT_BIT_PERFECT", "LAST", r8)]),
+                ("the LAST X-sync intact, the body R-header's count 29", with_count(f, c2, 24, 29),
+                 [("NOT_BIT_PERFECT", "LAST", r24)])):
+            with self.subTest(name):
+                self.assert_units(x, 48000, want)
+        # A body R-header's count too small: a difference at its chip 173,
+        # unless an earlier body unit differs
+        ca, a = words(spec.KIND_PCM, 48000, 24, LONG)  # body 2-25, R-headers 8 and 24
+        r8a = chip_frame(ca, 8, CHIP_R5)
+        for name, x, want in (
+                ("the body R-header of block 8 spells 5", with_count(a, ca, 8, 5), [("NOT_BIT_PERFECT", "LAST", r8a)]),
+                ("and a payload bit of block 3", flip(with_count(a, ca, 8, 5), 3 * B + 100, 0, 8),
+                 [("NOT_BIT_PERFECT", "LAST", 3 * B + 100)]),
+                ("block 8 spells 5, the stream stops in the tail before LAST", with_count(a, ca, 8, 5)[:26 * B + 100],
+                 [("NOT_BIT_PERFECT", "STOP", r8a)])):
+            with self.subTest(name):
+                self.assert_units(x, 48000, want)
+        # The stream ends soon after the first R-header's chip 236: its count
+        # is known when the file ends
+        e236 = chip_frame(ca, 8, CHIP_R5 + 64)
+        for t in (1, 20, 100, 250, 2000):
+            with self.subTest("block 8 spells 5, the stream stops after its chip 236", frames=t):
+                self.assert_units(with_count(a, ca, 8, 5)[:e236 + t], 48000, [("NOT_BIT_PERFECT", "STOP", r8a)])
+        # A file entered in its body: the body's start is not known, the
+        # first R-header's words are not judged, and the difference is at
+        # the first block whose X-sync arrived, before any overrun (12.6
+        # verdict 2)
+        for name, x in (("as generated", a), ("block 8 spells 5", with_count(a, ca, 8, 5)),
+                        ("block 8 spells 40", with_count(a, ca, 8, 40))):
+            with self.subTest("the stream starts at block 5", count=name):
+                self.assert_units(x[5 * B:], 48000, [("NOT_BIT_PERFECT", "LAST", 5 * B)])
+                res = self.results(x[5 * B:], 48000, overruns=(100,))
+                self.assertEqual([(r["verdict"], r["diff_unit"]) for r in res], [("NOT_BIT_PERFECT", str(5 * B))])
+        # Fewer than 9 blocks: no R-header; the LAST block gives the size
+        c3, s = words(spec.KIND_PCM, 48000, 24, dict(lead_blocks=2, body_blocks=4, tail_blocks=2))  # LAST 7
+        s0 = s.copy()
+        s0[7 * B:7 * B + 8] = 0
+        with self.subTest("8 blocks"):
+            self.assert_units(s, 48000, [("BIT_PERFECT", "LAST", None)])
+            self.assertEqual(self.results(s, 48000, overruns=(8 * B,))[0]["verdict"], "BIT_PERFECT")
+        with self.subTest("8 blocks, the LAST X-sync erased"):
+            res = self.assert_units(s0, 48000, [("BIT_PERFECT", "STOP", None)])
+            self.assertEqual(res[0]["frames"], str(8 * B))
+            self.assertEqual(self.results(s0, 48000, overruns=(8 * B,))[0]["verdict"], "OVERRUN")
+        # A body R-header's count one more than the LAST block's: the file
+        # is not complete, so an overrun at the next file's first X-sync is
+        # its own
+        ca, a = words(spec.KIND_PCM, 48000, 24)  # SHORT: 11 blocks, block 8 in the body
+        x = np.concatenate([with_count(a, ca, 8, 12), a])
+        r8a = chip_frame(ca, 8, CHIP_R5)
+        with self.subTest("a body R-header's count 12, then the file again"):
+            self.assert_units(x, 48000, [("NOT_BIT_PERFECT", "LAST", r8a), ("BIT_PERFECT", "LAST", None)])
+            res = self.results(x, 48000, overruns=(len(a),))
+            self.assertEqual([(r["verdict"], r["end"]) for r in res], [("NOT_BIT_PERFECT", "LAST"), ("BIT_PERFECT", "LAST")])
+        with self.subTest("the file, then the file again"):
+            res = self.results(np.concatenate([a, a]), 48000, overruns=(len(a),))
+            self.assertEqual([(r["verdict"], r["end"]) for r in res], [("BIT_PERFECT", "LAST"), ("OVERRUN", "LAST")])
+
+    def test_declared_size_cut_and_overrun(self):
+        """A file whose first R-header's count is not its LAST block's index +
+        1 is cut, also where that count gives no extent (no greater than the
+        index of its last X-sync): it holds an overrun at the next file's
+        first X-sync. In the lead-in that count is a difference; in the
+        tail, where no word is checked, none (12.6, the R-header rule)."""
+        cfg, w = words(spec.KIND_PCM, 48000, 24, dict(lead_blocks=10, body_blocks=4, tail_blocks=2))  # LAST 15
+        B, n = cfg.block_len, len(w)
+        r8 = chip_frame(cfg, 8, CHIP_R5)
+        x = np.concatenate([with_count(w, cfg, 8, 15), w])  # count 15: no extent, not the LAST block's 16
+        with self.subTest("lead-in count 15, LAST 15, then the file again"):
+            self.assert_units(x, 48000, [("NOT_BIT_PERFECT", "LAST", r8), ("BIT_PERFECT", "LAST", None)])
+            res = self.results(x, 48000, overruns=(n,))
+            self.assertEqual([(r["verdict"], r["end"]) for r in res], [("NOT_BIT_PERFECT", "LAST"), ("BIT_PERFECT", "LAST")])
+        ct, t = words(spec.KIND_PCM, 48000, 24, dict(lead_blocks=2, body_blocks=4, tail_blocks=10))  # block 8 in the tail
+        y = with_count(t, ct, 8, 17)
+        with self.subTest("a tail R-header's count 17, LAST 15: no difference, but cut"):
+            self.assert_units(y, 48000, [("BIT_PERFECT", "LAST", None)])
+            self.assert_units(np.concatenate([y, t]), 48000, [("BIT_PERFECT", "LAST", None), ("BIT_PERFECT", "LAST", None)])
+            res = self.results(np.concatenate([y, t]), 48000, overruns=(len(t),))
+            self.assertEqual([(r["verdict"], r["end"]) for r in res], [("OVERRUN", "LAST"), ("BIT_PERFECT", "LAST")])
+        with self.subTest("the same file with its own count: complete"):
+            res = self.results(np.concatenate([t, t]), 48000, overruns=(len(t),))
+            self.assertEqual([(r["verdict"], r["end"]) for r in res], [("BIT_PERFECT", "LAST"), ("OVERRUN", "LAST")])
+
+    def test_declared_size_dop(self):
+        """DoP: the LAST block against the lead-in R-header's count, the body
+        R-header against the declared size, and a cut file holding an
+        overrun at its extent's end."""
+        rate = spec.DSD_RATES[0]
+        cfg, d = words(spec.KIND_DSD, rate, 1, dict(lead_blocks=10, body_blocks=4, tail_blocks=2))  # LAST 15
+        F = frames_per_block(cfg)
+        r8 = chip_frame(cfg, 8, CHIP_R5) // 8  # DSD bytes
+        for name, x, want in (("lead-in count 17, LAST 15", with_count_dop(d, cfg, 8, 17), [("NOT_BIT_PERFECT", "LAST", r8)]),
+                              ("lead-in count 15, LAST 15", with_count_dop(d, cfg, 8, 15), [("NOT_BIT_PERFECT", "LAST", r8)]),
+                              ("lead-in count 16, LAST 15", with_count_dop(d, cfg, 8, 16), [("BIT_PERFECT", "LAST", None)]),
+                              ("lead-in count 12, the stream stopped in block 14", with_count_dop(d, cfg, 8, 12)[:14 * F + 100],
+                               [("NOT_BIT_PERFECT", "STOP", r8)])):
+            with self.subTest(name):
+                self.assert_units(x, rate // 16, want, slot=24)
+        c2, f = words(spec.KIND_DSD, rate, 1, dict(lead_blocks=10, body_blocks=16, tail_blocks=2))  # LAST 27
+        nl = f.copy()
+        nl[27 * F:27 * F + 16] = dop_idle(16)
+        r24 = chip_frame(c2, 24, CHIP_R5) // 8
+        with self.subTest("LAST erased, the lead-in count 40: the body R-header's 28 differs"):
+            self.assert_units(np.concatenate([with_count_dop(nl, c2, 8, 40), dop_idle(5 * F)]), rate // 16,
+                              [("NOT_BIT_PERFECT", "STOP", r24)], slot=24)
+        with self.subTest("LAST intact, the body R-header's count 29"):
+            self.assert_units(with_count_dop(f, c2, 24, 29), rate // 16, [("NOT_BIT_PERFECT", "LAST", r24)], slot=24)
+        _, t = words(spec.KIND_DSD, rate, 1, dict(lead_blocks=2, body_blocks=8, tail_blocks=3))  # count 13 from block 8
+        x = np.concatenate([t[:11 * F + 50], dop_idle(5 * F)])  # cut in the tail; the extent ends at 14 F
+        with self.subTest("cut in the tail, then DoP idle"):
+            self.assert_units(x, rate // 16, [("BIT_PERFECT", "STOP", None), ("UNKNOWN_SIGNAL", "STOP", None)], slot=24)
+        for over, want in ((14 * F - 1, ["OVERRUN", "UNKNOWN_SIGNAL"]), (14 * F, ["OVERRUN", "UNKNOWN_SIGNAL"]),
+                           (14 * F + 1, ["BIT_PERFECT", "OVERRUN"])):
+            with self.subTest("cut in the tail, then DoP idle", over=over - 14 * F):
+                res = self.results(x, rate // 16, slot=24, overruns=(over,))
+                self.assertEqual([r["verdict"] for r in res], want)
+                self.assertEqual(res[0]["frames"], str(14 * F))
+
+    def test_r5_fuzz_against_verify(self):
+        """R-headers that spell random block counts with CRCs that pass, in
+        the lead-in, the body or the tail, in one channel or both, PCM at
+        several rates and depths and DoP, the LAST X-sync mostly present
+        (fixed seed): the same results as checker/verify.py, to the source
+        unit of the first difference and the unit each result ends at."""
+        rng = random.Random(6)
+        cases = [r5_case(rng) for _ in range(R5_TRIALS)]
+
+        def one(case):
+            x, rate, slot, chunk, ops = case
+            res = self.results(x, rate, slot=slot, chunk=chunk)
+            return c_key(res), unit_key(res), [int(q["first_frame"]) + int(q["frames"]) for q in res]
+
+        with ThreadPoolExecutor(max_workers=min(12, os.cpu_count() or 1)) as pool:
+            got = list(pool.map(one, cases))
+        bad = []
+        for (x, rate, slot, chunk, ops), c in zip(cases, got):
+            py = py_verify(x, rate, slot)
+            p = (py_results(x, rate, slot), unit_key(py), [q["first"] + q["units"] for q in py])
+            if c != p:
+                bad.append((ops, c, p))
+        self.assertEqual(bad, [], f"{len(bad)} of {len(cases)} differ")
 
 
 def threading_id():

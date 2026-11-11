@@ -2,8 +2,8 @@
 // Copyright (c) 2026 Mete Balci
 // Test builds only (CMake option BPC_TEST_INJECT, never in a release): late
 // re-arms of the audio OUT endpoint on purpose, to test the hole counter and
-// TinyUSB's re-arm rule. The link wraps TinyUSB's dcd_edpt_xfer()
-// (-Wl,--wrap=dcd_edpt_xfer).
+// u2ps's re-arm rule, on u2ps's injection hook (U2PS_TEST_INJECT,
+// u2ps_dwc2_inject()); and the time u2ps's handler takes per kind of pass.
 //
 //   inject <every> <us>  every <every>th re-arm from the USB interrupt that
 //                        would be in time (the interrupt entered in the
@@ -18,6 +18,10 @@
 //                        next one is taken instead), timeouts the waits that
 //                        saw no new microframe within two, d the time from the
 //                        new microframe to the end of the re-arm
+//   inject passes [clear] u2ps's handler time by kind of pass, one line per
+//                        kind: "passes kind=<kind> n=<n> max=<cycles>
+//                        mean=<cycles> sum_k=<kilocycles>"; clear starts
+//                        the counts over after the lines
 
 #ifndef INJECT_H
 #define INJECT_H

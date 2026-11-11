@@ -9,8 +9,8 @@
 // version, a large one the detail rows too. A text may have an area of its
 // own, for example beside the layout's.
 //
-// screen_task() draws only while the USB receive FIFO holds less than
-// SCREEN_BACKLOG_US of audio, and for at most about SCREEN_SLICE_US per
+// screen_task() draws only while the received audio not read yet is less
+// than SCREEN_BACKLOG_US, and for at most about SCREEN_SLICE_US per
 // call, interrupts taken meanwhile included: it starts drawing only what
 // fits SCREEN_DRAW_US, which leaves the rest for them. The band comes first,
 // then each character of the texts that differs from what the panel shows,

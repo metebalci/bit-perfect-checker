@@ -90,8 +90,7 @@ void board_init(void) {
   }
 
   // The OTG HS port's VBUS switch (U13, enable PH12, active high) starts
-  // off. The checker is a device on that port and leaves it off; the BPC1
-  // generator, a host there, switches it (board_host.c).
+  // off. The checker is a device on that port and leaves it off.
   gpio.Pin = GPIO_PIN_12;
   HAL_GPIO_WritePin(GPIOH, GPIO_PIN_12, GPIO_PIN_RESET);
   HAL_GPIO_Init(GPIOH, &gpio);
@@ -122,9 +121,6 @@ void board_init(void) {
   HAL_GPIO_Init(GPIOC, &gpio);
   __HAL_RCC_USART6_CLK_ENABLE();
   family_log_uart_init(USART6, USART6_IRQn, HAL_RCC_GetPCLK2Freq(), LOG_BAUD);
-
-  // USB HS PHY clocked from the 25 MHz HSE
-  family_usb_init();
 }
 
 void USART6_IRQHandler(void);  // vector table entry

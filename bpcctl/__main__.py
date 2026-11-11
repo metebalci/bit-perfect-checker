@@ -24,8 +24,8 @@ the first of these that holds:
   2  no result line at all: the device did not answer, or no stream
      arrived
   1  any result is NOT_BIT_PERFECT or UNKNOWN_SIGNAL (or another verdict),
-     or fewer than N results are BIT_PERFECT or OVERRUN with
-     --expect N
+     or fewer than N files (results of a kind other than NONE) are
+     BIT_PERFECT or OVERRUN with --expect N
   4  not fully judged, play again: any result is OVERRUN (the
      device's receive buffer overflowed), or the reporting is incomplete:
      a stream's results_lost is above 0, fewer result lines arrived than
@@ -152,7 +152,8 @@ class Tracker:
 
 def exit_code(results, expect=0, incomplete=False):
     """The exit status for the results of a run's streams; expect: the
-    number of BIT_PERFECT results the run must have at least; incomplete:
+    number of files (results of a kind other than NONE) that must have
+    arrived, BIT_PERFECT or OVERRUN, at least; incomplete:
     the device's reporting of the streams was incomplete (results lost,
     fewer than announced, a stream unfinished), so a file may be unjudged."""
     if not results:
@@ -160,7 +161,8 @@ def exit_code(results, expect=0, incomplete=False):
     verdicts = [r.fields.get("verdict") for r in results]
     if any(v not in ("BIT_PERFECT", "OVERRUN") for v in verdicts):
         return EXIT_FAIL
-    if verdicts.count("BIT_PERFECT") + verdicts.count("OVERRUN") < expect:
+    files = [r.fields.get("verdict") for r in results if r.fields.get("kind") != "NONE"]
+    if files.count("BIT_PERFECT") + files.count("OVERRUN") < expect:
         return EXIT_FAIL       # a file did not arrive at all (an overrun arrived, unjudged)
     return EXIT_OVERRUN if "OVERRUN" in verdicts or incomplete else EXIT_PASS
 
@@ -293,7 +295,7 @@ def main(argv=None):
                    help="seconds to wait for a host to mount the device again (default 10)")
     run_help = ("run a player and wait for the results of its streams: exit 3 when the "
                 "player failed, else 2 with no result, else 1 when any result is "
-                "NOT_BIT_PERFECT or UNKNOWN_SIGNAL (or fewer than --expect are BIT_PERFECT or "
+                "NOT_BIT_PERFECT or UNKNOWN_SIGNAL (or fewer than --expect files are BIT_PERFECT or "
                 "OVERRUN), else 4 when not fully judged (any OVERRUN, results "
                 "lost, fewer than announced, or a stream unfinished at the timeout: play "
                 "again), else 0 with at least one result, all BIT_PERFECT")
@@ -302,7 +304,8 @@ def main(argv=None):
                    help="seconds to wait for the result after the player exits (default 10)")
     p.add_argument("--json", action="store_true", help="print each result as a JSON object")
     p.add_argument("--expect", type=int, default=0, metavar="N",
-                   help="exit 1 when fewer than N results are BIT_PERFECT or OVERRUN")
+                   help="exit 1 when fewer than N files (results of a kind other than NONE) are "
+                        "BIT_PERFECT or OVERRUN")
     p.add_argument("command", nargs=argparse.REMAINDER, help="the player command, after --")
     args = ap.parse_args(argv)
 

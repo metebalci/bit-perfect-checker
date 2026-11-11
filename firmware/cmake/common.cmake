@@ -1,7 +1,6 @@
 # SPDX-License-Identifier: MIT
 # Copyright (c) 2026 Mete Balci
-# Shared by the checker (firmware/CMakeLists.txt) and the BPC1 generator
-# (firmware/bpc1-generator/CMakeLists.txt): folders, compile options, the
+# For the checker (firmware/CMakeLists.txt): folders, compile options, the
 # warning set, the board and family, the version stamp and the image.
 # Included after project(), with FIRMWARE set to the firmware folder and
 # BOARD to a folder in boards/.
@@ -9,7 +8,6 @@
 get_filename_component(REPO_ROOT ${FIRMWARE}/.. REALPATH)
 set(LIB ${FIRMWARE}/lib)
 set(APP ${FIRMWARE}/app)
-set(TUSB ${LIB}/tinyusb/src)
 
 # Before the family, so that its HAL library gets these too
 add_compile_options(-ffunction-sections -fdata-sections -fno-common -ffile-prefix-map=${REPO_ROOT}/=)

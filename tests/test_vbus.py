@@ -3,8 +3,8 @@
 """The VBUS debounce (firmware/app/vbus.c) on the host. A pulled cable is
 reported once, VBUS_MS after VBUS went away (the device then starts a new
 run), and the D+ pull-up goes off with it; VBUS back for VBUS_MS turns the
-pull-up on again. With VBUS at start the pull-up, which tusb_init() turned
-on, is logged as connecting at once; without VBUS at start it goes off at
+pull-up on again. With VBUS at start the pull-up, which vbus_start()'s flags
+turn on (vbus_act()), is logged as connecting at once; without VBUS at start it goes off at
 once, and the first plug turns it on without reporting a pull. Shorter dips and
 bounces while plugging change nothing. A change of formats holds the
 pull-up off for a while (vbus_hold()); it comes on again after that, once
@@ -52,9 +52,9 @@ def hold(polls, t, ms):
     return polls[:i + 1] + [(t, f"hold {ms}")] + polls[i + 1:]
 
 
-HOLD_MS = 300  # uac2.c's RECONNECT_MS
+HOLD_MS = 300  # u2ps_glue.c's RECONNECT_MS
 
-# A start with VBUS present: the pull-up is on (tusb_init()), and logged
+# A start with VBUS present: the pull-up is on (vbus_start()), and logged
 BOOT_LOG = ["pull-up on", "usb connecting"]
 
 
@@ -125,7 +125,7 @@ class Vbus(unittest.TestCase):
         self.assertLessEqual(VBUS_MS, 50)
 
     def test_present_from_boot_logs_the_attach(self):
-        # Boot with the cable in: tusb_init() connected, boot started a run;
+        # Boot with the cable in: vbus_start() connected, boot started a run;
         # the attach is logged at once, and nothing follows
         self.assertEqual(self.events(levels([(3000, 1)])), boot())
         self.assertEqual(self.log(levels([(3000, 1)])), BOOT_LOG)

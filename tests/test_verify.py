@@ -160,8 +160,11 @@ class Pcm(unittest.TestCase):
                             u0 = chip_unit(self.cfg, RHDR, 13 + wi * 32 + 2 * i + j)
                             y[u0:u0 + L, c] = v * V
             r = check(y)
-            self.assertEqual(r["verdict"], "NOT_BIT_PERFECT")
-            self.assertEqual(r["why"], "the R-headers' block counts disagree")
+            # block 8's count, greater than the last X-sync's index, is the
+            # declared size: block 24's differs from it
+            self.assertEqual((r["verdict"], r["why"], r["diff_unit"]),
+                             ("NOT_BIT_PERFECT", "an R-header block count is not the file's declared size",
+                              chip_unit(self.cfg, 24, R56)))
 
     def test_rhdr_second_chip(self):
         """Each bit as it is read (12.6, R-header rule): the second chip is
@@ -201,13 +204,14 @@ class Pcm(unittest.TestCase):
 
     def test_rhdr_count_not_the_last_blocks(self):
         # r5 and r6 changed consistently in every body R-header: they agree with
-        # each other, so only the LAST block's index tells
+        # each other, so only the LAST block's index tells, against the
+        # first R-header's count
         y = self.w.copy()
         for k in (8, 24):
             self.set_r5(y, k, self.cfg.total_blocks + 1)
         r = check(y)
         self.assertEqual((r["verdict"], r["why"], r["diff_unit"]),
-                         ("NOT_BIT_PERFECT", "an R-header block count is not the LAST block's",
+                         ("NOT_BIT_PERFECT", "the R-header's count disagrees with the file's blocks",
                           chip_unit(self.cfg, 8, R56)))
         self.assertEqual(check(self.stop_in_tail(y))["verdict"], "BIT_PERFECT",
                          "without LAST, agreeing R-headers pass")

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) 2026 Mete Balci
 // Host tool for tests/test_vbus.py: runs app/vbus.c on VBUS levels and USB
-// events given on stdin, with stand-ins for what main.c and uac2.c do. Not
+// events given on stdin, with stand-ins for what main.c and u2ps_glue.c do. Not
 // part of the firmware.
 //
 //   <ms> <0|1>    VBUS level at a poll -> one line per action flag, in this
@@ -15,7 +15,7 @@
 //                 (vbus_hold()) -> its action flags and lines, as a level
 //
 // The first level line goes to vbus_start(), the others to vbus_poll().
-// The stand-in for tud_umount_cb() logs the stream's stop and, like uac2.c,
+// The stand-in for the unmount logs the stream's stop and, like u2ps_glue.c,
 // nothing else during an unplug. Numbers in decimal; <ms> may wrap.
 
 #include <stdarg.h>
@@ -37,7 +37,7 @@ void log_line(const char *fmt, ...) {
   va_end(ap);
 }
 
-// tud_umount_cb() during an unplug: the open stream stops
+// uac2_unplug() (u2ps_glue.c) during an unplug: the open stream stops
 static void unplug(void) {
   if (streaming) {
     log_line("stream stop reason=reset");

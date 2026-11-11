@@ -25,11 +25,14 @@
 //
 // A file's extent runs from its block 0 to the end of its last block, at the
 // positions its X-syncs imply, plus one block at each end; the count of
-// blocks comes from its X-sync flagged LAST or from an R-header that passes
-// section 6, decoded at its chip centres. Every received frame outside every
-// extent is unknown signal: each stretch of them gets an UNKNOWN_SIGNAL
-// report (OVERRUN if the FIFO overflowed in it). Only positions are
-// kept for this, no frames. With allow_silence, a stretch of silence only
+// blocks, its declared size, comes from its first R-header that passes
+// section 6, decoded at its chip centres, else from its X-sync flagged LAST.
+// A file that completes its LAST block holds the units to that block's end;
+// one cut before (the next file's first X-sync, its extent's end or the
+// stream's end) holds them to the cut, and an overrun there. Every received
+// frame outside every extent is unknown signal: each stretch of them gets an
+// UNKNOWN_SIGNAL report (OVERRUN if the FIFO overflowed in it). Only
+// positions are kept for this, no frames. With allow_silence, a stretch of silence only
 // (PCM words 0; DoP frames with valid markers, DSD bytes 0x69 or 0x96, zero
 // bits below the 24) gives no report; frames outside the extents known so
 // far are checked for it as they arrive.
@@ -73,7 +76,8 @@ typedef enum {
   BPC1_WHY_MARKER,  // a DoP body frame's marker or padding differs (d)
   BPC1_WHY_CHIP,    // an r5 or r6 chip is neither of its two values
   BPC1_WHY_CRC,     // the r5 and r6 the chips spell fail the CRC
-  BPC1_WHY_COUNT,   // r5 differs across channels or R-headers, or from the LAST block
+  BPC1_WHY_COUNT,   // r5 differs across channels or R-headers, from the file's size, or the
+                    // first R-header's count disagrees with the file's blocks
   BPC1_WHY_LEFT,    // the stream left the body before its end
   BPC1_WHY_END,     // no intact tail X-sync after the body, and no LAST (b)
   BPC1_N_WHY,
@@ -104,6 +108,8 @@ typedef struct {
   uint64_t first_frame;  // received frame of the file's first X-sync
   uint64_t frames;       // received frames from there to the file's end
   uint32_t anchors;      // X-syncs of the file found
+  bool cut;              // a file that did not complete its LAST block: it holds
+                         // what stands before the frame its frames end at
 } bpc1_report_t;
 
 // Internal state below; callers use the functions only.
@@ -163,11 +169,11 @@ typedef struct {
   bpc1_rdec_t rdec;
   uint64_t over[BPC1_MAX_OVERRUNS];  // in half-frames
   uint8_t nover;
-  uint64_t over_seen;  // the latest overrun a file took, plus one; 0 for none
-  uint64_t prev_stop_h;  // where the units of the file before ended, in half-frames
   // the stream outside every file
   uint64_t cov_end;  // the frame where the extents seen so far end
   uint64_t outside;  // frames outside every extent
+  bool end_held;     // the stream's last result holds its end
+  bool fin_complete; // the file finished last completed its LAST block
   bool allow_silence;
   uint64_t silent;   // of those, frames in stretches of silence allowed
   uint64_t sil_from; // frames from here on are watched for silence
@@ -202,6 +208,7 @@ typedef struct {
   uint16_t total;
   bool rcount_known; // the block count from the file's first decoded R-header
   uint16_t rcount;
+  uint32_t rcount_k; // that R-header's block
   bool tail_seen;
   bool E_known;      // the last body block
   uint32_t E;
@@ -259,6 +266,13 @@ uint64_t bpc1_checker_silent(const bpc1_checker_t *ck);
 // stretches of unknown signal reported so far, end: a frame from here on
 // belongs to a report still to come, if to any
 uint64_t bpc1_checker_covered(const bpc1_checker_t *ck);
+
+// After bpc1_checker_end(): the stream's last result holds the stream's
+// end, so what came after the units it was told of (an overflow, lost
+// packets) is that result's. Not so after a complete file, where the stream
+// ended inside that file's extent, nor where a stretch of allowed silence
+// gave no result (12.6).
+bool bpc1_checker_end_held(const bpc1_checker_t *ck);
 // Reports of the stream dropped because the caller had not taken them
 // before the queue was full
 uint32_t bpc1_checker_results_lost(const bpc1_checker_t *ck);

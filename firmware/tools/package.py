@@ -25,7 +25,9 @@ bpc-<board>-<version>.bin per board (the flash image for 0x08000000),
 README.txt, NOTICES.txt and SHA256SUMS (the .bin files). NOTICES.txt holds,
 for this project and every work that code or data in the images comes from,
 the copyright lines found in the files the build read and the work's licence
-text as its pinned submodule ships it. The files the build read are its
+text as its pinned submodule ships it; code of another work in this
+project's own files (STMicroelectronics' panel code, TinyUSB's clock set-up)
+gets a section with the notice the file keeps. The files the build read are its
 sources and the headers they include (from Ninja's dependency log), with a
 generated file replaced by its inputs. The toolchain's C library (newlib)
 gets a section of its own: the routines the linker took from it (from each
@@ -86,7 +88,7 @@ BOARDS = {
 # file in that folder). A file in firmware/lib/ outside these folders stops
 # the script, so that a new submodule cannot enter the images unnoticed.
 WORKS = {
-    "firmware/lib/tinyusb": ("TinyUSB", "MIT", "LICENSE"),
+    "firmware/lib/u2ps": ("u2ps (the USB device stack)", "MIT", "LICENSE"),
     "firmware/lib/CMSIS_5": ("Arm CMSIS 5 (CMSIS-Core)", "Apache-2.0", "LICENSE.txt"),
     "firmware/lib/cmsis_device_u5": ("STMicroelectronics CMSIS device files for the STM32U5",
                                      "Apache-2.0", "LICENSE.md"),
@@ -106,7 +108,8 @@ LIBGCC = "libgcc.a"
 SOURCE_RE = re.compile(rb"newlib/[A-Za-z0-9_./+-]+\.[cS]")
 MEMBER_RE = re.compile(r"^(.+?\.a)\(([^)]+)\)")
 LIB = "firmware/lib/"
-PATCHES = "firmware/lib/patches/"            # this project's own files
+U2PS = "firmware/lib/u2ps"                   # the USB stack, named in README.txt
+U2PS_VERSION_RE = re.compile(r"^project\(u2ps VERSION (\d+\.\d+\.\d+)\b", re.M)
 BUILD = "firmware/build/"                    # the build folders, see build()
 
 # Environment variables a CMake build reads at its first configure
@@ -117,6 +120,9 @@ BSD3_RE = re.compile(r"BSD[- ]3-Clause")
 COPYRIGHT_RE = re.compile(r"Copyright\s+(\(c\)|\(C\)|&copy;|©)?\s*\d{4}")
 NOTICE_START_RE = re.compile(r"Copyright \(c\) \d{4}(-\d{4})? STMicroelectronics\.")
 NOTICE_END = "POSSIBILITY OF SUCH DAMAGE."
+TINYUSB_RE = re.compile(r"Ha Thach \(tinyusb\.org\)")  # TinyUSB's copyright holder
+MIT_START = "The MIT License (MIT)"
+MIT_END = "THE SOFTWARE."
 
 
 class PackageError(Exception):
@@ -160,6 +166,23 @@ def embedded_notice(text):
     return None
 
 
+def tinyusb_notice(text):
+    """TinyUSB's MIT notice held in a comment of one of this project's files,
+    from "The MIT License (MIT)" with TinyUSB's copyright line to the end of
+    the disclaimer, without the comment leaders; None when there is none."""
+    lines = [re.sub(r"^\s*(\*|//)( |$)", "", l).rstrip() for l in text.splitlines()]
+    for i, line in enumerate(lines):
+        if line.strip() != MIT_START:
+            continue
+        for j in range(i + 1, len(lines)):
+            if lines[j].strip() == MIT_END:
+                block = lines[i:j + 1]
+                if any(COPYRIGHT_RE.search(l) and TINYUSB_RE.search(l) for l in block):
+                    return "\n".join(block) + "\n"
+                break
+    return None
+
+
 def spdx(text):
     m = re.search(r"SPDX-License-Identifier:\s*(.+)", text)
     return m.group(1).strip() if m else None
@@ -167,7 +190,7 @@ def spdx(text):
 
 def work_of(rel):
     """The WORKS folder of a repository-relative path, "" for this project."""
-    if rel.startswith(LIB) and not rel.startswith(PATCHES):
+    if rel.startswith(LIB):
         for folder in WORKS:
             if rel == folder or rel.startswith(folder + "/"):
                 return folder
@@ -250,6 +273,36 @@ def build_warnings(output):
     return [l for l in output.splitlines() if "warning" in l.lower()]
 
 
+def u2ps_version(src):
+    """u2ps's release in the clone `src`: the version of its CMake project()
+    (firmware/lib/u2ps/CMakeLists.txt)."""
+    path = os.path.join(src, *U2PS.split("/"), "CMakeLists.txt")
+    try:
+        m = U2PS_VERSION_RE.search(read_text(path))
+    except OSError as e:
+        raise PackageError(f"{U2PS}: no CMakeLists.txt ({e})") from e
+    if not m:
+        raise PackageError(f"{U2PS}/CMakeLists.txt: no project(u2ps VERSION <x.y.z>)")
+    return m.group(1)
+
+
+def check_u2ps_tag(version, tagged, pinned):
+    """u2ps tags its releases v<version>: the tag, which resolves to the
+    commit `tagged` in the submodule's clone (None without the tag), names
+    the pinned commit `pinned`."""
+    if tagged is None:
+        raise PackageError(f"{U2PS}: version {version}, but its clone has no tag v{version}")
+    if tagged != pinned:
+        raise PackageError(f"{U2PS}: tag v{version} names {tagged}, not the pinned commit {pinned}")
+
+
+def tag_commit(tag, cwd):
+    """The commit that `tag` names in the clone `cwd`, or None without it."""
+    r = subprocess.run(["git", "rev-parse", "--verify", "--quiet", f"refs/tags/{tag}^{{commit}}"], cwd=cwd,
+                       text=True, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+    return r.stdout.strip() if r.returncode == 0 else None
+
+
 def bin_name(board, version):
     return f"bpc-{board}-{version}.bin"
 
@@ -266,7 +319,15 @@ by the chip's unique ID as 24 hex digits."""
 followed by the chip's unique ID as 24 hex digits."""
 
 
-def readme(version, fw, commit, usb, boards=BOARDS):
+def u2ps_text(u2ps):
+    """README.txt's paragraph on the USB stack `u2ps` (version, URL, commit)."""
+    version, url, commit = u2ps
+    return f"""The images use u2ps {version}, the USB Audio Class 2.0 playback stack, at its
+release tag v{version} (commit {commit}) of
+{url}."""
+
+
+def readme(version, fw, commit, usb, u2ps, boards=BOARDS):
     width = max(len(bin_name(b, version)) for b in boards) + 2
     rows = "\n".join(f"{bin_name(b, version):<{width}}{name}" for b, (name, _) in boards.items())
     rows += f"\n{'NOTICES.txt':<{width}}licences and copyright notices of the code in the images"
@@ -318,6 +379,12 @@ USB ID
 ------
 
 {usb_text(usb)}
+
+
+USB stack
+---------
+
+{u2ps_text(u2ps)}
 
 
 More
@@ -605,15 +672,16 @@ def sha256sums(files):
     return "".join(f"{hashlib.sha256(d).hexdigest()}  {n}\n" for n, d in sorted(files.items()))
 
 
-def archive(version, fw, commit, date_time, images, notices_bytes, usb, boards=BOARDS, paths=()):
+def archive(version, fw, commit, date_time, images, notices_bytes, usb, u2ps, boards=BOARDS, paths=()):
     """(zip name, zip bytes) from `images` (board -> .bin bytes), named with
-    `version` (release_version()), the device's version `fw`; a file of it
-    that holds one of `paths` (this machine's folders) stops the script."""
+    `version` (release_version()), the device's version `fw`, the USB stack
+    `u2ps` (u2ps_text()); a file of it that holds one of `paths` (this
+    machine's folders) stops the script."""
     if set(images) != set(boards):
         raise PackageError(f"images for {sorted(images)}, boards {sorted(boards)}")
     bins = {bin_name(b, version): images[b] for b in boards}
     entries = dict(bins)
-    entries["README.txt"] = readme(version, fw, commit, usb, boards)
+    entries["README.txt"] = readme(version, fw, commit, usb, u2ps, boards)
     entries["NOTICES.txt"] = notices_bytes
     entries["SHA256SUMS"] = sha256sums(bins).encode("ascii")
     check_no_paths(entries, paths)
@@ -784,17 +852,33 @@ def collect(src, used, subs, commit):
                                "STMicroelectronics notice found in it")
         texts.append((f"notice in {rel}", notice))
     st_lines = sorted({line for _, t in texts for line in copyright_lines(t)})
+    # Code adapted from TinyUSB (MIT): its copyright line, and its notice in
+    # the file
+    tu = {rel: b for rel, b in own.items() if any(TINYUSB_RE.search(l) for l in copyright_lines(read_text(
+        os.path.join(src, rel))))}
+    tu_texts = []
+    for rel in sorted(tu):
+        notice = tinyusb_notice(read_text(os.path.join(src, rel)))
+        if notice is None:
+            raise PackageError(f"{rel}: a TinyUSB copyright line, but no TinyUSB notice found in it")
+        tu_texts.append((f"notice in {rel}", notice))
+    tu_lines = sorted({line for _, t in tu_texts for line in copyright_lines(t)})
     sections = [{
         "title": "Bit-Perfect Checker firmware",
         "source": f"{REPO_URL}, commit {commit}",
         "boards": boards_of(own), "licence": "MIT",
-        "copyrights": [l for l in lines_of(own) if l not in st_lines],
+        "copyrights": [l for l in lines_of(own) if l not in st_lines and not TINYUSB_RE.search(l)],
         "texts": [("LICENSE", read_text(os.path.join(src, "LICENSE")))]}]
     if st:
         sections.append({
             "title": "STMicroelectronics panel code in this project's board files",
             "source": ", ".join(sorted(st)), "boards": boards_of(st),
             "licence": "BSD-3-Clause", "copyrights": st_lines, "texts": texts})
+    if tu:
+        sections.append({
+            "title": "TinyUSB code in this project's board files",
+            "source": ", ".join(sorted(tu)), "boards": boards_of(tu),
+            "licence": "MIT", "copyrights": tu_lines, "texts": tu_texts})
     for folder, (title, licence, licence_file) in WORKS.items():
         files = per_work.pop(folder, None)
         if not files:
@@ -802,8 +886,8 @@ def collect(src, used, subs, commit):
         url, pinned = subs[folder]
         notes = []
         if licence != "BSD-3-Clause":
-            # a file under another licence than its work's, as TinyUSB's
-            # dwc2_type.h with an STMicroelectronics BSD-3-Clause notice
+            # a file under another licence than its work's, such as one with
+            # an STMicroelectronics BSD-3-Clause notice
             for rel in sorted(files):
                 text = read_text(os.path.join(src, rel))
                 if BSD3_RE.search(text):
@@ -893,6 +977,9 @@ def main(argv=None):
         version = release_version(fw, git("tag", "--points-at", commit, "--list", "firmware-v*",
                                           cwd=src).split())
         usb = build_usb(bdirs)
+        u2ps_release = u2ps_version(src)
+        check_u2ps_tag(u2ps_release, tag_commit(f"v{u2ps_release}", os.path.join(src, U2PS)), subs[U2PS][1])
+        u2ps = (u2ps_release, *subs[U2PS])
         paths = sorted({work, os.path.realpath(work), os.path.abspath(a.repo),
                         os.path.realpath(a.repo), os.path.expanduser("~")})
         sections = collect(src, used, subs, commit)
@@ -907,7 +994,7 @@ def main(argv=None):
             upstream = newlib_upstream(routines, newlib[0], a.newlib_tag, a.newlib_source, sums)
             sections.append(newlib_section(routines, *newlib, upstream))
         name, data = archive(version, fw, commit, commit_date(src, commit), images,
-                             notices(version, sections), usb, paths=paths)
+                             notices(version, sections), usb, u2ps, paths=paths)
         os.makedirs(a.dist, exist_ok=True)
         path = os.path.join(a.dist, name)
         with open(path + ".part", "wb") as f:

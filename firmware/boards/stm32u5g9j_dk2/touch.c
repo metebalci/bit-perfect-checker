@@ -28,11 +28,12 @@
 // next read corrects it.
 //
 // A transfer that fails costs up to about 6 ms of the main loop (the
-// time-outs below), more than the USB receive FIFO holds at 768 kHz: after
-// one, touch_task() waits BACKOFF_MS before the next, and FAILS_MAX failures
-// in a row turn touch off until the next reset ("touch off after errors").
-// It does not read while the caller says the FIFO holds too much (the
-// screen's backlog gate).
+// time-outs below), within the device's buffers of received audio (about
+// 169 ms at 32/4 on this board), but long for one pass: after one,
+// touch_task() waits BACKOFF_MS before the next, and FAILS_MAX failures in
+// a row turn touch off until the next reset ("touch off after errors"). It
+// does not read while the caller says too much received audio waits to be
+// read (the screen's backlog gate).
 
 #include "touch.h"
 

@@ -14,15 +14,16 @@ string(TOUPPER ${MCU_VARIANT} MCU_DEFINE)
 string(REPLACE "XX" "xx" MCU_DEFINE ${MCU_DEFINE})  # stm32f723xx -> STM32F723xx
 
 add_compile_options(${CPU_FLAGS})
-# TinyUSB port 0 is OTG FS and port 1 OTG HS on the STM32F7; the device
-# (the checker) and the host (the BPC1 generator) run on OTG HS
-add_compile_definitions(${MCU_DEFINE} USE_HAL_DRIVER HSE_VALUE=${HSE_VALUE}UL CFG_TUSB_MCU=OPT_MCU_STM32F7
-                        BOARD_TUD_RHPORT=1 BOARD_TUH_RHPORT=1)
-# TinyUSB's USB buffers (CFG_TUD_MEM_SECTION, CFG_TUH_MEM_SECTION) in DTCM,
-# where the CPU reads them at zero wait states and the OTG HS DMA reaches
-# them through the core's AHBS port; the linker script places .dtcm_usb.
-add_compile_definitions("CFG_TUD_MEM_SECTION=__attribute__((section(\".dtcm_usb\")))"
-                        "CFG_TUH_MEM_SECTION=__attribute__((section(\".dtcm_usb\")))")
+add_compile_definitions(${MCU_DEFINE} USE_HAL_DRIVER HSE_VALUE=${HSE_VALUE}UL)
+
+# The checker's class memory, u2ps's buffers for a stream (app/u2ps_glue.c),
+# in DTCM above the 16 KB stack, with u2ps's own DMA memory and state and
+# the stream's queue of one entry per buffer (linker script): 56 buffers at
+# 32/4 (800-byte stride), 108 at 16/2 (416). U2PS_ISO_OUT_COUNT_MAX, the
+# most buffers of a stream, is the class memory at the smallest stride, the
+# 16/2 format's (u2ps_glue.c checks it).
+set(FAMILY_CLASS_MEM_BYTES 45056)
+set(U2PS_ISO_OUT_COUNT_MAX 108)
 
 # The HAL modules in use
 add_library(family_hal STATIC
@@ -41,8 +42,5 @@ target_include_directories(family_hal PUBLIC ${CMAKE_CURRENT_LIST_DIR})  # stm32
 set(FAMILY_SOURCES
   ${CMAKE_CURRENT_LIST_DIR}/family.c
   ${CMSIS_DEVICE}/Source/Templates/gcc/startup_${MCU_VARIANT}.s)
-# The BPC1 generator's USB host part, which replaces the USB device part of
-# family.c (FAMILY_USB_HOST)
-set(FAMILY_HOST_SOURCES ${CMAKE_CURRENT_LIST_DIR}/family_usb_host.c)
 
 include(${FIRMWARE}/cmake/stm32cubeprog.cmake)

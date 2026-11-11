@@ -1,9 +1,11 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) 2026 Mete Balci
+// Copyright (c) 2023 Ha Thach (tinyusb.org)
 // NUCLEO-U5A5ZJ-Q: STM32U5A5ZJT6Q (SMPS), 16 MHz HSE crystal, LD1 green PC7,
 // LD2 blue PB7, LD3 red PG2, user button B1 on PC13 (high when pressed),
-// ST-LINK virtual COM port on USART1 PA9/PA10, user USB-C on the OTG HS PHY. The clock set-up follows TinyUSB's
-// hw/bsp/stm32u5 board file for this board (MIT licence).
+// ST-LINK virtual COM port on USART1 PA9/PA10, user USB-C on the OTG HS PHY.
+// The clock set-up follows TinyUSB's board file for this board; see the
+// notice at clock_init() below.
 
 #include "board.h"
 
@@ -31,6 +33,32 @@ static void halt(void) {
   }
 }
 
+/*
+ * clock_init() is adapted from SystemClock_Config() in TinyUSB's
+ * hw/bsp/stm32u5/boards/stm32u5a5nucleo/board.h:
+ *
+ * The MIT License (MIT)
+ *
+ * Copyright (c) 2023, Ha Thach (tinyusb.org)
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in
+ * all copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+ * THE SOFTWARE.
+ */
 static void clock_init(void) {
   RCC_OscInitTypeDef osc = {0};
   RCC_ClkInitTypeDef clk = {0};
@@ -167,8 +195,9 @@ void board_init(void) {
 
   vbus_init();
 
-  // USB HS PHY clocked from the 16 MHz HSE
-  family_usb_init(RCC_USBPHYCLKSOURCE_HSE, SYSCFG_OTG_HS_PHY_CLK_SELECT_1);
+  // USB: the pins; u2ps_dev_init() starts the HS PHY from the 16 MHz HSE
+  // (U2PS_DWC2_HSE_HZ = HSE_VALUE)
+  family_usb_pins();
 }
 
 void USART1_IRQHandler(void);  // vector table entry

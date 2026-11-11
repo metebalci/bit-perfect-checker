@@ -89,6 +89,22 @@ SECTIONS
     __bss_end__ = _ebss;
   } > RAM
 
+  /* The USB data that needs no zero start (FAMILY_CLASS_MEM,
+     FAMILY_USB_DATA, family.h): the stream's class memory and queue, about
+     1 MB. Not zeroed by the startup code, which runs at the reset clock and
+     would delay the attach. */
+  .noinit_usb (NOLOAD) :
+  {
+    . = ALIGN(4);
+    _snoinit_usb = .;
+    _sclass_mem = .;
+    *(.noinit_usb.class_mem)
+    _eclass_mem = .;
+    *(.noinit_usb)
+    . = ALIGN(4);
+    _enoinit_usb = .;
+  } > RAM
+
   /* The stack grows down from _estack; this only reserves its room */
   .stack (NOLOAD) :
   {
@@ -98,3 +114,9 @@ SECTIONS
 
   .ARM.attributes 0 : { *(.ARM.attributes) }
 }
+
+/* The class memory is static, so its section stands for it: at least 40
+   buffers of 776 bytes, the stride of 32/4 at 768 kHz (u2ps_glue.c), out
+   of .bss, which the startup code zeroes */
+ASSERT(_eclass_mem - _sclass_mem >= 40 * 776, "the class memory (u2ps_glue.c) must be in .noinit_usb")
+ASSERT(_snoinit_usb >= _ebss, ".noinit_usb must lie after .bss")

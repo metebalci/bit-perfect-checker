@@ -1,9 +1,10 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) 2026 Mete Balci
-// USB identity and the UAC2 topology: clock source -> input terminal (USB
-// streaming) -> output terminal. There is no Feature Unit, so a host that
-// wants to change the volume has to do it in software, where the checker
-// sees it.
+// USB identity, the formats the device offers, and the description u2ps
+// builds every descriptor from (usb_formats.c). The UAC2 topology: clock
+// source -> input terminal (USB streaming) -> output terminal. There is no
+// Feature Unit, so a host that wants to change the volume has to do it in
+// software, where the checker sees it.
 
 #ifndef USB_DESCRIPTORS_H
 #define USB_DESCRIPTORS_H
@@ -11,6 +12,9 @@
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
+
+#include "u2ps_dev.h"
+#include "u2ps_dport_cfg.h"
 
 // USB_VID, USB_PID and USB_SERIAL_PREFIX come from the build (CMake options
 // of the same names). The default, 16C0:27E0, is Objective Development's
@@ -32,29 +36,26 @@
 // Raise with every change to the descriptors, so hosts that cache them notice.
 #define USB_BCD   0x0104
 
+// The interfaces u2ps gives the audio function: AudioControl, then
+// AudioStreaming
 enum {
   ITF_NUM_AUDIO_CONTROL = 0,
   ITF_NUM_AUDIO_STREAMING,
   ITF_NUM_TOTAL
 };
 
-#define EP_AUDIO_OUT  0x01
-#define EP_AUDIO_FB   0x81
-
-#define UAC2_ENTITY_INPUT_TERMINAL   0x01
-#define UAC2_ENTITY_OUTPUT_TERMINAL  0x03
-#define UAC2_ENTITY_CLOCK            0x04
-
 #define UAC2_CHANNELS     2
 #define UAC2_MAX_RATE     768000
 
 // wMaxPacketSize: one frame more than the nominal number per microframe at
-// the highest rate, as TUD_AUDIO_EP_SIZE computes it.
+// the highest rate, as u2ps computes it for every data endpoint (u2ps_dev.h,
+// u2ps_dev_description_t).
 #define UAC2_EP_OUT_SZ(_slot) \
   ((((UAC2_MAX_RATE) + 7999) / 8000 + 1) * (_slot) * UAC2_CHANNELS)
-#define UAC2_EP_OUT_SZ_2BYTE  UAC2_EP_OUT_SZ(2)
-#define UAC2_EP_OUT_SZ_3BYTE  UAC2_EP_OUT_SZ(3)
-#define UAC2_EP_OUT_SZ_4BYTE  UAC2_EP_OUT_SZ(4)
+
+// The most buffers a stream gets: the class memory (CLASS_MEM_BYTES, from
+// the build) at the smallest stride, the 16/2 format's (u2ps_glue.c)
+#define USB_BUFFERS_MAX (CLASS_MEM_BYTES / U2PS_DPORT_STRIDE(UAC2_EP_OUT_SZ(2)))
 
 // A streaming format: slot size in bytes and bit resolution. The device
 // knows four: 16/2, 24/4, 32/4 and 24/3 (bits/bytes), and offers some or all
@@ -82,5 +83,16 @@ bool usb_formats_equal(const uac2_alt_t *alts, uint8_t count);
 
 // The formats offered now, as text.
 void usb_formats_text(char *buf, size_t size);
+
+// The rate the clock has before the host sets one. A host that finds the
+// rate it wants there need not set it (Linux does not), so the stream and
+// its checker start with it too.
+#define USB_START_RATE 48000u
+
+// The device's description for u2ps_dev_init(), with the formats offered
+// now. u2ps keeps the description it was started with unchanged, so each
+// call fills the other of two and returns it: the one in use stays valid
+// until a re-init with the new one has returned.
+const u2ps_dev_description_t *usb_description(void);
 
 #endif

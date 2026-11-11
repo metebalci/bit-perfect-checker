@@ -16,7 +16,9 @@
 //   red, fast blink    an OVERRUN result
 //   green              the results are all BIT_PERFECT
 //   neither            nothing judged yet
-//   all three          fault (set by the board's fault handler)
+//   all three          fault: steady while the firmware runs on after a USB
+//                      fault (status.usb_fault), and from the board's fault
+//                      handler, which stops
 
 #ifndef LEDS_H
 #define LEDS_H

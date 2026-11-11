@@ -2,44 +2,49 @@
 // Copyright (c) 2026 Mete Balci
 // Stream probe and BPC1 checker.
 //
-// The USB interrupt counts packets, bytes and microframes. Each packet is
-// counted in the microframe it came in, so a microframe without a packet
-// shows up as a gap. The controller receives an isochronous OUT packet only
-// in a microframe whose parity is the endpoint's EONUM bit (RM0456 Rev 7
-// 73.15.6, RM0431 Rev 4 32.16.6), and the interrupt that serves the packet
-// enters in that microframe or the next one, so the microframe number and
-// EONUM read at the interrupt's entry give the packet's own microframe
-// (packet_uframe()). An entry two or more microframes late comes with a late
-// re-arm, so packets were lost there anyway; the net loss stays right and
-// its hole is counted one packet early. Two packets in the same microframe
-// ("doubled", which takes back the hole before it) cannot happen this way;
-// the count stays for the log line.
+// The USB interrupt counts packets, bytes and microframes. u2ps gives each
+// packet's own microframe, and reports the microframes without a packet
+// before the packet that ends them, with a reason (stream_hole_isr()):
+// missed microframes (the host sent nothing, the device re-armed late, a
+// corrupted packet; a zero-length packet counts as one too), and overflows:
+// packets u2ps had no buffer for, because the main loop still held every
+// one. No two packets share a microframe, so "doubled" stays 0.
 //
-// The main loop drains the receive FIFO, probes the samples for the bits in
-// use and for DoP markers, and feeds every frame to the BPC1 checker engine
-// (bpc1/bpc1_checker.h), which starts over with each stream. It logs a stat
+// No copy: each packet stays in the buffer of class memory that u2ps lent
+// it (app/u2ps_glue.c). The interrupt queues the packet with the holes
+// before it, and the main loop reads the queue in order: it probes the
+// samples for the bits in use and for DoP markers, feeds every frame to the
+// BPC1 checker engine (bpc1/bpc1_checker.h), which starts over with each
+// stream, and then gives the buffers back to u2ps in the same order
+// (uac2_release()). The depth is the number of buffers, one packet each
+// (125 us): when the main loop falls further behind, u2ps has no buffer for
+// the packets that come, and reports them as an overflow before the next
+// one. The checker hears of it before it sees that packet's frames, and a
+// file it falls in is OVERRUN (docs/bpc1.md 12.6). The main loop logs a stat
 // line every second, a lock line for each file found, and a result line for
 // each file and each stretch of unknown signal the checker finished; the
 // last ones come when the stream stops. The run's results go to the LEDs.
 //
-// Each result line counts the lost packets and FIFO overflows that fall in
-// its frames, by their place in the stream, not by the time of the line:
-// the interrupt runs ahead of the checker by the FIFO's fill. The interrupt
-// notes each hole with the bytes of the stream received before it; the main
-// loop turns that into the checker's frame once it has read that far, and
-// notes each overflow at the frame where it tells the checker of it. A
-// result takes the events before its end frame. Its line waits until a
-// later result is sure to come, so that the stream's last line can take
-// what is left: the lines add up to the stream stop line.
+// Each result line counts the lost packets and overflows that fall in its
+// frames, by their place in the stream: a packet's holes fall before its
+// first frame. A result takes the events before its end frame. Its line
+// waits until a later result is sure to come, so that the stream's last
+// line can take what is left: the lines add up to the stream stop line.
 //
-// A stream's frames end where the interrupt began the next segment: the
-// interrupt notes that place in the bytes written to the receive FIFO, and
-// the main loop feeds the old stream's checker up to it before it starts the
-// new one. The interrupt counts the FIFO's overflows from the bytes written
-// and read, not from TinyUSB's indices.
+// The interrupt begins a new segment of the stream at the first packet
+// after a pause, after the main loop stopped the stream, or after a change
+// of the rate; the queue notes each packet's segment, and the main loop
+// feeds the old stream's checker up to the new segment, over as many
+// passes as that takes, before it starts the new one. When the host stops
+// the stream (an alt change, alt 0), the packets not read yet are checked
+// too, over the next passes, since the glue lends their buffers again only
+// at the next stream's open; if that open must come first, the glue cuts
+// the stream there (stream_cut()), and the packets still unread count as
+// overflows at their place. At a reset they go unread.
 
 #include "stream.h"
 
+#include <stdatomic.h>
 #include <stdbool.h>
 #include <string.h>
 
@@ -49,158 +54,196 @@
 #include "load.h"
 #include "log.h"
 #include "status.h"
-#include "tusb.h"
+#include "uac2.h"
 #include "usb_descriptors.h"
 
+#define ARRAY_SIZE(a) (sizeof(a) / sizeof((a)[0]))
+
 #define UFRAME_MASK   0x3FFFu
-#define IDLE_UFRAMES  (STREAM_IDLE_MS * 8u)
 #define WINDOW_MS     1000u
 
 // Counters of one stream, written by the USB interrupt.
 typedef struct {
   uint32_t seq;        // segment number
-  uint64_t start;      // bytes written to the receive FIFO before the segment's first packet
   uint64_t packets;
   uint64_t bytes;
   uint64_t uframes;    // microframes from the first packet to the last
-  uint32_t missed;     // microframes without a packet
-  uint32_t holes;      // runs of microframes without a packet
+  uint32_t missed;     // microframes without a packet, overflows not included
+  uint32_t holes;      // runs of such microframes
   uint32_t max_hole;   // the longest run
-  uint32_t doubled;    // packets counted in the same microframe as the one before: 0 with packet_uframe()
-  uint32_t overflows;  // packets that overflowed the receive FIFO
+  uint32_t run;        // the run that the next packet ends, 0 for none
+  uint32_t late;       // of the missed microframes: the device re-armed too late (u2ps LATE)
+  uint32_t crc;        // of the missed microframes: corrupted packets (u2ps CORRUPTED)
+  uint32_t overflows;  // packets u2ps had no buffer for (u2ps NO_BUFFER)
+  uint32_t rate;       // the rate the host had set when the segment began
+  uint8_t alt, slot, resolution;  // the alt setting it began at
   uint16_t min_bytes;
   uint16_t max_bytes;
 } counters_t;
 
-static counters_t isr;
-static counters_t isr_prev;  // the segment before, as it ended: the main loop may not have read all of it
+// The counters of the last SEGMENTS segments, each in slot seq % SEGMENTS:
+// the main loop may be behind by several segments, and reads each one's
+// counters until it has finished it. The interrupt begins a new segment
+// only in a slot that is not the main loop's (main_seq); else the packets
+// after a pause go on in the newest segment.
+#define SEGMENTS 8u
+
+static counters_t segments[SEGMENTS];
+static counters_t *isr = &segments[0];  // the segment the interrupt counts in
+static volatile uint32_t main_seq;      // the segment the main loop reads
 static uint32_t isr_last_uframe;
 static volatile bool isr_restart = true;
+static volatile uint32_t isr_rate;        // the rate the next segment begins at (stream_set_rate())
+static volatile uint8_t isr_alt;          // and the alt setting (stream_set_alt())
+static volatile uint8_t isr_slot;
+static volatile uint8_t isr_resolution;
+static volatile uint32_t isr_lost_starts; // segment starts dropped: the main loop was SEGMENTS behind
 
-// The receive FIFO's bytes, counted here and not from its indices, which
-// TinyUSB sets back to a full FIFO when the bytes not read would reach twice
-// its depth (tusb_fifo.c, "Double overflowed"). The interrupt counts the
-// bytes written and those it overwrote before they were read; the main loop
-// counts those it read, and brings that in line with the FIFO before each
-// read (fifo_state()).
-#define FIFO_BYTES CFG_TUD_AUDIO_FUNC_1_EP_OUT_SW_BUF_SZ
-
-static uint64_t fifo_written;
-static uint64_t fifo_skipped;
-static volatile uint32_t fifo_read;  // the low word of fifo_read_all, for the interrupt
-static uint64_t fifo_read_all;       // main loop only
-
-// A hole or a doubled microframe, where it fell
+// The holes u2ps reported since the last packet, which go with the next
+// packet's entry, for their place in the stream
 typedef struct {
-  uint64_t at;      // bytes of its segment received before it
-  int32_t lost;     // net lost packets: missed microframes, less doubled ones
-  uint32_t seq;     // its segment
-  uint16_t uframe;  // the microframe of the packet that noted it
-} isr_event_t;
+  uint32_t missed;
+  uint32_t overflows;
+} pending_t;
 
-// Events not yet taken by the main loop, which takes them with the counters
-// at every pass (take()); those of the segment before stay until it has.
-// When full, an event goes into the newest one of its segment, or only into
-// the counters if there is none.
-#define ISR_EVENTS 64u
+static pending_t pending;
 
-static isr_event_t isr_events[ISR_EVENTS];
-static uint32_t isr_n_events;  // the main loop changes it with interrupts off
+// The packets u2ps holds for the main loop, in arrival order: one entry per
+// packet, so the queue needs no more entries than a stream has buffers
+// (USB_BUFFERS_MAX). The main loop drops the entries of a stream u2ps
+// stopped before the glue lends the class memory again (stream_set_alt()
+// comes first, u2ps_glue.c), so the entries never outnumber the buffers,
+// and every entry is of the stream the glue has open, if any.
+typedef struct {
+  const uint8_t *data;
+  uint32_t seq;        // its segment
+  uint32_t lost;       // microframes without a packet before it
+  uint32_t overflows;  // packets u2ps had no buffer for before it
+  uint16_t len;
+} packet_t;
 
-static FAMILY_ISR_CODE void isr_event(int32_t lost, uint32_t uframe) {
-  isr_event_t *newest = isr_n_events ? &isr_events[isr_n_events - 1u] : NULL;
-  bool ours = newest != NULL && newest->seq == isr.seq;
-  // A doubled microframe takes back the hole before it: the packet was late,
-  // not lost. The main loop leaves that hole here for its microframe.
-  if (ours && ((lost < 0 && newest->lost > 0) || isr_n_events == ISR_EVENTS)) {
-    newest->lost += lost;
-  } else if (isr_n_events < ISR_EVENTS) {
-    isr_events[isr_n_events] = (isr_event_t) {.at = isr.bytes, .lost = lost, .seq = isr.seq, .uframe = (uint16_t) uframe};
-    isr_n_events++;
+#define PACKETS USB_BUFFERS_MAX
+
+static packet_t packets[PACKETS] FAMILY_USB_DATA;  // no zero start needed: written before read
+static uint32_t pk_wi;               // the interrupt's write index
+static volatile uint32_t pk_in;      // packets queued, counted since boot
+static uint32_t pk_ri;               // the main loop's read index
+static uint32_t pk_out;              // packets read and given back (or dropped)
+static uint32_t pk_read;             // packets read since then, not given back yet
+
+// The bytes of the packets queued, and of those the main loop has read, for
+// the backlog and the load figures
+static uint64_t bytes_in;
+static volatile uint32_t bytes_out;  // the low word of bytes_out_all, for the interrupt
+static uint64_t bytes_out_all;       // main loop only
+
+// Missed microframes, in the run the next packet ends: the run is one
+// hole, however many reports u2ps splits it into
+static FAMILY_ISR_CODE void missed(uint32_t uframes) {
+  isr->missed += uframes;
+  if (isr->run == 0u) {
+    isr->holes++;
   }
+  isr->run += uframes;
+  if (isr->run > isr->max_hole) {
+    isr->max_hole = isr->run;
+  }
+  pending.missed += uframes;
 }
 
-// The microframe P of the packet the interrupt serves, from the microframe
-// number fn and the endpoint's EONUM bit read at the interrupt's entry: fn is
-// P or P + 1, and P has EONUM's parity, so P = fn - ((fn ^ EONUM) & 1). If
-// the interrupt entered before the packet came (it entered for something
-// else and served the packet's completion in the same pass), this gives
-// P - 2, before the packet before; a fresh read of the microframe number
-// then gives P.
-static FAMILY_ISR_CODE uint32_t packet_uframe(void) {
-  uint32_t fn;
-  bool odd;
-  board_usb_entry(&fn, &odd);
-  uint32_t uframe = (fn - ((fn ^ (odd ? 1u : 0u)) & 1u)) & UFRAME_MASK;
-  if (!isr_restart && ((uframe - isr_last_uframe) & UFRAME_MASK) > UFRAME_MASK / 2u) {
-    fn = board_usb_microframe();
-    uframe = (fn - ((fn ^ (odd ? 1u : 0u)) & 1u)) & UFRAME_MASK;
-  }
-  return uframe;
-}
-
-FAMILY_ISR_CODE void stream_packet_isr(uint16_t n_bytes) {
-  // A zero-length packet carries no frames (UAC2 calls it a transfer
-  // delimiter): it counts like a microframe without a packet.
-  if (n_bytes == 0) {
+// A hole counts at once, in the segment that runs: its microframes came
+// after that segment's last packet, also when no packet of it follows (a
+// pause, an alt change, a reset), and u2ps may report it in parts, at its
+// tick's long gap. The next packet carries it as well, for its place in the
+// stream. Called from the USB interrupt, and in the main loop with the USB
+// vector masked, from u2ps_dev_tick() (uac2_task()) and from a detach, a
+// re-init or a VBUS loss (u2ps_glue.c): never from inside this file, which
+// reads what it writes only with interrupts off.
+FAMILY_ISR_CODE void stream_hole_isr(uint32_t uframes, unsigned why) {
+  if (why == U2PS_MISS_NO_BUFFER) {
+    isr->overflows += uframes;
+    pending.overflows += uframes;
     return;
   }
-  uint32_t uframe = packet_uframe();
+  missed(uframes);
+  if (why == U2PS_MISS_LATE) {
+    isr->late += uframes;
+  } else if (why == U2PS_MISS_CORRUPTED) {
+    isr->crc += uframes;
+  }
+}
+
+FAMILY_ISR_CODE void stream_restart_isr(void) {
+  isr_restart = true;
+}
+
+FAMILY_ISR_CODE void stream_packet_isr(const uint8_t *data, uint16_t n_bytes, uint32_t uframe) {
+  packet_t *p = &packets[pk_wi];
+  pk_wi = pk_wi + 1u < PACKETS ? pk_wi + 1u : 0u;
+  p->data = data;
+  p->len = n_bytes;
+  p->lost = 0;
+  p->overflows = 0;
+  if (n_bytes == 0) {
+    // A zero-length packet carries no frames (UAC2 calls it a transfer
+    // delimiter): it counts like a microframe without a packet, in the hole
+    // before the next packet. Queued all the same: u2ps holds it.
+    missed(1u);
+    p->seq = isr->seq;
+    atomic_signal_fence(memory_order_release);  // the entry before the count
+    pk_in++;
+    return;
+  }
   uint32_t gap = (uframe - isr_last_uframe) & UFRAME_MASK;
   isr_last_uframe = uframe;
 
-  if (isr_restart || gap > IDLE_UFRAMES) {
-    // Events older than the segment that ends: the main loop did not follow
-    // that one, and they go
-    if (isr_n_events > 0 && isr_events[0].seq != isr.seq) {
-      isr_n_events = 0;
-    }
-    isr_prev = isr;
-    uint32_t seq = isr.seq + 1;
-    memset(&isr, 0, sizeof(isr));
-    isr.seq = seq;
-    isr.start = fifo_written;
-    isr.min_bytes = n_bytes;
-    isr.max_bytes = n_bytes;
+  if (isr_restart) {
+    // The holes before a segment's first packet counted in the segment
+    // they ended
     isr_restart = false;
-  } else {
-    isr.uframes += gap;
-    if (gap == 0) {
-      isr.doubled++;
-      isr_event(-1, uframe);
-    } else if (gap > 1) {
-      isr.missed += gap - 1;
-      isr.holes++;
-      if (gap - 1 > isr.max_hole) {
-        isr.max_hole = gap - 1;
-      }
-      isr_event((int32_t) (gap - 1), uframe);
+    uint32_t seq = isr->seq + 1u;
+    if (seq - main_seq < SEGMENTS) {
+      isr = &segments[seq % SEGMENTS];
+      memset(isr, 0, sizeof(*isr));
+      isr->seq = seq;
+      isr->rate = isr_rate;
+      isr->alt = isr_alt;
+      isr->slot = isr_slot;
+      isr->resolution = isr_resolution;
+      isr->min_bytes = n_bytes;
+      isr->max_bytes = n_bytes;
+    } else {
+      // A pause, rate or alt boundary lost: the glue counts it as a lost
+      // event (stream_lost_starts()), a fault
+      isr_lost_starts++;
     }
+  } else {
+    isr->uframes += gap;
+    isr->run = 0;
+    p->lost = pending.missed;
+    p->overflows = pending.overflows;
   }
+  memset(&pending, 0, sizeof(pending));
+  p->seq = isr->seq;
 
-  isr.packets++;
-  isr.bytes += n_bytes;
-  if (n_bytes < isr.min_bytes) {
-    isr.min_bytes = n_bytes;
+  isr->packets++;
+  isr->bytes += n_bytes;
+  if (n_bytes < isr->min_bytes) {
+    isr->min_bytes = n_bytes;
   }
-  if (n_bytes > isr.max_bytes) {
-    isr.max_bytes = n_bytes;
+  if (n_bytes > isr->max_bytes) {
+    isr->max_bytes = n_bytes;
   }
-  // The FIFO overwrites its oldest bytes when full: more than its depth
-  // written and not read means those are lost.
-  fifo_written += n_bytes;
-  uint32_t waiting = (uint32_t) (fifo_written - fifo_skipped) - fifo_read;
-  if (waiting > FIFO_BYTES) {
-    isr.overflows++;
-    fifo_skipped += waiting - FIFO_BYTES;
-    waiting = FIFO_BYTES;
-  }
-  load_fifo(waiting);
+  bytes_in += n_bytes;
+  atomic_signal_fence(memory_order_release);  // the entry before the count
+  pk_in++;
+  load_fifo((uint32_t) bytes_in - bytes_out);
 }
 
+// The counters of the newest segment
 static counters_t snapshot(void) {
   board_irq_disable();
-  counters_t c = isr;
+  counters_t c = *isr;
   board_irq_enable();
   return c;
 }
@@ -224,15 +267,12 @@ typedef struct {
   uint32_t ck_cpf;      // checker cycles per frame
   uint32_t ck_pct10;    // time in the checker, 0.1 %
   uint32_t loop_max;    // us, the longest main-loop iteration
-  uint32_t fifo_max;    // us of audio, the fullest the receive FIFO got
+  uint32_t fifo_max;    // us of audio, the most received and not read yet
 } figures_t;
 
-// Lost packets or overflows of the stream, where they fell: before the
-// checker's frame `at` once placed, before byte `at` of the interrupt's
-// segment until then
+// Lost packets or overflows of the stream, before the checker's frame `at`
 typedef struct {
   uint64_t at;
-  bool placed;
   int32_t lost;
   uint32_t overflows;
 } event_t;
@@ -256,6 +296,9 @@ typedef struct {
 static struct {
   bool active;
   uint32_t seq;
+  uint32_t rate;        // the rate the stream started with, its segment's
+  uint8_t alt, slot, resolution;  // the alt setting it started at, its segment's
+  uint32_t cut;         // packets not read when the stream was cut, counted as overflows
   counters_t last;      // latest counters of the active stream
   uint64_t idle_packets;  // packets when stream_task() last saw them change
   uint32_t last_packet_ms;
@@ -276,13 +319,11 @@ static struct {
   uint32_t watch_ms;
   bool locked;
   uint64_t lock_frame;  // first frame of the file the last lock line named
+  // a frame that a packet ended in the middle of, waiting for its rest
+  _Alignas(4) uint8_t part[8];
+  uint32_t part_n;
   // lost packets and overflows, by where they fell
-  uint64_t start;           // the segment's start in the bytes written to the receive FIFO
   uint64_t fed;             // frames given to the checker
-  uint64_t read_end;        // bytes of the segment the FIFO has handed out to the checker
-  uint64_t map_at;          // from this byte of the segment on, frames run on from map_frame
-  uint64_t map_frame;
-  bool kept;                // the interrupt keeps a hole that a doubled microframe may take back
   event_t events[EVENTS];
   uint32_t n_events;
   int32_t lost_charged;     // charged to results so far
@@ -297,19 +338,25 @@ static struct {
   uint64_t diff_file;       // first frame of the file status.file_diff names
 } s;
 
+// The most frames one call of probe() takes: a packet of the largest size
+// in the smallest frames (16/2), or one frame
+#define FEED_FRAMES (U2PS_ISO_OUT_MPS_MAX / (2u * UAC2_CHANNELS))
+
 static bpc1_checker_t ck;
-static uint32_t buf[1024];
-static uint32_t words[2 * 1024];  // buf's frames as the checker takes them
+static uint32_t words[2 * FEED_FRAMES];  // frames as the checker takes them
 static uint32_t results;          // result lines since boot
 static char result_text[LOG_LINE_MAX];
 static uint32_t run_starts;       // "run start" lines that wait for the result line before them
 
+// The stream's frames, or outside a stream the alt setting's
 static uint32_t frame_bytes(void) {
-  return (uint32_t) status.slot * UAC2_CHANNELS;
+  return (uint32_t) (s.active ? s.slot : status.slot) * UAC2_CHANNELS;
 }
 
+// Net lost packets: u2ps gives each packet its own microframe, so no
+// doubled microframe takes a missed one back
 static int32_t net_lost(const counters_t *c) {
-  return (int32_t) (c->missed - c->doubled);
+  return (int32_t) c->missed;
 }
 
 // Average rate of the stream so far, in 1/100 Hz of the host's clock.
@@ -323,7 +370,7 @@ static int probe_bits(const probe_t *p) {
 }
 
 static int probe_dop(const probe_t *p) {
-  return (status.slot >= 3 && p->dop_frames * 2 > p->probe_frames) ? 1 : 0;
+  return (s.slot >= 3 && p->dop_frames * 2 > p->probe_frames) ? 1 : 0;
 }
 
 static void probe_add(probe_t *p, uint32_t frames, uint32_t or_bits, uint32_t dop) {
@@ -344,14 +391,15 @@ static inline void probe_frame(uint32_t l, uint32_t r, uint32_t *or_bits, uint32
 }
 
 // Probes the frames in b and returns them as 32-bit left-justified words,
-// channels interleaved: b itself for 4-byte slots, else in words[].
+// channels interleaved: b itself for 4-byte slots on a word boundary, else
+// in words[].
 static const uint32_t *probe(const uint8_t *b, uint32_t frames) {
   uint32_t or_bits = 0;
   uint32_t dop = 0;
   uint32_t prev = s.last_marker;
   const uint32_t *out = words;
 
-  switch (status.slot) {
+  switch (s.slot) {
     case 2:
       for (uint32_t i = 0; i < frames; i++, b += 4) {
         uint32_t l = (uint32_t) (b[0] | (b[1] << 8)) << 16;
@@ -370,14 +418,25 @@ static const uint32_t *probe(const uint8_t *b, uint32_t frames) {
         words[2 * i + 1] = r;
       }
       break;
-    default: {
-      const uint32_t *w = (const uint32_t *) (const void *) b;  // buf is word-aligned
-      for (uint32_t i = 0; i < frames; i++) {
-        probe_frame(w[2 * i], w[2 * i + 1], &or_bits, &dop, &prev);
+    default:
+      if (((uintptr_t) b & 3u) != 0) {
+        // Only after a frame that a packet ended in the middle of
+        for (uint32_t i = 0; i < frames; i++, b += 8) {
+          uint32_t l = (uint32_t) b[0] | ((uint32_t) b[1] << 8) | ((uint32_t) b[2] << 16) | ((uint32_t) b[3] << 24);
+          uint32_t r = (uint32_t) b[4] | ((uint32_t) b[5] << 8) | ((uint32_t) b[6] << 16) | ((uint32_t) b[7] << 24);
+          probe_frame(l, r, &or_bits, &dop, &prev);
+          words[2 * i] = l;
+          words[2 * i + 1] = r;
+        }
+      } else {
+        // Class memory and its stride are word-aligned (U2PS_DPORT_ALIGN)
+        const uint32_t *w = (const uint32_t *) (const void *) b;
+        for (uint32_t i = 0; i < frames; i++) {
+          probe_frame(w[2 * i], w[2 * i + 1], &or_bits, &dop, &prev);
+        }
+        out = w;
       }
-      out = w;
       break;
-    }
   }
 
   s.last_marker = prev;
@@ -389,103 +448,43 @@ static const uint32_t *probe(const uint8_t *b, uint32_t frames) {
 // Lost packets and overflows, by where they fell
 //--------------------------------------------------------------------+
 
-// The checker's frame of byte `at` of the segment, once the FIFO has handed
-// it out. Bytes an overflow skipped go to the first frame after them, where
-// the checker is told of the overflow.
-static uint64_t frame_of(uint64_t at, uint32_t fb) {
-  return at > s.map_at ? s.map_frame + (at - s.map_at) / fb : s.map_frame;
-}
-
-static void event_add(uint64_t at, bool placed, int32_t lost, uint32_t overflows) {
-  event_t *newest = s.n_events ? &s.events[s.n_events - 1u] : NULL;
-  // Full, or a doubled microframe that takes back the hole before it
-  if (s.n_events == EVENTS || (lost < 0 && newest && newest->lost > 0)) {
+static void event_add(uint64_t at, int32_t lost, uint32_t overflows) {
+  if (s.n_events == EVENTS) {
+    event_t *newest = &s.events[EVENTS - 1u];
     newest->lost += lost;
     newest->overflows += overflows;
     return;
   }
-  // An event the interrupt kept until after its bytes were read
-  if (!placed && at < s.read_end) {
-    at = frame_of(at, frame_bytes());
-    placed = true;
-  }
-  s.events[s.n_events++] = (event_t) {.at = at, .placed = placed, .lost = lost, .overflows = overflows};
+  s.events[s.n_events++] = (event_t) {.at = at, .lost = lost, .overflows = overflows};
 }
 
-// The counters of this stream's segment into s.last and its events into
-// s.events, both as they were at one moment; false if the interrupt has
-// left that segment and the one after. A hole noted in the microframe that
-// runs stays with the interrupt unless `all`, since a doubled microframe
-// can still take it back (s.kept).
-static bool take(bool all) {
-  isr_event_t e[ISR_EVENTS];
-  counters_t c;
-  uint32_t n = 0;
-  uint16_t uframe = (uint16_t) (board_usb_microframe() & UFRAME_MASK);
+// The counters of segment seq into *c; false if the interrupt has used its
+// slot for a later segment.
+static bool take_segment(uint32_t seq, counters_t *c) {
   board_irq_disable();
-  bool cur = isr.seq == s.seq;
-  bool same = cur || isr_prev.seq == s.seq;
-  bool kept = false;
+  const counters_t *k = &segments[seq % SEGMENTS];
+  bool same = k->seq == seq;
   if (same) {
-    c = cur ? isr : isr_prev;
-    // Older segments' events first, then this one's, then the next one's
-    uint32_t i = 0;
-    while (i < isr_n_events && (int32_t) (isr_events[i].seq - s.seq) < 0) {
-      i++;
-    }
-    uint32_t j = i;
-    while (j < isr_n_events && isr_events[j].seq == s.seq) {
-      j++;
-    }
-    if (!all && cur && j > i && j == isr_n_events && isr_events[j - 1u].lost > 0
-        && isr_events[j - 1u].uframe == uframe) {
-      j--;
-      kept = true;
-    }
-    n = j - i;
-    memcpy(e, &isr_events[i], n * sizeof(e[0]));
-    memmove(isr_events, &isr_events[j], (isr_n_events - j) * sizeof(e[0]));
-    isr_n_events -= j;
+    *c = *k;
   }
   board_irq_enable();
-  s.kept = kept;
-  if (!same) {
-    return false;
-  }
-  s.last = c;
-  for (uint32_t k = 0; k < n; k++) {
-    event_add(e[k].at, false, e[k].lost, 0);
-  }
-  return true;
+  return same;
 }
 
-// The chunk of `frames` just read starts at byte chunk_at of the segment and
-// goes to the checker as its frames s.fed on: the events before its end get
-// their frame.
-static void place(uint64_t chunk_at, uint32_t frames, uint32_t fb) {
-  if (chunk_at != s.read_end) {
-    // An overflow skipped the bytes in between
-    s.map_at = chunk_at;
-    s.map_frame = s.fed;
-  }
-  s.read_end = chunk_at + (uint64_t) frames * fb;
-  for (uint32_t i = 0; i < s.n_events; i++) {
-    event_t *e = &s.events[i];
-    if (!e->placed && e->at < s.read_end) {
-      e->at = frame_of(e->at, fb);
-      e->placed = true;
-    }
-  }
+// The counters of this stream's segment into s.last
+static bool take(void) {
+  return take_segment(s.seq, &s.last);
 }
 
-// The events that fall before the checker's frame `end`, out of the queue
-static void charge(uint64_t end, int32_t *lost, uint32_t *overflows) {
+// The events that fall before the checker's frame `end`, out of the queue;
+// with `at_end`, those at `end` too: a cut file's (12.6)
+static void charge(uint64_t end, bool at_end, int32_t *lost, uint32_t *overflows) {
   uint32_t k = 0;
   *lost = 0;
   *overflows = 0;
   for (uint32_t i = 0; i < s.n_events; i++) {
     const event_t *e = &s.events[i];
-    if (e->placed && e->at < end) {
+    if (e->at < end || (at_end && e->at == end)) {
       *lost += e->lost;
       *overflows += e->overflows;
     } else {
@@ -497,139 +496,141 @@ static void charge(uint64_t end, int32_t *lost, uint32_t *overflows) {
   s.overflows_charged += *overflows;
 }
 
-// Overflows the checker has not been told of: they overwrote frames from
-// s.fed on, so the checker marks the file there, and they count there.
-static void tell_overflows(void) {
-  if (s.last.overflows != s.overflows_fed) {
-    event_add(s.fed, true, 0, s.last.overflows - s.overflows_fed);
-    s.overflows_fed = s.last.overflows;
-    bpc1_checker_overrun(&ck);
-  }
+// Overflows the checker has not been told of: told at frame s.fed, where
+// they count
+static void tell_overflows(uint32_t overflows) {
+  event_add(s.fed, 0, overflows);
+  s.overflows_fed += overflows;
+  bpc1_checker_overrun(&ck);
 }
 
 //--------------------------------------------------------------------+
-// The receive FIFO
+// The packets in u2ps's buffers
 //--------------------------------------------------------------------+
 
-typedef struct {
-  uint32_t count;  // bytes to read
-  uint64_t at;     // the first one's place in the bytes written
-  uint64_t next;   // where the segment after this stream's began; UINT64_MAX not yet
-} fifo_state_t;
+// The next packet not read yet, or NULL
+static const packet_t *packet_next(void) {
+  if (pk_in - pk_out == pk_read) {
+    return NULL;
+  }
+  atomic_signal_fence(memory_order_acquire);  // the count before the entry
+  return &packets[pk_ri];
+}
 
-// Brings the bytes read in line with the FIFO, with interrupts off, and
-// returns the bytes it holds. An overflowed FIFO drops its oldest bytes
-// here, as the interrupt counted, rather than in the next read. No FIFO
-// (after a bus reset) is an empty one.
-static uint16_t fifo_sync(tu_fifo_t *ff) {
-  uint16_t count = 0;
-  if (ff != NULL) {
-    count = tu_ff_overflow_count(ff->depth, ff->wr_idx, ff->rd_idx);
-    if (count > ff->depth) {
-      tu_fifo_correct_read_pointer(ff);
-      count = ff->depth;
+// The packet packet_next() gave is read: its buffer goes back with
+// give_back()
+static void packet_done(const packet_t *p) {
+  pk_ri = pk_ri + 1u < PACKETS ? pk_ri + 1u : 0u;
+  pk_read++;
+  bytes_out_all += p->len;
+}
+
+// The packets read since the last call go back to u2ps in order, with
+// interrupts off, so that u2ps cannot stop their stream in between: if it
+// stopped it before, it has their buffers back already, and the glue gives
+// back nothing (uac2_release()).
+static void give_back(void) {
+  if (pk_read == 0) {
+    return;
+  }
+  board_irq_disable();
+  pk_out += pk_read;
+  bytes_out = (uint32_t) bytes_out_all;
+  uac2_release(pk_read);
+  board_irq_enable();
+  pk_read = 0;
+}
+
+// Frames to the checker, after the probe
+static void feed_frames(const uint8_t *b, uint32_t frames) {
+  const uint32_t *w = probe(b, frames);
+  uint32_t t0 = board_cycles();
+  bpc1_checker_feed(&ck, w, frames);
+  s.ck_cycles += board_cycles() - t0;
+  s.ck_frames += frames;
+  s.fed += frames;
+}
+
+// A packet's bytes to the checker in whole frames. A frame that the packet
+// ends in the middle of waits in s.part for its rest from the next packet,
+// as in a byte stream: a host that sends whole frames, as UAC2 requires,
+// never leaves one.
+static void feed(const uint8_t *b, uint32_t n, uint32_t fb) {
+  if (s.part_n > 0) {
+    uint32_t k = fb - s.part_n < n ? fb - s.part_n : n;
+    memcpy(&s.part[s.part_n], b, k);
+    s.part_n += k;
+    b += k;
+    n -= k;
+    if (s.part_n < fb) {
+      return;
     }
+    feed_frames(s.part, 1);
+    s.part_n = 0;
   }
-  fifo_read_all = fifo_written - fifo_skipped - count;
-  fifo_read = (uint32_t) fifo_read_all;
-  return count;
+  uint32_t frames = n / fb;
+  if (frames > 0) {
+    feed_frames(b, frames);
+  }
+  s.part_n = n - frames * fb;
+  memcpy(s.part, b + frames * fb, s.part_n);
 }
 
-// TinyUSB cleared the FIFO (a new alt setting, a bus reset): the bytes not
-// read so far are gone, and must not count against the next packets.
-static void fifo_cleared(void) {
-  board_irq_disable();
-  (void) fifo_sync(tud_audio_get_ep_out_ff());
-  board_irq_enable();
-}
+// At most this much per call, so that the USB stack's task runs between
+#define DRAIN_BYTES   16384u
+#define DRAIN_PACKETS 256u
 
-// The FIFO before a read
-static void fifo_state(tu_fifo_t *ff, fifo_state_t *f) {
-  board_irq_disable();
-  uint16_t count = fifo_sync(ff);
-  f->count = count;
-  f->at = fifo_written - count;
-  f->next = isr.seq == s.seq ? UINT64_MAX : isr_prev.seq == s.seq ? isr.start : isr_prev.start;
-  board_irq_enable();
-}
-
-// Reads n bytes into buf. The FIFO's read index and the bytes read move
-// together, so the interrupt never sees one without the other.
-static uint32_t fifo_read_n(tu_fifo_t *ff, uint32_t n) {
-  n = tu_fifo_peek_n(ff, buf, (uint16_t) n);
-  board_irq_disable();
-  tu_fifo_advance_read_pointer(ff, (uint16_t) n);
-  fifo_read_all += n;
-  fifo_read = (uint32_t) fifo_read_all;
-  board_irq_enable();
-  return n;
-}
-
-// Reads the receive FIFO, up to where the interrupt began a segment after
-// the stream's; in a stream, the frames go to the checker too. True if it
-// read anything.
-static bool drain(bool check) {
+// Reads the packets in order, up to the first of a segment after the
+// stream's; in a stream, their frames go to the checker. Returns the bytes
+// read.
+static uint32_t drain(bool check) {
   uint32_t fb = frame_bytes();
-  bool any = false;
-  if (fb == 0) {
-    return any;
+  uint32_t bytes = 0;
+  for (uint32_t i = 0; i < DRAIN_PACKETS && bytes < DRAIN_BYTES; i++) {
+    const packet_t *p = packet_next();
+    if (p == NULL) {
+      break;
+    }
+    if (p->seq != s.seq && (int32_t) (p->seq - s.seq) > 0) {
+      break;  // the next segment's first packet stays for it, outside a stream too
+    }
+    // A packet of an older segment, not read in time, goes unread
+    if (check && fb != 0 && p->seq == s.seq) {
+      if (p->lost > 0) {
+        event_add(s.fed, (int32_t) p->lost, 0);
+      }
+      if (p->overflows > 0) {
+        tell_overflows(p->overflows);
+      }
+      feed(p->data, p->len, fb);
+    }
+    bytes += p->len;
+    packet_done(p);
   }
-  // Bounded, so that tud_task() runs between bursts
-  for (int i = 0; i < 4; i++) {
-    tu_fifo_t *ff = tud_audio_get_ep_out_ff();
-    if (ff == NULL) {
-      return any;  // a bus reset closed the audio function
-    }
-    fifo_state_t f;
-    fifo_state(ff, &f);
-    if (check && f.at < s.start) {
-      // Bytes before the stream's segment, not read in time: they go
-      uint64_t skip = s.start - f.at;
-      skip = skip < f.count ? skip : f.count;
-      (void) fifo_read_n(ff, (uint32_t) (skip < sizeof(buf) ? skip : sizeof(buf)));
-      any = true;
-      continue;
-    }
-    uint64_t limit = f.count;
-    if (f.next != UINT64_MAX) {
-      // The interrupt began the next segment: this stream's bytes end there.
-      // Outside a stream too, the next one's first packet stays for it.
-      limit = f.next > f.at ? f.next - f.at : 0;
-    }
-    uint32_t n = f.count < limit ? f.count : (uint32_t) limit;
-    if (n > sizeof(buf)) {
-      n = sizeof(buf);
-    }
-    n -= n % fb;
-    if (n == 0) {
-      return any;
-    }
-    n = fifo_read_n(ff, n);
-    any = true;
-    uint32_t frames = n / fb;
-    const uint32_t *w = probe((const uint8_t *) buf, frames);
-    if (check) {
-      // The counters and events after the read cover every frame read
-      (void) take(false);
-      place(f.at - s.start, frames, fb);
-      // An overflow since the last chunk, during this read included,
-      // overwrote frames of this chunk: the checker hears of it before it
-      // sees them.
-      tell_overflows();
-      uint32_t t0 = board_cycles();
-      bpc1_checker_feed(&ck, w, frames);
-      s.ck_cycles += board_cycles() - t0;
-      s.ck_frames += frames;
-      s.fed += frames;
-    }
-  }
-  return any;
+  give_back();
+  return bytes;
 }
 
-// The stream's frames still in the FIFO, a FIFO's worth at most
-static void drain_all(void) {
-  for (uint32_t i = 0; i <= FIFO_BYTES / (4u * sizeof(buf)) && drain(true); i++) {
+// True while a packet of the stream waits to be read
+static bool unread(void) {
+  const packet_t *p = packet_next();
+  return p != NULL && p->seq == s.seq;
+}
+
+// The segment after s.seq whose packets come next, or 0 for none yet
+static uint32_t next_segment(void) {
+  const packet_t *p = packet_next();
+  return p != NULL && (int32_t) (p->seq - s.seq) > 0 ? p->seq : 0u;
+}
+
+// The packets queued by now go unread (an alt change, a reset)
+static void drop_all(void) {
+  uint32_t end = pk_in;
+  const packet_t *p;
+  while ((int32_t) (end - (pk_out + pk_read)) > 0 && (p = packet_next()) != NULL) {
+    packet_done(p);
   }
+  give_back();
 }
 
 //--------------------------------------------------------------------+
@@ -654,7 +655,7 @@ static void figures_take(void) {
   f->ck_cpf = s.ck_frames ? s.ck_cycles / s.ck_frames : 0;
   f->ck_pct10 = elapsed ? (uint32_t) ((uint64_t) s.ck_cycles * 1000u / elapsed) : 0;
   f->loop_max = cycles_us(l.loop_max);
-  f->fifo_max = (fb && status.rate) ? (uint32_t) ((uint64_t) l.fifo_max * 1000000u / (fb * status.rate)) : 0;
+  f->fifo_max = (fb && s.rate) ? (uint32_t) ((uint64_t) l.fifo_max * 1000000u / (fb * s.rate)) : 0;
   s.ck_cycles = 0;
   s.ck_frames = 0;
 }
@@ -719,10 +720,10 @@ static void log_held(void) {
     .stream = status.stream_id,
     .file = s.stream_results + 1u,
     .r = &s.held_r,
-    .rate = status.rate,
-    .alt = status.alt,
-    .slot = status.slot,
-    .resolution = status.resolution,
+    .rate = s.rate,
+    .alt = s.alt,
+    .slot = s.slot,
+    .resolution = s.resolution,
     .lost = s.held_lost,
     .overflows = s.held_overflows,
   };
@@ -753,21 +754,20 @@ static void log_held(void) {
   }
 }
 
-// Each finished result takes the events before its end frame. Its line
+// Each finished result takes the events before its end frame, a cut file
+// those at that frame too, before the next file's first X-sync. Its line
 // waits for the next result, for the checker to read past the extents
 // finished so far (release()) or to open a newer file (watch()), or for the
 // stream's stop, which gives the last line the stream's events after it.
-// While the interrupt keeps a hole (take()), the results wait for it,
-// unless `all`.
-static void pop_results(bool all) {
+static void pop_results(void) {
   bpc1_report_t r;
-  while ((all || !s.kept) && bpc1_checker_pop(&ck, &r)) {
+  while (bpc1_checker_pop(&ck, &r)) {
     log_held();
     s.held_r = r;
-    charge(r.first_frame + r.frames, &s.held_lost, &s.held_overflows);
+    charge(r.first_frame + r.frames, r.cut, &s.held_lost, &s.held_overflows);
     s.held = true;
     run_note(r.verdict);
-    if (r.verdict < TU_ARRAY_SIZE(status.run_count)) {
+    if (r.verdict < ARRAY_SIZE(status.run_count)) {
       status.run_count[r.verdict]++;
       status_changed();
     }
@@ -795,18 +795,18 @@ static void release(void) {
 }
 
 uint32_t stream_backlog_us(void) {
-  uint32_t per_s = frame_bytes() * status.rate;
+  uint32_t per_s = frame_bytes() * s.rate;
   if (!s.active || per_s == 0) {
     return 0;
   }
   board_irq_disable();
-  uint64_t waiting = fifo_written - fifo_skipped - fifo_read_all;
+  uint64_t waiting = bytes_in - bytes_out_all;
   board_irq_enable();
   return (uint32_t) (waiting * 1000000u / per_s);
 }
 
 uint32_t stream_packets(void) {
-  return (uint32_t) isr.packets;  // one word: no tear
+  return (uint32_t) isr->packets;  // the low word, one load: no tear; the screen looks only for a change
 }
 
 void stream_log_result(void) {
@@ -860,6 +860,11 @@ static void watch(void) {
 static void start(const counters_t *c, uint32_t now) {
   s.active = true;
   s.seq = c->seq;
+  s.rate = c->rate;
+  s.alt = c->alt;
+  s.slot = c->slot;
+  s.resolution = c->resolution;
+  s.cut = 0;
   s.last = *c;
   s.idle_packets = c->packets;
   s.last_packet_ms = now;
@@ -872,12 +877,8 @@ static void start(const counters_t *c, uint32_t now) {
   s.dop = -1;
   s.last_marker = 0;
   memset(&s.window, 0, sizeof(s.window));
-  s.start = c->start;
+  s.part_n = 0;
   s.fed = 0;
-  s.read_end = 0;
-  s.map_at = 0;
-  s.map_frame = 0;
-  s.kept = false;
   s.n_events = 0;
   s.lost_charged = 0;
   s.overflows_charged = 0;
@@ -896,10 +897,10 @@ static void start(const counters_t *c, uint32_t now) {
   status.overflows = 0;
   status_changed();
   log_line("stream start id=%lu rate=%lu alt=%u slot=%u res=%u allow_silence=%s", (unsigned long) status.stream_id,
-           (unsigned long) status.rate, status.alt, status.slot, status.resolution,
+           (unsigned long) s.rate, s.alt, s.slot, s.resolution,
            status.allow_silence ? "true" : "false");
 
-  bpc1_checker_init(&ck, status.rate, (uint8_t) (status.slot * 8u));
+  bpc1_checker_init(&ck, s.rate, (uint8_t) (s.slot * 8u));
   bpc1_checker_allow_silence(&ck, status.allow_silence);
   s.window_cycles = board_cycles();
   (void) load_take();
@@ -909,9 +910,11 @@ static void stop(const char *reason) {
   if (!s.active) {
     return;
   }
-  (void) take(true);
+  (void) take();
   memset(&s.window, 0, sizeof(s.window));
-  const counters_t *c = &s.last;
+  counters_t last = s.last;
+  last.overflows += s.cut;  // the packets a cut left unread
+  const counters_t *c = &last;
   uint32_t fb = frame_bytes();
   uint64_t ms = (c->uframes + 1u) / 8u;
   uint32_t r = rate_x100(c);
@@ -919,28 +922,39 @@ static void stop(const char *reason) {
   // The last file and the unknown signal after it. The stream stop line
   // comes after them: the stream's last line.
   figures_take();
-  tell_overflows();
+  // Overflows in packets not read, which went unread, still make the file
+  // that was open OVERRUN
+  if (c->overflows != s.overflows_fed) {
+    tell_overflows(c->overflows - s.overflows_fed);
+  }
   bpc1_checker_end(&ck);
-  pop_results(true);
+  pop_results();
   // The stream's last result line: the events no result took, those whose
-  // frames were not read or that fell after the last result included
-  s.held_lost += net_lost(c) - s.lost_charged;
-  s.held_overflows += c->overflows - s.overflows_charged;
+  // frames were not read or that fell after the last result included, if
+  // that result holds the stream's end. Losses and overflows after a
+  // complete file, where the stream ended inside its extent, or in allowed
+  // silence that gave no result, touched no result (12.6): on the stream
+  // stop line only
+  if (bpc1_checker_end_held(&ck)) {
+    s.held_lost += net_lost(c) - s.lost_charged;
+    s.held_overflows += c->overflows - s.overflows_charged;
+  }
   log_held();
 
   log_line_reserved("stream stop id=%lu reason=%s dur=%lu.%03lu frames=%llu pkts=%llu rate=%lu.%02lu fpp=%u-%u "
-           "lost=%ld missed=%lu holes=%lu maxhole=%lu doubled=%lu ovf=%lu outside=%llu silent=%llu results=%lu "
-           "results_lost=%lu",
+           "lost=%ld missed=%lu holes=%lu maxhole=%lu doubled=0 late=%lu crc=%lu ovf=%lu outside=%llu silent=%llu "
+           "results=%lu results_lost=%lu",
            (unsigned long) status.stream_id, reason, (unsigned long) (ms / 1000u),
            (unsigned long) (ms % 1000u), (unsigned long long) (c->bytes / fb), (unsigned long long) c->packets,
            (unsigned long) (r / 100u), (unsigned long) (r % 100u), (unsigned) (c->min_bytes / fb),
            (unsigned) (c->max_bytes / fb), (long) net_lost(c), (unsigned long) c->missed,
-           (unsigned long) c->holes, (unsigned long) c->max_hole, (unsigned long) c->doubled,
-           (unsigned long) c->overflows, (unsigned long long) bpc1_checker_outside(&ck),
+           (unsigned long) c->holes, (unsigned long) c->max_hole, (unsigned long) c->late,
+           (unsigned long) c->crc, (unsigned long) c->overflows, (unsigned long long) bpc1_checker_outside(&ck),
            (unsigned long long) bpc1_checker_silent(&ck), (unsigned long) s.stream_results,
            (unsigned long) bpc1_checker_results_lost(&ck));
 
   s.active = false;
+  s.part_n = 0;
   status.lost = (uint32_t) (net_lost(c) > 0 ? net_lost(c) : 0);
   status.overflows = c->overflows;
   status.file_diff_known = false;
@@ -948,7 +962,7 @@ static void stop(const char *reason) {
   // The interrupt may have begun the next segment already (a host gap just
   // over the idle time): a restart now would cut that segment short.
   board_irq_disable();
-  if (isr.seq == s.seq) {
+  if (isr->seq == s.seq) {
     isr_restart = true;
   }
   board_irq_enable();
@@ -1004,51 +1018,76 @@ static void report(void) {
   memset(&s.window, 0, sizeof(s.window));
 }
 
-void stream_task(void) {
-  // A bus reset closes the audio function and clears its receive FIFO, but
-  // TinyUSB does not call tud_umount_cb() for it (usbd.c, DCD_EVENT_BUS_RESET):
-  // the stream ends here, and the device is no longer set up, also when no
-  // alt setting was open. tud_mount_cb() sets USB_MOUNTED only once
-  // tud_mounted() holds, so an enumeration never looks like a reset.
-  if (!tud_mounted() && (s.active || status.alt != 0 || status.usb == USB_MOUNTED)) {
-    stream_reset();
-    status.usb = USB_NOT_MOUNTED;
-    status_changed();
-    log_line("usb reset");
-  }
+// The segment that ran when the rate last changed: its stream ends there,
+// once its packets are read
+static bool rate_ends;
+static uint32_t rate_end_seq;
 
-  counters_t c = snapshot();
-  uint32_t now = board_millis();
+// The segment that ran when the host last set an alt setting: it and the
+// segments before it end once their packets are read, the last one for
+// that ("alt"), each one before it at the pause that followed it
+static bool alt_ends;
+static uint32_t alt_end_seq;
 
-  if (c.packets != 0 && c.seq != s.seq) {
-    // A new stream began without the old one being stopped: the old one's
-    // frames still in the FIFO go to its checker first
-    if (s.active) {
-      drain_all();
-    }
-    stop("pause");
-    if (status.slot != 0) {
-      start(&c, now);
-    } else {
-      s.seq = c.seq;  // packets outside an alt setting: not a stream
-    }
-  }
-  if (!s.active) {
-    (void) drain(false);  // whatever arrives outside a stream is not probed
-    memset(&s.window, 0, sizeof(s.window));
+// Why the stream ends, when no packet of it comes any more
+static const char *end_reason(bool rate_end) {
+  return alt_ends && alt_end_seq == s.seq ? "alt" : rate_end ? "rate" : "pause";
+}
+
+// The host's alt setting ended the stream's segment or a later one
+static bool alt_ended(void) {
+  return alt_ends && (int32_t) (alt_end_seq - s.seq) >= 0;
+}
+
+// The next segment after a stopped stream, once the packets before it are
+// read: a stream, or packets outside an alt setting
+static void begin(uint32_t now) {
+  uint32_t next = next_segment();
+  counters_t c;
+  if (next == 0u || !take_segment(next, &c)) {
     return;
   }
+  main_seq = next;
+  if (c.slot != 0) {
+    start(&c, now);
+  } else {
+    s.seq = next;  // packets outside an alt setting: not a stream
+  }
+}
 
-  if (c.packets != s.idle_packets) {
-    s.idle_packets = c.packets;
+void stream_task(void) {
+  uint32_t now = board_millis();
+  if (!s.active) {
+    (void) drain(false);  // whatever arrives outside a stream is not checked
+    memset(&s.window, 0, sizeof(s.window));
+    begin(now);
+    if (!s.active) {
+      return;
+    }
+  }
+
+  // A pass that read audio is no idle time, also when the packets came long
+  // before; zero-length packets carry none
+  uint32_t read = drain(true);
+  (void) take();
+  if (read > 0 || s.last.packets != s.idle_packets) {
+    s.idle_packets = s.last.packets;
     s.last_packet_ms = now;
   }
-  (void) take(false);
-  (void) drain(true);
-  pop_results(false);
+  pop_results();
   release();
 
-  if (now - s.last_packet_ms >= STREAM_IDLE_MS) {
+  // The interrupt began a later segment, or the rate changed: no packet of
+  // the stream comes any more, and it ends once those that came are read
+  counters_t c = snapshot();
+  bool rate_end = rate_ends && rate_end_seq == s.seq;
+  if ((c.seq != s.seq || rate_end || alt_ended()) && !unread()) {
+    stop(end_reason(rate_end));
+    rate_ends = rate_ends && !rate_end;
+    begin(now);
+  } else if (now - s.last_packet_ms >= STREAM_IDLE_MS && uac2_quiet()) {
+    // u2ps saw its long gap at the last tick, and reported every hole of
+    // the stream up to then (uac2_quiet())
     stop("idle");
   } else if (now - s.window_ms >= WINDOW_MS) {
     s.window_ms += WINDOW_MS;
@@ -1059,30 +1098,78 @@ void stream_task(void) {
   }
 }
 
+// A stream's checker keeps the rate the stream started with: the packets
+// that came at the old rate are read over the next passes, as before a
+// pause, and the next packet begins a new segment at the new rate. So the
+// glue can answer the host at once (u2ps_glue.c, rate()).
 void stream_set_rate(uint32_t rate) {
   if (rate != status.rate) {
-    // A stream's checker keeps the rate the stream started with. The frames
-    // still in the receive FIFO came at that rate: they go to the checker
-    // first, a FIFO's worth at most.
-    if (s.active) {
-      drain_all();
-    }
-    stop("rate");
+    board_irq_disable();
+    isr_rate = rate;
     isr_restart = true;
+    rate_end_seq = isr->seq;
+    board_irq_enable();
+    rate_ends = true;
   }
   status.rate = rate;
   status_changed();
   log_line("rate %lu", (unsigned long) rate);
 }
 
+uint32_t stream_lost_starts(void) {
+  return isr_lost_starts;
+}
+
+bool stream_ending(void) {
+  return packet_next() != NULL;
+}
+
+bool stream_end_held(void) {
+  return bpc1_checker_end_held(&ck);
+}
+
+bool stream_queue_empty(void) {
+  return pk_in == pk_out + pk_read;
+}
+
+void stream_cut(void) {
+  // Every packet that waits: the stream's, and those of segments after it
+  // that never began; stop() tells the checker of the stream's at the frame
+  // it has read up to, and theirs count with it
+  uint32_t n = 0;
+  const packet_t *p;
+  while ((p = packet_next()) != NULL) {
+    if (p->len > 0u) {
+      n++;
+    }
+    packet_done(p);
+  }
+  give_back();
+  if (s.active) {
+    s.cut += n;
+    stop(end_reason(rate_ends && rate_end_seq == s.seq));
+  }
+}
+
+uint32_t stream_drop(void) {
+  uint32_t n = pk_in - (pk_out + pk_read);
+  drop_all();
+  return n;
+}
+
 void stream_set_alt(uint8_t alt) {
-  stop("alt");
-  fifo_cleared();
   status.alt = alt;
   status.slot = uac2_alts[alt].slot;
   status.resolution = uac2_alts[alt].resolution;
   status_changed();
+  board_irq_disable();
+  isr_alt = alt;
+  isr_slot = status.slot;
+  isr_resolution = status.resolution;
   isr_restart = true;
+  alt_end_seq = isr->seq;
+  board_irq_enable();
+  alt_ends = true;
   if (alt == 0) {
     log_line("alt 0");
   } else {
@@ -1090,12 +1177,22 @@ void stream_set_alt(uint8_t alt) {
   }
 }
 
+// A stream the host already ended with an alt setting is cut as at an
+// open; else the stream stops for the reset, its packets unread
 void stream_reset(void) {
+  if (s.active && alt_ended()) {
+    stream_cut();
+  }
   stop("reset");
-  fifo_cleared();
+  drop_all();
   status.alt = 0;
   status.slot = 0;
   status.resolution = 0;
   status_changed();
+  board_irq_disable();
+  isr_alt = 0;
+  isr_slot = 0;
+  isr_resolution = 0;
   isr_restart = true;
+  board_irq_enable();
 }

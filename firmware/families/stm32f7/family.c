@@ -1,9 +1,8 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) 2026 Mete Balci
-// STM32F7 family support. The USB set-up follows ST's STM32CubeF7 USB device
-// examples for the STM32F723E-DISCO (BSD-3-Clause) and TinyUSB's
-// hw/bsp/stm32f7 family files (MIT licence); TinyUSB's DWC2 driver starts the
-// HS PHY itself.
+// STM32F7 family support. The checker's USB device is u2ps's, which enables
+// the OTG HS clocks and starts the HS PHY itself (u2ps_dev_init()); the
+// family has the USB vector.
 
 #include "family.h"
 
@@ -11,22 +10,8 @@
 #include "console.h"
 #include "load.h"
 #include "log.h"
-#include "tusb.h"
 
-// The BPC1 generator defines FAMILY_USB_HOST and links family_usb_host.c,
-// which has the USB host's versions of family_usb_init(),
-// board_usb_microframe() and OTG_HS_IRQHandler() instead of this file's.
-#ifndef FAMILY_USB_HOST
-#include "usb_descriptors.h"
-
-#define USB_DEVICE ((USB_OTG_DeviceTypeDef *) (USB_OTG_HS_PERIPH_BASE + USB_OTG_DEVICE_BASE))
-#define USB_AUDIO_OUT                                                                                \
-  ((USB_OTG_OUTEndpointTypeDef *) (USB_OTG_HS_PERIPH_BASE + USB_OTG_OUT_ENDPOINT_BASE                \
-                                   + (EP_AUDIO_OUT & 0x0Fu) * USB_OTG_EP_REG_SIZE))
-// OTG_DOEPCTLx bit 16, EONUM for an isochronous endpoint (RM0431 Rev 4
-// 32.15.61); ST's CMSIS header names no bit 16 for it
-#define USB_OTG_DOEPCTL_EONUM (1UL << 16)
-#endif
+#include "u2ps_dwc2_dcd.h"
 
 //--------------------------------------------------------------------+
 // Core: caches, MPU, cycle counter
@@ -56,8 +41,9 @@ void family_core_init(void) {
   __DSB();
   __ISB();
 
-  // The USB buffers and the receive FIFO's storage in DTCM are NOLOAD: zero
-  // them as the startup code zeroes .bss.
+  // The USB data in DTCM (.dtcm_usb: u2ps's state and DMA memory, the
+  // class memory and the stream's queue in the checker) is NOLOAD: zero it
+  // as the startup code zeroes .bss.
   for (uint32_t *p = _sdtcm_usb; p < _edtcm_usb; p++) {
     *p = 0;
   }
@@ -115,37 +101,20 @@ uint32_t board_cpu_hz(void) {
 // USB
 //--------------------------------------------------------------------+
 
-#ifndef FAMILY_USB_HOST
-void family_usb_init(void) {
-  // DM/DP (PB14/PB15) stay in their reset state, as in ST's examples: the
-  // HS PHY drives them. The OTG ID and VBUS pins are left alone: this is a
-  // device only, and TinyUSB forces the session valid.
-  __HAL_RCC_OTGPHYC_CLK_ENABLE();
-  __HAL_RCC_USB_OTG_HS_CLK_ENABLE();
-  __HAL_RCC_USB_OTG_HS_ULPI_CLK_ENABLE();
+// USB OTG HS with the internal HS PHY on PB14/PB15, clocked from HSE, which
+// must be one of the PHY's reference frequencies (HSE_VALUE), with AHB above
+// 30 MHz. u2ps_dev_init() enables the clocks of the controller, of its ULPI
+// interface, which the internal HS PHY needs too (RM0431 5.3.10), and of the
+// PHY controller, and starts the HS PHY with its LDO and PLL. DM/DP
+// (PB14/PB15) stay in their reset state, as in ST's examples: the HS PHY
+// drives them.
 
-  tud_configure_dwc2_t cfg = CFG_TUD_CONFIGURE_DWC2_DEFAULT;
-  cfg.vbus_sensing = false;
-  tud_configure(BOARD_TUD_RHPORT, TUD_CFGID_DWC2, &cfg);
-
+void family_usb_irq_start(void) {
   // USB first, then the log UART, then the tick
   NVIC_SetPriority(OTG_HS_IRQn, 1);
+  NVIC_ClearPendingIRQ(OTG_HS_IRQn);
+  NVIC_EnableIRQ(OTG_HS_IRQn);
 }
-
-FAMILY_ISR_CODE uint32_t board_usb_microframe(void) {
-  return (USB_DEVICE->DSTS & USB_OTG_DSTS_FNSOF_Msk) >> USB_OTG_DSTS_FNSOF_Pos;
-}
-
-// DSTS and the audio OUT endpoint's DOEPCTL, read at the entry of the USB
-// interrupt (OTG_HS_IRQHandler())
-static uint32_t usb_entry_dsts;
-static uint32_t usb_entry_doepctl;
-
-FAMILY_ISR_CODE void board_usb_entry(uint32_t *uframe, bool *odd) {
-  *uframe = (usb_entry_dsts & USB_OTG_DSTS_FNSOF_Msk) >> USB_OTG_DSTS_FNSOF_Pos;
-  *odd = (usb_entry_doepctl & USB_OTG_DOEPCTL_EONUM) != 0;
-}
-#endif
 
 //--------------------------------------------------------------------+
 // Log UART: sends from the transmit-empty interrupt, passes received bytes
@@ -202,10 +171,6 @@ uint32_t board_millis(void) {
   return HAL_GetTick();
 }
 
-uint32_t tusb_time_millis_api(void) {
-  return HAL_GetTick();
-}
-
 // Vector table entries, declared here for the startup file
 void SysTick_Handler(void);
 void OTG_HS_IRQHandler(void);
@@ -216,15 +181,11 @@ void SysTick_Handler(void) {
   HAL_IncTick();
 }
 
-#ifndef FAMILY_USB_HOST
 FAMILY_ISR_CODE void OTG_HS_IRQHandler(void) {
   uint32_t t0 = DWT->CYCCNT;
-  usb_entry_dsts = USB_DEVICE->DSTS;
-  usb_entry_doepctl = USB_AUDIO_OUT->DOEPCTL;
-  tusb_int_handler(BOARD_TUD_RHPORT, true);
+  u2ps_dwc2_dcd_irq();
   load_isr(DWT->CYCCNT - t0);
 }
-#endif
 
 // A fault lights every LED and stops. The M7 has no stack limit register:
 // the stack sits at the bottom of DTCM, so an overflow runs off the start of

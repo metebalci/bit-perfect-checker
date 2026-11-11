@@ -6,6 +6,12 @@ set(FAMILY stm32u5)
 set(MCU_VARIANT stm32u5g9xx)  # CMSIS device header and startup file
 set(HSE_VALUE 16000000)
 set(LINKER_SCRIPT ${FIRMWARE}/families/stm32u5/linker/stm32u5g9xj.ld)
+# The checker's USB stack, u2ps: it does not list the STM32U5G9, but its
+# STM32U5A5 port fits it: ST's stm32u5a5xx.h and stm32u5g9xx.h give the same
+# addresses and bits for the RCC, PWR, SYSCFG and FLASH registers the port
+# writes, the same OTG HS base and IRQ number, and the port's DMA memory
+# (u2ps_dwc2_dma_ok()) takes in all of SRAM1 to SRAM6.
+set(U2PS_CHIP stm32u5a5)
 
 set(BOARD_SOURCES ${CMAKE_CURRENT_LIST_DIR}/board.c ${CMAKE_CURRENT_LIST_DIR}/touch.c)
 

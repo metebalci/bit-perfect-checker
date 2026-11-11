@@ -238,31 +238,51 @@ static uint64_t rec_differs(const bpc1_checker_t *ck, const bpc1_rrec_t *r, uint
   return UINT64_MAX;
 }
 
-// The count of the LAST block settles the R-headers' r5: where it differs,
-// in the first R-header of the body or in the one that failed, is a
-// difference.
-static void settle(bpc1_checker_t *ck) {
-  if (!ck->last_known || !ck->have_first) {
-    return;
+// The words of the file's first R-header are judged: in the lead-in, not
+// compared, they passed section 6 where they were read; in the body, its
+// chips arrived whole without a difference and its CRC passed; in the tail,
+// or where the body's start is not known, never.
+static bool count_judged(const bpc1_checker_t *ck) {
+  if (!ck->placed) {
+    return false;
   }
-  uint64_t d = rec_differs(ck, &ck->rec_first, ck->total);
-  if (ck->have_fail) {
-    d = min64(d, rec_differs(ck, &ck->rec_fail, ck->total));
+  if (ck->rcount_k < ck->L) {
+    return true;
+  }
+  return ck->have_first && ck->rec_first.k == ck->rcount_k && ck->rec_first.ok;
+}
+
+// The file's first R-header settles the R-headers' r5 (12.6, the R-header
+// rule). Its count, or without one the LAST block's index + 1, is the
+// file's size: where the body's first R-header or the one that failed
+// differs from it is a difference. Where that count disagrees with the
+// file, an intact LAST X-sync whose index + 1 is another or an X-sync of
+// the file at a block index no lower than it, the first R-header's first
+// r5 unit is a difference.
+static void settle(bpc1_checker_t *ck) {
+  uint64_t d = UINT64_MAX;
+  uint32_t T = ck->rcount_known ? ck->rcount : ck->last_known ? ck->total : 0u;
+  if (T && ck->have_first) {
+    d = rec_differs(ck, &ck->rec_first, (uint16_t) T);
+    if (ck->have_fail) {
+      d = min64(d, rec_differs(ck, &ck->rec_fail, (uint16_t) T));
+    }
+  }
+  bool other = (ck->last_known && ck->rcount != ck->total) || ck->rcount <= ck->last_k;
+  if (ck->rcount_known && other && count_judged(ck)) {
+    d = min64(d, chip_at(ck, ck->rcount_k, CHIP_R5));
   }
   if (d == UINT64_MAX) {
     return;
   }
-  if (!ck->failed) {
-    ck->failed = true;
-    ck->why = BPC1_WHY_COUNT;
-    ck->diff_s = d;
-  } else if (ck->why == BPC1_WHY_COUNT) {
-    ck->diff_s = d;  // with the count known, the R-header that differs from it
-  } else if (d < ck->diff_s) {
-    ck->diff_s = d;
-    ck->why = BPC1_WHY_COUNT;
+  if (ck->failed && ck->why != BPC1_WHY_COUNT && d >= ck->diff_s) {
+    return;  // an earlier difference stands
   }
-  ck->diff_rx = (uint64_t) ((int64_t) ck->diff_s - ck->base);
+  // with the count known, the R-header that differs from it
+  ck->failed = true;
+  ck->why = BPC1_WHY_COUNT;
+  ck->diff_s = d;
+  ck->diff_rx = (uint64_t) ((int64_t) d - ck->base);
 }
 
 //--------------------------------------------------------------------+
@@ -465,8 +485,9 @@ static uint32_t compare(const bpc1_checker_t *ck, uint8_t seg, uint32_t i, uint3
 // The words of the chips the R-header block spelled, every chip whole and
 // without a difference: r6 passes the CRC with r0 to r4 of the block and r5
 // (section 6), and r5 is the same in every channel and as in the first
-// R-header of the body whose CRC passed; the count of the LAST block settles
-// it later (settle). A failure is at the block's first r5 unit.
+// R-header of the body whose CRC passed; the file's size, from its first
+// R-header or its LAST block, settles it later (settle). A failure is at the
+// block's first r5 unit.
 static bool rhdr_crc(bpc1_checker_t *ck) {
   bpc1_rrec_t *r = &ck->rec_cur;
   r->crc_done = true;
@@ -763,14 +784,15 @@ static void sil_look(bpc1_checker_t *ck) {
 }
 
 // Frames from..to of the stream are outside every file
-static void unknown_stretch(bpc1_checker_t *ck, uint64_t from, uint64_t to, bool overrun) {
+// A stretch of unknown signal; false if it was allowed silence, no result
+static bool unknown_stretch(bpc1_checker_t *ck, uint64_t from, uint64_t to, bool overrun) {
   if (ck->allow_silence && !overrun) {
     sil_watch(ck, from);
     sil_look(ck);
     if (ck->sil_ns >= to) {
       ck->outside += to - from;
       ck->silent += to - from;  // silence, allowed
-      return;
+      return false;
     }
   }
   bpc1_report_t r;
@@ -780,6 +802,7 @@ static void unknown_stretch(bpc1_checker_t *ck, uint64_t from, uint64_t to, bool
   r.frames = to - from;
   ck->outside += to - from;
   push_report(ck, &r);
+  return true;
 }
 
 // The first X-sync after the lead-in: the body starts there if it is that
@@ -884,17 +907,60 @@ static void file_anchor(bpc1_checker_t *ck, const bpc1_anchor_t *a) {
   }
 }
 
+// The block count the file's extent ends by (12.6 Extent): its first
+// R-header's, if greater than its latest X-sync's block index (a smaller one
+// is a difference, settle()), else its LAST block's index + 1; 0 if neither
+static uint32_t extent_count(const bpc1_checker_t *ck) {
+  if (ck->rcount_known && ck->rcount > ck->lastx_k) {
+    return ck->rcount;
+  }
+  return ck->last_known ? ck->total : 0u;
+}
+
 // Where the file's extent ends: the end of its last block plus one block, as
 // its latest X-sync implies
 static uint64_t extent_end(const bpc1_checker_t *ck) {
   uint32_t uf;
   (void) block_units(&ck->id, ck->mode, &uf);
-  uint32_t count = ck->last_known ? ck->total : ck->rcount_known ? ck->rcount : 0u;
+  uint32_t count = extent_count(ck);
   uint64_t blocks = count > ck->lastx_k ? count - ck->lastx_k : 1u;
   return ck->lastx_f + (blocks + 1u) * uf;
 }
 
-static void fill_report(const bpc1_checker_t *ck, uint8_t end, bpc1_report_t *r) {
+// The file completes at its LAST block's end, if its units reach it before
+// the next file's first X-sync and the stream's end: its LAST X-sync
+// arrived, and no R-header gives it another count (12.6 Files in a stream)
+static bool size_ok(const bpc1_checker_t *ck) {
+  return ck->end_known && (!ck->rcount_known || ck->rcount == ck->total);
+}
+
+// An overrun stands before the unit at its place, and belongs to the
+// result that holds that unit (12.6). The file being checked surely holds
+// the units before this, in half-frames: before its LAST block's end where
+// it can complete there, else up to its extent's end, which a cut file
+// holds with an overrun there. Where the next file's first X-sync is,
+// cursor_step() leaves the overrun to finish_file(). An overrun at or after
+// it stays queued until a later X-sync or the file's end decides.
+static uint64_t held_end(const bpc1_checker_t *ck) {
+  if (size_ok(ck)) {
+    return min64(ck->end_u << ck->shift, extent_end(ck) << 1);
+  }
+  return (extent_end(ck) << 1) + 1u;
+}
+
+// The overruns before half-frame end_h are the file's
+static void take_overruns(bpc1_checker_t *ck, uint64_t end_h) {
+  while (ck->nover && ck->over[0] < end_h) {
+    if (!ck->overrun) {
+      ck->over_rx = (ck->over[0] + (1u << ck->shift) - 1u) >> ck->shift;
+    }
+    ck->overrun = true;
+    pop_overrun(ck);
+  }
+}
+
+// The report of the file, its units ending at unit stop
+static void fill_report(const bpc1_checker_t *ck, uint8_t end, uint64_t stop, bpc1_report_t *r) {
   const bpc1_signal_t *g = &ck->sig;
   report_init(ck, r);
   // A difference before the first overrun is judged; an overrun before it is not
@@ -919,14 +985,37 @@ static void fill_report(const bpc1_checker_t *ck, uint8_t end, bpc1_report_t *r)
   r->body_k = ck->placed ? (int32_t) ck->L : -1;
   r->compared = ck->compared;
   r->first_frame = ck->first_h >> 1;
-  // a finished file's frames end with its extent, where unknown signal starts
-  uint64_t to = ((ck->p << ck->shift) + 1u) >> 1;
+  // a finished file's frames end where its units do, at most with its
+  // extent, where unknown signal starts
+  uint64_t to = ((stop << ck->shift) + 1u) >> 1;
   r->frames = (end == BPC1_END_OPEN ? to : min64(to, extent_end(ck))) - r->first_frame;
   r->anchors = ck->anchors;
 }
 
-// The file ends (end), the stream's units from stop on not its own.
-static void finish_file(bpc1_checker_t *ck, uint8_t end, uint64_t stop) {
+// The R-header decoded by half-frame `upto`: the file's first R-header read
+// gives its count (12.6 Extent)
+static void take_rcount(bpc1_checker_t *ck, uint64_t upto) {
+  if (!ck->rdec.done || ck->rdec.seen > upto) {
+    return;
+  }
+  ck->rdec.done = false;
+  if (!ck->rcount_known && ck->rdec.mode == ck->mode && bpc1_same_file(&ck->rdec.f, &ck->id) &&
+      ck->rdec.h >= ck->first_h) {
+    ck->rcount_known = true;
+    ck->rcount = ck->rdec.total;
+    ck->rcount_k = ck->rdec.f.block;
+  }
+}
+
+// The file ends (end); the next file's first X-sync, or the stream's end, is
+// at unit au. Complete, its units end at its LAST block's end, and an
+// overrun there belongs to what follows; cut, they end at au, at most at its
+// extent's end, and an overrun there is its own (12.6 verdict 2).
+static void finish_file(bpc1_checker_t *ck, uint8_t end, uint64_t au) {
+  take_rcount(ck, au << ck->shift);  // decoded by the file's end, not yet reached by a step
+  bool complete = size_ok(ck) && ck->end_u <= au;
+  uint64_t stop = complete ? ck->end_u : min64(au, (extent_end(ck) << 1) >> ck->shift);
+  take_overruns(ck, (stop << ck->shift) + (complete ? 0u : 1u));
   if (ck->state == ST_BODY && ck->E_known && ck->p + (uint64_t) ck->base >= (uint64_t) (ck->E + 1u) * ck->U) {
     body_complete(ck);
   }
@@ -961,10 +1050,11 @@ static void finish_file(bpc1_checker_t *ck, uint8_t end, uint64_t stop) {
   }
   settle(ck);
   bpc1_report_t r;
-  fill_report(ck, end, &r);
+  fill_report(ck, end, stop, &r);
+  r.cut = !complete;
   push_report(ck, &r);
   ck->cov_end = max64(ck->cov_end, extent_end(ck));
-  ck->prev_stop_h = stop << ck->shift;
+  ck->fin_complete = complete;
   ck->active = false;
 }
 
@@ -975,9 +1065,9 @@ static void open_file(bpc1_checker_t *ck, const bpc1_anchor_t *a) {
   (void) block_units(&a->f, a->mode, &uf);
   uint64_t f1 = a->h >> 1, back = (uint64_t) (a->f.block + 1u) * uf;
   uint64_t S = f1 > back ? f1 - back : 0;
-  // an overrun the file before took up to where its units ended is its own
-  bool stretch = ck->cov_end < S, over_stretch = false;
-  bool over_file = ck->over_seen > max64(2u * S, ck->prev_stop_h + 1u);
+  // the overruns still queued before the X-sync: the stretch's before the
+  // extent's start, the file's from there on
+  bool stretch = ck->cov_end < S, over_stretch = false, over_file = false;
   while (ck->nover && ck->over[0] < a->h) {
     if (stretch && ck->over[0] < 2u * S) {
       over_stretch = true;
@@ -1021,20 +1111,6 @@ static void open_file(bpc1_checker_t *ck, const bpc1_anchor_t *a) {
   file_anchor(ck, a);
 }
 
-// Where the units of the file being checked end, when the X-sync a (at
-// unit au) of the next one comes: at the next file's block 0 as a implies,
-// but not before the end of the block of this file's latest X-sync
-// (checker/exact.py split_files).
-static uint64_t stop_at(const bpc1_checker_t *ck, const bpc1_anchor_t *a, uint64_t au) {
-  uint32_t uf, un = block_units(&a->f, a->mode, &uf);
-  if (a->mode != ck->mode) {
-    return au;
-  }
-  uint64_t back = (uint64_t) a->f.block * un;
-  uint64_t start = au > back ? au - back : 0;
-  return max64(start, min64(ck->last_u + ck->U, au));
-}
-
 // The comparison reached the X-sync at the head of the queue.
 static void at_anchor(bpc1_checker_t *ck) {
   bpc1_anchor_t a = ck->q[0];
@@ -1044,20 +1120,11 @@ static void at_anchor(bpc1_checker_t *ck) {
   // index goes back, or at an X-sync that is not TAIL after a TAIL one
   if (ck->last_last || !same || a.f.block < ck->last_k || (ck->tail_seen && !(a.flags & BPC1_F_TAIL))) {
     uint64_t au = (a.h + (1u << ck->shift) - 1u) >> ck->shift;
-    uint8_t end = ck->last_last ? BPC1_END_LAST : same ? BPC1_END_BACK : BPC1_END_NEXT;
-    finish_file(ck, end, end == BPC1_END_LAST ? min64(ck->end_u, au) : stop_at(ck, &a, au));
+    finish_file(ck, ck->last_last ? BPC1_END_LAST : same ? BPC1_END_BACK : BPC1_END_NEXT, au);
     open_file(ck, &a);
     return;
   }
   file_anchor(ck, &a);
-}
-
-// The overrun at the head of the queue falls in the extent of the file
-// being checked, as its X-syncs have shown it so far: it is the file's. One
-// after it stays queued, for the stretch or the file after it, or for this
-// file once a later X-sync extends the extent (12.6).
-static bool over_in_extent(const bpc1_checker_t *ck) {
-  return ck->nover && ck->over[0] < extent_end(ck) << 1;
 }
 
 // The next position the comparison has to stop at: an X-sync, an overrun,
@@ -1068,10 +1135,10 @@ static uint64_t next_event(const bpc1_checker_t *ck) {
   if (ck->nq) {
     ev = (ck->q[0].h + one) >> sh;
   }
-  if (over_in_extent(ck)) {
+  if (ck->nover && ck->over[0] < held_end(ck)) {
     ev = min64(ev, (ck->over[0] + one) >> sh);
   }
-  if (ck->end_known && ck->state != ST_BODY) {
+  if (size_ok(ck) && ck->state != ST_BODY) {
     ev = min64(ev, ck->end_u);
   }
   return ev;
@@ -1079,28 +1146,16 @@ static uint64_t next_event(const bpc1_checker_t *ck) {
 
 static void cursor_step(bpc1_checker_t *ck, uint64_t limit) {
   uint64_t ph = ck->p << ck->shift;
-  while (over_in_extent(ck) && ck->over[0] <= ph) {
-    if (!ck->overrun) {
-      ck->over_rx = (ck->over[0] + (1u << ck->shift) - 1u) >> ck->shift;
-    }
-    ck->overrun = true;
-    ck->over_seen = ck->over[0] + 1u;
-    pop_overrun(ck);
-  }
-  if (ck->rdec.done && ck->rdec.seen <= ph) {
-    ck->rdec.done = false;
-    // the file's first R-header that gives a count sets the extent (12.6)
-    if (!ck->rcount_known && ck->rdec.mode == ck->mode && bpc1_same_file(&ck->rdec.f, &ck->id) &&
-        ck->rdec.h >= ck->first_h) {
-      ck->rcount_known = true;
-      ck->rcount = ck->rdec.total;
-    }
-  }
-  if (ck->end_known && ck->p >= ck->end_u && ck->state != ST_BODY) {
+  // At an X-sync due here the file ends at ph: an overrun at ph is left to
+  // finish_file()
+  bool anchor_due = ck->nq && ck->q[0].h <= ph;
+  take_overruns(ck, min64(anchor_due ? ph : ph + 1u, held_end(ck)));
+  take_rcount(ck, ph);
+  if (size_ok(ck) && ck->p >= ck->end_u && ck->state != ST_BODY) {
     finish_file(ck, BPC1_END_LAST, ck->end_u);  // before the next file's X-sync there
     return;
   }
-  if (ck->nq && ck->q[0].h <= ph) {
+  if (anchor_due) {
     at_anchor(ck);
     return;
   }
@@ -1500,10 +1555,17 @@ bool bpc1_checker_pop(bpc1_checker_t *ck, bpc1_report_t *rep) {
 void bpc1_checker_end(bpc1_checker_t *ck) {
   cursor_run(ck, true);
   if (ck->active) {
+    // An overrun at the stream's end stands before a unit that never came:
+    // a cut file holds it, where the stream stayed inside its extent
     finish_file(ck, ck->last_last ? BPC1_END_LAST : BPC1_END_STOP, in_units(ck));  // its LAST X-sync arrived
   }
+  // Overruns still queued, after a complete file where the stream ended
+  // inside its extent, are no result's (12.6). The last result holds the
+  // stream's end unless so, or unless the stretch after it is allowed
+  // silence, without a result.
+  ck->end_held = !ck->fin_complete;
   if (ck->cov_end < ck->in_frames) {
-    unknown_stretch(ck, ck->cov_end, ck->in_frames, ck->nover != 0);
+    ck->end_held = unknown_stretch(ck, ck->cov_end, ck->in_frames, ck->nover != 0);
     ck->cov_end = ck->in_frames;
   }
   ck->nover = 0;
@@ -1515,6 +1577,10 @@ uint64_t bpc1_checker_outside(const bpc1_checker_t *ck) {
 
 uint64_t bpc1_checker_silent(const bpc1_checker_t *ck) {
   return ck->silent;
+}
+
+bool bpc1_checker_end_held(const bpc1_checker_t *ck) {
+  return ck->end_held;
 }
 
 uint64_t bpc1_checker_covered(const bpc1_checker_t *ck) {
@@ -1533,7 +1599,7 @@ bool bpc1_checker_peek(const bpc1_checker_t *ck, bpc1_report_t *rep) {
   if (!ck->active) {
     return false;
   }
-  fill_report(ck, BPC1_END_OPEN, rep);
+  fill_report(ck, BPC1_END_OPEN, ck->p, rep);
   return true;
 }
 

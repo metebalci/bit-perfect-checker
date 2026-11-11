@@ -16,8 +16,8 @@ __attribute__((weak)) void display_led_test(led_t led) {
   (void) led;
 }
 
-// The LED test, run by leds_task() so that the main loop, tud_task()
-// included, keeps running while it lasts
+// The LED test, run by leds_task() so that the main loop, the USB stack's
+// task included, keeps running while it lasts
 #define TEST_MS 300u  // each LED's time
 
 static const led_t test_order[LED_COUNT] = {LED_RED, LED_GREEN, LED_BLUE};
@@ -67,6 +67,12 @@ void leds_task(void) {
     if (test_step < LED_COUNT) {
       return;
     }
+  }
+  if (status.usb_fault) {
+    for (int i = 0; i < LED_COUNT; i++) {
+      board_led((led_t) i, true);
+    }
+    return;
   }
   bool slow = ((now / 500) & 1) != 0;
   bool fast = ((now / 125) & 1) != 0;

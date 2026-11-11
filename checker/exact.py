@@ -161,9 +161,11 @@ def split_files(anchors, n):
     """Cut a received stream of n units into files (section 12.6): at the end
     of a block flagged LAST, at an identity change and where the block index
     goes back. Returns (start, stop, end, anchors) per file, end being LAST,
-    NEXT, BACK or STOP. Without a LAST block, the boundary is the start of the
-    next file's block 0 as its first anchor implies, but not before the end of
-    the previous file's last anchored block."""
+    NEXT, BACK or STOP. A file ends at the end of its LAST block, or at the
+    next file's first anchor if that comes first; without a LAST block, at
+    the next file's first anchor (12.6 Files in a stream: a cut file). The
+    diagnosis does not read R-header counts, so a LAST block whose count
+    differs from the R-header's ends its file here, unlike verify.py."""
     files = []
     start, cur = 0, [anchors[0]]
     for a in anchors[1:]:
@@ -172,9 +174,7 @@ def split_files(anchors, n):
             stop, end = min(p.pos + units_per_block(next(iter(p.fields.values()))), a.pos), "LAST"
         elif _key(a) != _key(p) or a.k < p.k:
             end = "NEXT" if _key(a) != _key(p) else "BACK"
-            u_new = units_per_block(next(iter(a.fields.values())))
-            u_old = units_per_block(next(iter(p.fields.values())))
-            stop = max(a.pos - a.k * u_new, min(p.pos + u_old, a.pos))
+            stop = a.pos
         else:
             cur.append(a)
             continue

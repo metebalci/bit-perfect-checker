@@ -19,6 +19,7 @@ typedef struct {
   uint32_t version;     // advances at every change
   usb_state_t usb;
   bool high_speed;
+  bool usb_fault;       // the USB stack did not start, or lost an event: no longer trusted
   uint32_t rate;        // Hz, as set by the host
   uint8_t alt;          // streaming alt setting, 0 when closed
   uint8_t slot;         // bytes per sample
@@ -28,7 +29,7 @@ typedef struct {
   uint8_t bits;         // bits in use, over the last second
   bool dop;
   uint32_t lost;        // packets lost in this stream, the last one once it stopped
-  uint32_t overflows;   // receive FIFO overflows in this stream, likewise
+  uint32_t overflows;   // packets that found every buffer of the device's held, likewise
   bool allow_silence;   // silence outside every file gives no result
   // The results of the run: since the user button, the mark command, a
   // pulled USB cable or reset

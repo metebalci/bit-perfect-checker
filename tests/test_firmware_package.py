@@ -31,6 +31,7 @@ DATE = (2026, 11, 5, 12, 34, 56)
 IMAGES = {b: bytes([i]) * (1000 + i) + b"image " + b.encode() for i, b in enumerate(P.BOARDS)}
 NOTICES = b"notices\r\n"
 USB = (0x16C0, 0x27E0, "bpc.metebalci.com:")
+U2PS = ("0.1.0", "https://github.com/metebalci/uac2-playback-stack", "b" * 40)
 TOP = f"bit-perfect-checker-firmware-{VERSION}"
 BSD3_BODY = """All rights reserved.
 
@@ -44,7 +45,7 @@ EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE."""
 
 
 def build_archive(images=IMAGES, version=VERSION, date=DATE, notices=NOTICES, usb=USB, paths=()):
-    return P.archive(version, FW, COMMIT, date, images, notices, usb, paths=paths)
+    return P.archive(version, FW, COMMIT, date, images, notices, usb, U2PS, paths=paths)
 
 
 class Archive(unittest.TestCase):
@@ -67,7 +68,7 @@ class Archive(unittest.TestCase):
         self.assertEqual(sums, "".join(
             f"{hashlib.sha256(IMAGES[b]).hexdigest()}  bpc-{b}-{VERSION}.bin\n"
             for b in sorted(IMAGES)))
-        self.assertEqual(z.read(f"{TOP}/README.txt"), P.readme(VERSION, FW, COMMIT, USB))
+        self.assertEqual(z.read(f"{TOP}/README.txt"), P.readme(VERSION, FW, COMMIT, USB, U2PS))
 
     def test_entries_fixed(self):
         """Every entry: the given date, stored, Unix permissions, no extras."""
@@ -109,7 +110,7 @@ class Archive(unittest.TestCase):
 
 class Readme(unittest.TestCase):
     def test_text(self):
-        data = P.readme("1.2.0-0123456", FW, COMMIT, USB)
+        data = P.readme("1.2.0-0123456", FW, COMMIT, USB, U2PS)
         self.assertNotIn(b"\n", data.replace(b"\r\n", b""))
         text = data.decode("ascii")
         for b in P.BOARDS:
@@ -125,10 +126,14 @@ class Readme(unittest.TestCase):
             self.assertIn(word, text)
         self.assertIn("STM32U5G9J-DK2's ST-LINK shows no drive", text)
         self.assertIn("16C0:27E0, Objective Development's shared VID/PID pair", text)
+        self.assertIn("u2ps 0.1.0, the USB Audio Class 2.0 playback stack, at its\r\n"
+                      "release tag v0.1.0 (commit " + "b" * 40 + ") of\r\n"
+                      "https://github.com/metebalci/uac2-playback-stack.", text)
+        self.assertNotIn("TinyUSB", text)
 
     def test_usb_id(self):
         """The USB ID and the serial number prefix the builds were made with."""
-        text = P.readme(VERSION, FW, COMMIT, (0x1209, 0xB9C1, "example.org:")).decode("ascii")
+        text = P.readme(VERSION, FW, COMMIT, (0x1209, 0xB9C1, "example.org:"), U2PS).decode("ascii")
         self.assertIn("The device uses 1209:B9C1. Its serial number starts with example.org:", text)
         self.assertNotIn("16C0", text)
         self.assertNotIn("Objective Development", text)
@@ -182,6 +187,54 @@ class UsbOptions(unittest.TestCase):
                 P.build_usb(dirs)
 
 
+class U2ps(unittest.TestCase):
+    """The USB stack the images use: u2ps, the submodule firmware/lib/u2ps,
+    named in README.txt by its release."""
+
+    def test_works(self):
+        self.assertEqual(P.WORKS["firmware/lib/u2ps"], ("u2ps (the USB device stack)", "MIT", "LICENSE"))
+        self.assertFalse([f for f in P.WORKS if "tinyusb" in f])
+
+    def test_version(self):
+        with tempfile.TemporaryDirectory() as d:
+            folder = os.path.join(d, "firmware", "lib", "u2ps")
+            os.makedirs(folder)
+            cmake = os.path.join(folder, "CMakeLists.txt")
+            with open(cmake, "w") as f:
+                f.write("cmake_minimum_required(VERSION 3.22)\nproject(u2ps VERSION 0.1.0 LANGUAGES C)\n")
+            self.assertEqual(P.u2ps_version(d), "0.1.0")
+            with open(cmake, "w") as f:
+                f.write("project(u2ps LANGUAGES C)\n")
+            with self.assertRaises(P.PackageError):
+                P.u2ps_version(d)
+
+    def test_tag(self):
+        """The release tag v<version> names the pinned commit; a clone
+        without the tag, or a tag on another commit, stops the release."""
+        pinned = "488631ec70e22b28c23750c66d0325489f09b0cd"
+        P.check_u2ps_tag("0.1.0", pinned, pinned)
+        for tagged, why in ((None, "no tag v0.1.0"), ("0" * 40, "not the pinned commit")):
+            with self.assertRaisesRegex(P.PackageError, why):
+                P.check_u2ps_tag("0.1.0", tagged, pinned)
+
+    def test_tag_commit(self):
+        """tag_commit() resolves a tag in a clone, annotated or not, to its
+        commit; None without the tag."""
+        with tempfile.TemporaryDirectory() as d:
+            env = dict(os.environ, GIT_AUTHOR_NAME="t", GIT_AUTHOR_EMAIL="t@example.invalid",
+                       GIT_COMMITTER_NAME="t", GIT_COMMITTER_EMAIL="t@example.invalid")
+            for args in (["init", "-q"], ["commit", "-q", "--allow-empty", "-m", "a"], ["tag", "v0.1.0"],
+                         ["commit", "-q", "--allow-empty", "-m", "b"], ["tag", "-a", "-m", "t", "v0.2.0"]):
+                subprocess.run(["git", *args], cwd=d, env=env, check=True, capture_output=True)
+            head = subprocess.run(["git", "rev-parse", "HEAD"], cwd=d, check=True, capture_output=True,
+                                  text=True).stdout.strip()
+            first = subprocess.run(["git", "rev-parse", "HEAD~1"], cwd=d, check=True, capture_output=True,
+                                   text=True).stdout.strip()
+            self.assertEqual(P.tag_commit("v0.1.0", d), first)
+            self.assertEqual(P.tag_commit("v0.2.0", d), head)
+            self.assertIsNone(P.tag_commit("v0.3.0", d))
+
+
 class Checks(unittest.TestCase):
     def test_version(self):
         """v<VERSION>-<hash> of the commit built, the hash at any of git's
@@ -223,12 +276,14 @@ class Checks(unittest.TestCase):
 
     def test_work_of(self):
         self.assertEqual(P.work_of("firmware/app/main.c"), "")
-        self.assertEqual(P.work_of("firmware/lib/patches/tinyusb-audio-out-zlp.patch"), "")
-        self.assertEqual(P.work_of("firmware/lib/tinyusb/src/tusb.c"), "firmware/lib/tinyusb")
+        self.assertEqual(P.work_of("firmware/lib/u2ps/device/u2ps_dev.c"), "firmware/lib/u2ps")
+        for rel in ("firmware/lib/tinyusb/src/tusb.c", "firmware/lib/patches/x.patch"):
+            with self.assertRaises(P.PackageError):
+                P.work_of(rel)
         with self.assertRaises(P.PackageError):
             P.work_of("firmware/lib/newlib/memcpy.c")
         with self.assertRaises(P.PackageError):
-            P.work_of("firmware/lib/tinyusb2/x.c")
+            P.work_of("firmware/lib/u2ps2/x.c")
 
 
 class Copyright(unittest.TestCase):
@@ -262,6 +317,37 @@ COPYRIGHT "Copyright (c) 2018-2026, Frederic Cambus"
         self.assertIsNone(P.embedded_notice("// Copyright (c) 2026 Mete Balci\n"))
         self.assertIsNone(P.embedded_notice(" * Copyright (c) 2016 STMicroelectronics.\n * no end\n"))
 
+    def test_tinyusb_notice(self):
+        body = "\n".join((" * " + l).rstrip() for l in TINYUSB_NOTICE.splitlines())
+        text = f"// SPDX-License-Identifier: MIT\n// Copyright (c) 2026 Mete Balci\n" \
+               f"// Copyright (c) 2023 Ha Thach (tinyusb.org)\n/*\n * Adapted from TinyUSB.\n *\n{body}\n */\n"
+        self.assertEqual(P.tinyusb_notice(text), TINYUSB_NOTICE + "\n")
+        self.assertIsNone(P.tinyusb_notice("// Copyright (c) 2023 Ha Thach (tinyusb.org)\n"))
+        self.assertIsNone(P.tinyusb_notice(" * The MIT License (MIT)\n *\n * Copyright (c) 2023, Ha Thach (tinyusb.org)\n"))
+
+
+TINYUSB_NOTICE = """The MIT License (MIT)
+
+Copyright (c) 2023, Ha Thach (tinyusb.org)
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in
+all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+THE SOFTWARE."""
+
 
 class Notices(unittest.TestCase):
     """collect() and notices() on a small tree laid out like the repository."""
@@ -276,10 +362,14 @@ class Notices(unittest.TestCase):
                 "// SPDX-License-Identifier: MIT AND BSD-3-Clause\n// Copyright (c) 2026 Mete Balci\n"
                 "/*\n * Copyright (c) 2016 STMicroelectronics.\n"
                 + "\n".join((" * " + l).rstrip() for l in BSD3_BODY.splitlines()) + "\n */\n",
-            "firmware/lib/tinyusb/LICENSE": "The MIT License (MIT)\n\nCopyright (c) 2012-2026, hathach\n",
-            "firmware/lib/tinyusb/src/tusb.c": "/*\n * Copyright (c) 2019 Ha Thach (tinyusb.org)\n */\n",
-            "firmware/lib/tinyusb/src/dwc2_type.h":
-                " * Copyright (c) 2024, hathach (tinyusb.org)\n"
+            "firmware/boards/nucleo_u5a5zj_q/board.c":
+                "// SPDX-License-Identifier: MIT\n// Copyright (c) 2026 Mete Balci\n"
+                "// Copyright (c) 2023 Ha Thach (tinyusb.org)\n/*\n"
+                + "\n".join((" * " + l).rstrip() for l in TINYUSB_NOTICE.splitlines()) + "\n */\n",
+            "firmware/lib/u2ps/LICENSE": "MIT License\n\nCopyright (c) 2026 Mete Balci\n",
+            "firmware/lib/u2ps/device/u2ps_dev.c": "/* SPDX-License-Identifier: MIT\n * Copyright (c) 2026 Mete Balci\n */\n",
+            "firmware/lib/u2ps/port/regs.h":
+                " * Copyright (c) 2025, Someone Else\n"
                 "/** <h2><center>&copy; Copyright (c) 2019 STMicroelectronics.\n"
                 "  * licensed by ST under BSD 3-Clause license\n",
             "firmware/lib/spleen/LICENSE": "Copyright (c) 2018-2026, Frederic Cambus\nAll rights reserved.\n",
@@ -302,10 +392,11 @@ class Notices(unittest.TestCase):
         return os.path.join(self.src, *rel.split("/"))
 
     def used(self):
-        common = ["firmware/app/main.c", "firmware/lib/tinyusb/src/tusb.c",
-                  "firmware/lib/tinyusb/src/dwc2_type.h"]
+        common = ["firmware/app/main.c", "firmware/lib/u2ps/device/u2ps_dev.c",
+                  "firmware/lib/u2ps/port/regs.h"]
         return {
-            "nucleo_u5a5zj_q": [self.path(r) for r in common + ["firmware/lib/stm32u5xx_hal_driver/Src/hal.c"]]
+            "nucleo_u5a5zj_q": [self.path(r) for r in common + ["firmware/lib/stm32u5xx_hal_driver/Src/hal.c",
+                                                                 "firmware/boards/nucleo_u5a5zj_q/board.c"]]
                                + ["/usr/include/newlib/string.h"],
             "stm32f723e_disco": [self.path(r) for r in common + [
                 "firmware/boards/stm32f723e_disco/panel_st7789h2.c",
@@ -317,22 +408,27 @@ class Notices(unittest.TestCase):
         self.assertEqual([s["title"] for s in sections], [
             "Bit-Perfect Checker firmware",
             "STMicroelectronics panel code in this project's board files",
-            "TinyUSB", "STMicroelectronics STM32U5 HAL", "Spleen (the screens' fonts)"])
-        own, st, tusb, hal, spleen = sections
+            "TinyUSB code in this project's board files",
+            "u2ps (the USB device stack)", "STMicroelectronics STM32U5 HAL", "Spleen (the screens' fonts)"])
+        own, st, tu, u2ps, hal, spleen = sections
         self.assertEqual(own["copyrights"], ["Copyright (c) 2026 Mete Balci"])
+        self.assertEqual((tu["boards"], tu["licence"], tu["source"]),
+                         (["nucleo_u5a5zj_q"], "MIT", "firmware/boards/nucleo_u5a5zj_q/board.c"))
+        self.assertEqual(tu["copyrights"], ["Copyright (c) 2023, Ha Thach (tinyusb.org)"])
+        self.assertEqual(tu["texts"], [("notice in firmware/boards/nucleo_u5a5zj_q/board.c", TINYUSB_NOTICE + "\n")])
         self.assertEqual(own["boards"], ["nucleo_u5a5zj_q", "stm32f723e_disco"])
         self.assertEqual(own["texts"], [("LICENSE", self.files["LICENSE"])])
         self.assertEqual(st["boards"], ["stm32f723e_disco"])
         self.assertEqual(st["copyrights"], ["Copyright (c) 2016 STMicroelectronics."])
         self.assertEqual(st["texts"][0][1],
                          "Copyright (c) 2016 STMicroelectronics.\n" + BSD3_BODY + "\n")
-        self.assertEqual(tusb["copyrights"], ["Copyright (c) 2019 Ha Thach (tinyusb.org)",
-                                              "Copyright (c) 2019 STMicroelectronics.",
-                                              "Copyright (c) 2024, hathach (tinyusb.org)"])
-        self.assertEqual(len(tusb["notes"]), 1)
-        self.assertIn("src/dwc2_type.h", tusb["notes"][0])
-        self.assertEqual(tusb["source"], f"https://example.org/firmware/lib/tinyusb, commit {'a' * 40}")
-        self.assertEqual(tusb["texts"][0][1], self.files["firmware/lib/tinyusb/LICENSE"])
+        self.assertEqual(u2ps["copyrights"], ["Copyright (c) 2019 STMicroelectronics.",
+                                              "Copyright (c) 2025, Someone Else",
+                                              "Copyright (c) 2026 Mete Balci"])
+        self.assertEqual(len(u2ps["notes"]), 1)
+        self.assertIn("port/regs.h", u2ps["notes"][0])
+        self.assertEqual(u2ps["source"], f"https://example.org/firmware/lib/u2ps, commit {'a' * 40}")
+        self.assertEqual(u2ps["texts"][0][1], self.files["firmware/lib/u2ps/LICENSE"])
         self.assertEqual(hal["boards"], ["nucleo_u5a5zj_q"])
         self.assertEqual(spleen["copyrights"], ["Copyright (c) 2018-2026, Frederic Cambus"])
 
@@ -341,10 +437,16 @@ class Notices(unittest.TestCase):
         data = P.notices(VERSION, P.collect(self.src, self.used(), self.subs, COMMIT))
         text = data.decode("ascii")
         self.assertNotIn("\n", text.replace("\r\n", ""))
-        for rel in ("LICENSE", "firmware/lib/tinyusb/LICENSE", "firmware/lib/spleen/LICENSE",
+        for rel in ("LICENSE", "firmware/lib/u2ps/LICENSE", "firmware/lib/spleen/LICENSE",
                     "firmware/lib/stm32u5xx_hal_driver/LICENSE.md"):
             self.assertIn(self.files[rel].replace("\n", "\r\n"), text)
         self.assertNotIn("CMSIS", text)               # no file of it was used
+
+    def test_tinyusb_line_without_notice(self):
+        with open(self.path("firmware/boards/nucleo_u5a5zj_q/board.c"), "w") as f:
+            f.write("// SPDX-License-Identifier: MIT\n// Copyright (c) 2023 Ha Thach (tinyusb.org)\n")
+        with self.assertRaises(P.PackageError):
+            P.collect(self.src, self.used(), self.subs, COMMIT)
 
     def test_unknown_work(self):
         used = self.used()

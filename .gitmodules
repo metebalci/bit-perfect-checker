@@ -1,6 +1,3 @@
-[submodule "firmware/lib/tinyusb"]
-	path = firmware/lib/tinyusb
-	url = https://github.com/hathach/tinyusb
 [submodule "firmware/lib/cmsis_device_u5"]
 	path = firmware/lib/cmsis_device_u5
 	url = https://github.com/STMicroelectronics/cmsis_device_u5
@@ -25,6 +22,9 @@
 	path = firmware/lib/spleen
 	url = https://github.com/fcambus/spleen
 	shallow = true
+[submodule "firmware/lib/u2ps"]
+	path = firmware/lib/u2ps
+	url = https://github.com/metebalci/uac2-playback-stack
 [submodule "generator/third_party/alac"]
 	path = generator/third_party/alac
 	url = https://github.com/macosforge/alac

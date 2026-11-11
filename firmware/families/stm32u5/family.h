@@ -13,13 +13,29 @@
 // (FAMILY_ISR_CODE, see families/stm32f7/family.h).
 #define FAMILY_ISR_CODE
 
+// The USB data the app keeps (FAMILY_USB_DATA: the stream's queue) and the
+// stream's class memory (FAMILY_CLASS_MEM) go in .noinit_usb, which the
+// linker script places in SRAM1 to SRAM5, u2ps's DMA memory
+// (u2ps_dwc2_dma_ok()), and which the startup code does not zero: about
+// 1 MB, which zeroing before main() at the reset clock (4 MHz) would delay
+// the attach by about half a second (USB 2.0 7.1.7.3 allows 100 ms). Data
+// there must not rely on a zero start; both are written before they are
+// read.
+#define FAMILY_USB_DATA __attribute__((section(".noinit_usb")))
+#define FAMILY_CLASS_MEM __attribute__((section(".noinit_usb.class_mem")))
+
 // First in board_init(): the stack limit (MSPLIM) and the DWT cycle counter.
 void family_core_init(void);
 
-// USB OTG HS on PA11/PA12 with the internal HS PHY. phy_clock_source is the
-// PHY's kernel clock (RCC_USBPHYCLKSOURCE_...), phy_reference its frequency
-// (SYSCFG_OTG_HS_PHY_CLK_SELECT_...). Needs voltage range 1 or 2.
-void family_usb_init(uint32_t phy_clock_source, uint32_t phy_reference);
+// USB OTG HS on PA11/PA12 with the internal HS PHY: the pins. u2ps_dev_init()
+// starts the PHY from the HSE (U2PS_DWC2_HSE_HZ = HSE_VALUE), its supplies
+// and the controller's clock; it needs voltage range 1 or 2 and the EPOD
+// booster, which the board's clock set-up gives.
+void family_usb_pins(void);
+
+// After a successful u2ps_dev_init(): the USB vector's priority, above the
+// log UART and the tick, and the vector on.
+void family_usb_irq_start(void);
 
 // The log on a USART or LPUART with its pins and clock already set up by the
 // board, clocked at clock_hz. The board's interrupt handler for that UART

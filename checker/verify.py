@@ -21,8 +21,10 @@ every body unit equal to the expected one in every channel, X-syncs and
 R-header units included. The R-header chips of r5 (block count) and r6 (its
 CRC) are checked by the R-header rule: each chip one of its two values, the
 two chips of a bit opposite; then, only where they all arrived so, r6 the CRC
-of r0-r5 and r5 the LAST block's index + 1, or the same in every channel and
-body R-header, a failure at the block's first r5 unit. This module is the
+of r0-r5 and r5 the file's size, or the same in every channel and body
+R-header, a failure at the block's first r5 unit; a count of the file's
+first R-header (the first one read, 12.6 Extent) that disagrees with the
+file's blocks fails at that R-header's first r5 unit. This module is the
 authority for the hardware checker's verdict, end, diff and bits; the
 diagnosis (check.py) only describes what changed.
 """
@@ -117,15 +119,21 @@ def _f(fields):
 
 
 def split(syncs, stream):
-    """Files of a stream: (start, stop, end, syncs) in stream units. A file
-    ends at its LAST block, at an X-sync of another identity (NEXT), and where
-    the block index goes back or an X-sync not flagged TAIL follows a TAIL
-    one (BACK). Its extent: from k x U units before its
-    first X-sync (of block k) to (count - k) x U units after its last X-sync
-    (of block k), count from its LAST X-sync or an R-header that passes
-    section 6, else to the end of its last block with an X-sync; one block
-    more at each end, never outside the stream or past the next file's first
-    X-sync: the units before it are this file's as they arrived (12.6)."""
+    """Files of a stream: (start, stop, end, syncs, ext, rcount) in stream
+    units. A file ends at its LAST block, at an X-sync of another identity
+    (NEXT), and where the block index goes back or an X-sync not flagged
+    TAIL follows a TAIL one (BACK). rcount: the count of its first R-header
+    that passes section 6, and its block. Its extent: from k x U units before
+    its first X-sync (of block k) to (count - k) x U units after its last
+    X-sync (of block k), count being rcount's if greater than that block
+    index, else its LAST block's index + 1, or without either to the end of
+    its last block with an X-sync; one block more at each end, never outside
+    the stream or past the next file's first X-sync (ext: where unknown
+    signal after it can start). Its units [start, stop), on which it is judged, as 12.6 Files
+    in a stream says: a complete file (its LAST block arrived whole before
+    the next file's first X-sync and the stream's end, and its index + 1 is
+    the first R-header's count, if any) to its LAST block's end; a cut file to the next file's
+    first X-sync, at most to its extent's end and the stream's end."""
     n = len(stream.data)
     groups = []
     for s in syncs:
@@ -143,29 +151,34 @@ def split(syncs, stream):
         a, z = g[0], g[-1]
         U = a.U
         start = a.pos - a.k * U - U
-        count = z.k + 1 if z.flags & model.F_LAST else _count(stream, g)
-        stop = z.pos + ((count - z.k) if count and count > z.k else 1) * U + U
-        end = "LAST" if z.flags & model.F_LAST else "STOP"
-        if i + 1 < len(groups):
-            nxt = groups[i + 1][0]
-            if end != "LAST":
-                end = "NEXT" if nxt.key != z.key else "BACK"
-            # the units up to the next file's first X-sync, as they arrived
-            stop = min(stop, nxt.pos)
-        files.append([max(0, start), min(stop, n), end, g])
+        last = bool(z.flags & model.F_LAST)
+        rc = _count(stream, g)
+        count = rc[0] if rc and rc[0] > z.k else z.k + 1 if last else None
+        ext = z.pos + ((count - z.k) if count else 1) * U + U
+        end = "LAST" if last else "STOP"
+        nxt = groups[i + 1][0] if i + 1 < len(groups) else None
+        if nxt and not last:
+            end = "NEXT" if nxt.key != z.key else "BACK"
+        at = min(n, nxt.pos) if nxt else n  # the next file's first X-sync, or the stream's end
+        complete = last and (rc is None or rc[0] == z.k + 1) and z.pos + z.U <= at
+        stop = z.pos + z.U if complete else min(ext, at)
+        if nxt:
+            ext = min(ext, nxt.pos)
+        files.append([max(0, start), min(stop, n), end, g, min(ext, n), rc])
     for i in range(1, len(files)):
         files[i][0] = max(files[i][0], files[i - 1][1])
     for f in files:
         f[1] = max(f[1], f[0])
+        f[4] = max(f[4], f[1])
     return [tuple(f) for f in files]
 
 
 def _count(stream, g):
-    """The block count r5 of an R-header of the file's X-syncs, read as 12.6
-    says: every chip at its centre unit (PCM: the word's sign; DSD: byte 0xEE
-    or 0x11), the Barker chips as generated and the two chips of each bit
-    opposite, then section 6 and r0-r4 equal to h0-h4 of the channel's
-    X-sync; or None."""
+    """The block count r5 of the first R-header of the file's X-syncs that
+    gives one, and its block, read as 12.6 says: every chip at its centre
+    unit (PCM: the word's sign; DSD: byte 0xEE or 0x11), the Barker chips as
+    generated and the two chips of each bit opposite, then section 6 and
+    r0-r4 equal to h0-h4 of the channel's X-sync; or None."""
     data = _dop_bytes(stream.data) if g[0].dop else stream.data
     for s in g:
         if not model.Signal.is_rhdr(s.k):
@@ -188,7 +201,7 @@ def _count(stream, g):
             words = [int("".join("1" if b else "0" for b in bits[16 * i:16 * i + 16]), 2)
                      for i in range(7)]
             if model.crc16_words(words[:6]) == words[6] and words[:5] == sig.words(f.channel, s.k):
-                return words[5]
+                return words[5], s.k
     return None
 
 
@@ -199,11 +212,11 @@ def verify_stream(stream, allow_silence=False):
     n = len(stream.data)
     files = split(find_syncs(stream), stream)
     out, at = [], 0
-    for start, stop, end, g in files:
+    for start, stop, end, g, ext, rc in files:
         if start > at:
             out += _outside(stream, at, start, allow_silence)
-        out.append(_verify_file(stream, start, stop, end, g))
-        at = max(at, stop)
+        out.append(_verify_file(stream, start, stop, end, g, rc))
+        at = max(at, ext)
     if at < n:
         out += _outside(stream, at, n, allow_silence)
     for i, r in enumerate(out, 1):
@@ -245,8 +258,9 @@ def _unknown(stream, a, b):
              "diff_at": None, "why": "audio of no recognised file"}
 
 
-def _verify_file(stream, start, stop, end, g):
-    """One file: the stream units [start, stop) and its X-syncs g."""
+def _verify_file(stream, start, stop, end, g, rc=None):
+    """One file: the stream units [start, stop), its X-syncs g and its first
+    R-header's (count, block) rc (split())."""
     f = _f(g[0].fields)
     dop = g[0].dop
     rate = model.RATES[f.rate_code]
@@ -290,6 +304,17 @@ def _verify_file(stream, start, stop, end, g):
         fails.append((L * U, p, "the first body block's X-sync did not arrive"))
     if E is not None and E < L:
         fails.append((L * U, p, "the body's limits disagree"))
+    # The file's size: its first R-header's count, else its LAST block's
+    # index + 1. A first R-header's count that disagrees with the file (an
+    # intact LAST X-sync's index + 1 is another, or an X-sync of the file at
+    # a block index no lower than it arrived): a difference at its first r5
+    # unit, where its words are judged (in the lead-in they passed section 6;
+    # in the body, below; in the tail, never)
+    count = rc[0] if rc is not None else last[0] + 1 if last else None
+    size = rc is not None and ((last and rc[0] != last[0] + 1) or rc[0] <= max(by_k))
+    if size and rc[1] < L:
+        src = _r5_unit(f, rc[1])
+        fails.append((src, p + src - L * U, "the R-header's count disagrees with the file's blocks"))
     rx_rate = stream.rate * 16 if dop else stream.rate
     if rx_rate != rate or stream.nch != f.nch:
         fails.append((L * U, p, "rate or channel count differs"))
@@ -303,8 +328,10 @@ def _verify_file(stream, start, stop, end, g):
     eq = (rx == sig.ref(L * U, L * U + len(rx))).all(axis=1)
     body = []                       # (body unit, why)
     dop_bad = _dop_frames(stream, p, p + len(rx)) if dop else []
-    body += _chip_rule(sig, work.dsd, rx, eq, L, n, last[0] + 1 if last else None,
-                       dop_bad[0][0] if dop_bad else None)
+    chip_fails, judged = _chip_rule(sig, work.dsd, rx, eq, L, n, count, dop_bad[0][0] if dop_bad else None)
+    body += chip_fails
+    if size and rc[1] in judged:
+        body.append((_r5_unit(f, rc[1]) - L * U, "the R-header's count disagrees with the file's blocks"))
     bad = np.nonzero(~eq)[0]
     if len(bad):
         body.append((int(bad[0]), "a body unit differs"))
@@ -335,6 +362,14 @@ def _result(fails, file_rate, f, scale=1):
             "diff_at": at // scale, "why": why}
 
 
+def _r5_unit(f, k):
+    """The source unit of the first r5 chip (chip 173) of R-header block k."""
+    sig = model.Signal(f)
+    if model.is_dsd_kind(f.kind):
+        return k * sig.units_per_block + sig.r_start // 8 + R56[0] * (sig.chip // 8)
+    return k * sig.units_per_block + sig.r_start + R56[0] * sig.chip
+
+
 def _chips(sig, dsd, k0):
     """(first unit, length, +1 value, -1 value) of each r5 and r6 chip of the
     R-header block that starts at body unit k0."""
@@ -351,12 +386,13 @@ def _chip_rule(sig, dsd, rx, eq, L, n, count, dop_bad=None):
     unit by unit. Words, only where every chip arrived in every channel with
     no difference in them (by the chips, and for DoP no marker or padding
     failure, dop_bad: the body unit of the first): r6 = crc16(r0..r5) with
-    r0-r4 of the block; r5 = count (the LAST block's index + 1), or the same
+    r0-r4 of the block; r5 = count (the file's size), or the same
     in every channel and body R-header. Marks the chip units as compared in
     eq; returns the failures in body units: of a block, each channel's first
-    chip difference, or one words failure at its first r5 unit."""
+    chip difference, or one words failure at its first r5 unit; and the
+    blocks whose words were judged and passed the CRC."""
     U = sig.units_per_block
-    fails, seen = [], None
+    fails, seen, judged = [], None, set()
     for k in range(L, L + -(-n // U)):
         if not model.Signal.is_rhdr(k):
             continue
@@ -392,12 +428,13 @@ def _chip_rule(sig, dsd, rx, eq, L, n, count, dop_bad=None):
         if any(model.crc16_words(sig.words(c, k) + [r5]) != r6 for c, (r5, r6) in enumerate(words)):
             fails.append((chips[0][0], "an R-header CRC fails"))
             continue
+        judged.add(k)
         seen = words[0][0] if seen is None else seen
         if count is not None and any(r5 != count & 0xFFFF for r5, _ in words):
-            fails.append((chips[0][0], "an R-header block count is not the LAST block's"))
+            fails.append((chips[0][0], "an R-header block count is not the file's declared size"))
         elif count is None and any(r5 != seen for r5, _ in words):
             fails.append((chips[0][0], "the R-headers' block counts disagree"))
-    return fails
+    return fails, judged
 
 
 def _dop_frames(stream, u0, u1):

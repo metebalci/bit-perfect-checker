@@ -3,8 +3,9 @@
 """The start-up LED test (firmware/app/leds.c) on the host: leds_test()
 lights red and returns at once, and leds_task() in the main loop runs the
 rest (red, green, then blue, 0.3 s each, each logged and shown on a
-display), so that the main loop, tud_task() included, keeps running while
-it lasts; after it, the LEDs show the status. A board without blue shows
+display), so that the main loop, the USB stack's task included, keeps
+running while it lasts; after it, the LEDs show the status, and a USB fault
+lights all three. A board without blue shows
 blue on its display only, and its test ends after green. Built with the host
 tool firmware/app/host/leds_tool.c; needs a host C compiler (gcc or cc);
 skipped without one."""
@@ -110,6 +111,12 @@ class LedTest(unittest.TestCase):
                     status_leds(t, True)
             want.append(cur)
         self.assertEqual(states(events, 2002), want)
+
+    def test_usb_fault(self):
+        # A USB stack that did not start, or lost an event: all three steady,
+        # whatever the run's results
+        events = self.run_tool(["pass", "fault", "run 1000"])
+        self.assertEqual(states(events, 1000), [(1, 1, 1)] * 1000)
 
     def test_no_test_shows_the_status_at_once(self):
         events = self.run_tool(["run 1000"])

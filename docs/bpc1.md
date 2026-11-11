@@ -1372,11 +1372,22 @@ stream into files. A file's identity is that of its X-syncs. A file ends:
   index going back, and starts the next one.
 
 A file that follows only ends the earlier file; if that happens inside the
-body, (b) or (c) below fails. *Informative: this affects only the diagnosis.*
-Where a file ends without its LAST block, the reference checker puts the
-boundary at the start of the next file's block 0 as the next file's first
-X-sync places it, but not before the end of the earlier file's last block
-that has an X-sync.
+body, (b) or (c) below fails. A file is *complete* when an intact X-sync
+flagged LAST arrived, its block arrived whole before the next file's first
+X-sync and before the stream's end, and that block's index + 1 is the file's
+declared size (Extent of a file); otherwise it is *cut*. A file's units,
+on which it is judged, run
+from the end of the file or stretch before it: for a complete file to the
+end of its LAST block, and the rest of its extent belongs to what follows;
+for a cut file to the next file's first X-sync, but not past the end of its
+extent or of the stream. Being cut places units and overflows (and lost
+packets likewise, where a checker counts them); it does not fail a file by
+itself: a file cut in its tail, after
+its body and the tail X-sync after the body arrived, passes (Lead-in and
+tail). The units decide which result an overflow belongs to (Verdict,
+rule 2). *Informative:* where the next file's block-0 X-sync did not
+arrive, the units of its lead-in before its first X-sync that arrived are
+the cut file's, compared as such.
 
 **Results.** A checker gives one result per file and one per stretch of
 unknown signal. Only `BIT_PERFECT` is a pass. A file that does not arrive at
@@ -1387,34 +1398,40 @@ with the files played.
 from the start of its block 0 to the end of its last block, at the positions
 its X-syncs imply: block 0 starts k x B units before its first X-sync, which
 is that of block k (B as in 5.1); its last block ends (count - k) x B units
-after its last X-sync, that of block k. The count is the block index + 1 of
-an intact X-sync flagged LAST, or else r5 of the first R-header of the file
-that gives a count, read in a channel whose X-sync of that block is intact.
-Each of its 237 chips is read at its centre unit: in PCM frame 512M + qL +
-floor(L/2) of the block (7.6), +1 for a positive word, -1 for a negative
-one; in DSD byte (512M + qL) / 8 + floor(L/16) (8.5), +1 for 0xEE, -1 for
-0x11. Any other value, a Barker chip of the other sign or two chips of a bit
-that are not opposite gives no count. The words, from each bit's first chip,
+after its last X-sync, that of block k. The file's *declared size* is r5 of
+its *first R-header*: the first of its R-header blocks, wherever it is
+(lead-in, body or tail), that is read, in a channel whose X-sync of that
+block is intact, as follows; a later R-header never replaces it. Each of its
+237 chips is read at its centre unit: in PCM frame 512M + qL + floor(L/2) of
+the block (7.6), +1 for a positive word, -1 for a negative one; in DSD byte
+(512M + qL) / 8 + floor(L/16) (8.5), +1 for 0xEE, -1 for 0x11. Any other
+value, a Barker chip of the other sign or two chips of a bit that are not
+opposite leaves the block unread. The words, from each bit's first chip,
 must pass section 6, with r0 to r4 equal to h0 to h4 of that channel's
-X-sync. A later R-header does not change the count, and a count no greater
-than the block index of the file's last X-sync gives no count. Without a
-count, the extent ends at the end of the last block that has an X-sync. Each end extends
-by one more block, for units dropped or inserted in the lead-in or tail. The
-extent never reaches before the stream's start, after its end, or into the
-next file (placed as in Files in a stream).
+X-sync, or the block is unread. Without a first R-header, the declared size
+is the block index + 1 of an intact X-sync flagged LAST, where one arrived.
+The count is the declared size if it is greater than the block index of the
+file's last X-sync; a declared size no greater than that index disagrees
+with the file (the R-header rule) and gives no count. Without a count, the
+extent ends at the end of the last block that has an X-sync. Each end
+extends by one more block, for units dropped or inserted in the lead-in or
+tail. The extent never reaches before the stream's start, after its end, or
+past the next file's first X-sync.
 
 **Unknown signal.** Each longest run of received units outside every file's
 extent gets one result with the verdict `UNKNOWN_SIGNAL` (kind `NONE`, end
 `STOP`, no file fields, no `diff`), silence included: a test plays test files
 only. This holds at the stream's start and end too: silence that a host
 prepends or appends is not the file's data. Packets without audio carry no units. A buffer overflow of a hardware
-checker while no file is open gives that stretch `OVERRUN` instead.
+checker that belongs to a stretch (Verdict, rule 2) gives that stretch
+`OVERRUN` instead.
 
 **Allowed silence.** A checker may offer the setting `allow_silence`: `false`
 (the rule above) or `true`; it chooses its default and reports the setting
 in effect. With `true`, silence outside every
 file's extent gives no result, wherever it is (before, between or after
-files), and so does a stream of silence only. It never applies inside a
+files), and so does a stream of silence only, unless an overflow belongs
+to it (Verdict, rule 2). It never applies inside a
 file: silence that replaces part of a file's body is a difference like any
 other and gives `NOT_BIT_PERFECT` under either setting. Anything that is not silence
 still gives `UNKNOWN_SIGNAL`. Silence is: for PCM, words 0; for DoP, frames
@@ -1432,13 +1449,27 @@ the first of these that holds:
    resampled stream may give `UNKNOWN_SIGNAL`. A DoP file received without
    markers has no readable X-sync and gives it too (12.1).
 2. `OVERRUN` (hardware checkers only): the checker's own receive buffer
-   overflowed between the file's first received unit and its end, and no
-   difference of the file (a unit that did not arrive as expected, as `diff`
-   below) came before the overflow. The file is not judged; this is not a
-   property of the stream: play it again. A file whose first difference came
-   before the overflow is `NOT_BIT_PERFECT`, with that difference's `diff`,
-   whatever the overflow lost afterwards. A software checker, which reads the
-   whole stream, never reports `OVERRUN`.
+   overflowed in the file's units, and no difference of the file (a unit
+   that did not arrive as expected, as `diff` below) came before the
+   overflow. The file is not judged; this is not a property of the stream:
+   play it again. A file whose first difference came before the overflow is
+   `NOT_BIT_PERFECT`, with that difference's `diff`, whatever the overflow
+   lost afterwards. A software checker, which reads the whole stream, never
+   reports `OVERRUN`.
+
+   An overflow lost what came before the first unit received after it, so
+   it belongs to the result that holds that unit. A file holds its units
+   (Files in a stream). A stretch of unknown signal holds the units from
+   the end of the file or stretch before it to the next file's extent, or
+   to the stream's end. The rest of a complete file's extent belongs to
+   what follows. An overflow at the end of a cut file's units is that
+   file's: before the next file's first X-sync, before the units after its
+   extent, or at the stream's end. An overflow at the end of a complete
+   file's units, or of a stretch, belongs to the later result. An overflow
+   at the stream's end, with no unit after it, belongs to the result that
+   holds the last unit received, a stretch of allowed silence included. An
+   overflow after a complete file, where the stream ends inside that
+   file's extent, belongs to no result.
 3. `BIT_PERFECT` when all of (a) to (d) hold, else `NOT_BIT_PERFECT`:
    - **(a) Rate.** The received rate equals the file's rate (PCM: the frame
      rate; DoP: the DoP frame rate x 16; native DSD: the DSD rate), and the
@@ -1480,16 +1511,25 @@ value. *Words:* only if chips 173 to 236 arrived whole in every channel, with
 no difference in them (by the chip rule, and in DoP by (d) in their frames),
 are the words they spell (each bit from its first chip) checked: r6 =
 crc16(r0 to r5), with r0 to r4 equal to h0 to h4 of the block's own X-sync;
-and r5 is the block index + 1 of the file's intact X-sync flagged LAST or,
-where none arrived, the same in every channel and in every R-header block of
-the body. If a word check fails in any channel, the difference is the first
-unit of the block's chip 173 (its first r5 unit). Where no LAST X-sync
-arrived, the block that fails is the first whose r5 differs from another
-channel's or from an earlier R-header block's. `diff` is the earliest
-difference. A failed word check comes before every later difference, even
-when the count that shows it arrives only with the LAST X-sync, so `diff` is
-the same whether or not the checker knows the count yet. All other chips are
-compared as expected units.
+and r5 is the file's declared size (Extent of a file) or, where the file has
+none, the same in every channel and in every R-header block of the body. If
+a word check fails in any channel, the difference is the first unit of the
+block's chip 173 (its first r5 unit). Where the file has no declared size,
+the block that fails is the first whose r5 differs from another channel's
+or from an earlier R-header block's. A declared size from the file's first
+R-header that disagrees with the file is a difference too, at that
+R-header's first r5 unit: where an intact X-sync flagged LAST has another
+block index + 1, and where an X-sync of the file arrived whose block index
+is the declared size or higher. Only the LAST X-sync shows a declared size
+that is too large; both show one that is too small. That holds in the
+lead-in, which is not compared, as read there; in the body, only where its
+words are checked as above; in the tail, and where the body's start is not
+known, not at all (the file is cut, Files in a stream). `diff` is the
+earliest difference. A failed
+word check comes before every later difference, even when the count that
+shows it arrives only with the LAST X-sync, so `diff` is the same whether
+or not the checker knows the count yet. All other chips are compared as
+expected units.
 
 **Lead-in and tail.** They are not compared, except that (b) needs the last
 lead-in X-sync and the first tail X-sync: a stream that starts after the
@@ -1516,7 +1556,9 @@ both limit X-syncs intact, do not change the verdict.
   body block's X-sync or the LEAD_IN X-sync before it is missing (where the
   body's start is not known at all: the first unit of the first block whose
   X-sync arrived); the first body unit that differs or did not arrive (in
-  chips 173 to 236, as the R-header rule places it); the
+  chips 173 to 236, and in the file's first R-header in the lead-in, as the
+  R-header rule places it; for a cut file, the first body unit after its
+  units, at the cut, did not arrive); the
   first unit after the body, when (b) fails at the end. Where a limit X-sync
   is broken or cut off, the body runs from after the last LEAD_IN X-sync
   received to the first TAIL X-sync received, and `diff` is the first unit
@@ -1702,14 +1744,21 @@ with `diff` 7.500, and each part alone gives `NOT_BIT_PERFECT`.
   - the words of an R-header block's chips 173 to 236, all valid pairs: an r6
     bit's two chips inverted in one channel (the CRC fails), in the whole
     stream, in one that stops in the tail before LAST, and in one that stops
-    right after chip 236; block 8 or block 24 spelling another count with a
-    valid CRC, with and without the LAST block; a failed CRC in block 8 and
-    another count in block 24: `diff` is chip 173 of the block that fails
-    (block 24 where block 8 spells another count and no LAST block
-    arrived);
-  - another count in block 8 and a changed payload bit in block 10: `diff`
-    is block 8's chip 173 when the LAST block arrives, the payload bit when
-    it does not;
+    right after chip 236; block 8 or block 24 spelling count 29, one more
+    than the file's 28 blocks, with a valid CRC, with and without the LAST
+    block; a failed CRC in block 8 and count 29 in block 24: `diff` is chip
+    173 of the block that fails (block 24 where block 8 spells count 29 and
+    no LAST block arrived);
+  - count 29 in block 8 and a changed payload bit in block 10: `diff` is
+    block 8's chip 173 when the LAST block arrives, the payload bit when it
+    does not;
+  - a file whose LAST X-sync is erased and whose lead-in R-header spells
+    another block count with a valid CRC: a declared size greater than the
+    block index of its last X-sync, the body R-header's count is not the
+    declared size, and `diff` is the body R-header's chip 173 (2.102 in the
+    vectors); a declared size no greater, it disagrees with the X-syncs that
+    arrived, `diff` is the lead-in R-header's chip 173 (0.737), and the
+    zeros after the file are `UNKNOWN_SIGNAL`;
   - a chip difference in chips 173 to 236 together with a valid pair of the
     other value, in the same channel or the other, before or after it,
     another count in the block included, and in DoP a marker zeroed or a
@@ -1738,10 +1787,10 @@ with `diff` 7.500, and each part alone gives `NOT_BIT_PERFECT`.
     DoP file: an `UNKNOWN_SIGNAL` result for each stretch;
   - the zeros after a file whose LAST X-sync is broken and whose lead-in
     R-header spells another block count and has a reserved flag bit set:
-    that R-header gives no count, and the file is `BIT_PERFECT`;
+    that R-header is unread, and the file is `BIT_PERFECT`;
   - the rest of the tail of a file whose LAST X-sync and tail X-syncs after
     the first are erased, and its lead-in R-header's first Barker chip: that
-    R-header gives no count, and the extent ends one block after the first
+    R-header is unread, and the extent ends one block after the first
     tail block, after a `BIT_PERFECT` file;
   - a file rounded to 16 bits with the stream starting at block 9 (a file
     rounded to 16 bits gives `UNKNOWN_SIGNAL`, or `NOT_BIT_PERFECT` when

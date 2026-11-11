@@ -6,6 +6,7 @@
 //
 //   absent <led>       the board has no such LED (board_led_name() is NULL)
 //   pass               the run's results are all BIT_PERFECT (green after the test)
+//   fault              a USB fault (status.usb_fault)
 //   test               leds_test() at the current time
 //   run <ms> [<step>]  leds_task() every step ms (default 1) for ms
 //
@@ -90,6 +91,8 @@ int main(void) {
       absent[led_by_name(arg)] = true;
     } else if (strcmp(word, "pass") == 0) {
       status.run_pass = true;
+    } else if (strcmp(word, "fault") == 0) {
+      status.usb_fault = true;
     } else if (strcmp(word, "test") == 0) {
       leds_test();
       show();

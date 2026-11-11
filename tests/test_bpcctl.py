@@ -148,6 +148,16 @@ class ExitCodeTest(unittest.TestCase):
         self.assertEqual(exit_code(results("BIT_PERFECT", "OVERRUN"), expect=3), EXIT_FAIL)
         self.assertEqual(exit_code([], expect=2), EXIT_NO_RESULT)
 
+    def test_expect_counts_files_only(self):
+        # A stretch of unknown signal (kind NONE) with an overflow is
+        # OVERRUN, but it is no file: it does not count toward N
+        lines = [Line("1.0 result seq=1 stream=1 file=1 verdict=BIT_PERFECT kind=PCM"),
+                 Line("1.0 result seq=2 stream=1 file=2 verdict=OVERRUN kind=NONE")]
+        self.assertEqual(exit_code(lines, expect=1), EXIT_OVERRUN)
+        self.assertEqual(exit_code(lines, expect=2), EXIT_FAIL)
+        lines[1] = Line("1.0 result seq=2 stream=1 file=2 verdict=OVERRUN kind=DSD")
+        self.assertEqual(exit_code(lines, expect=2), EXIT_OVERRUN)
+
 
 class JsonTest(unittest.TestCase):
     def test_line_as_json(self):
