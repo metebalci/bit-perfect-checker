@@ -23,8 +23,13 @@
 
 #define STREAM_IDLE_MS 50
 
-// From the USB control path (main loop context).
+// From the USB control path (main loop context). stream_set_rate(): the
+// host's rate, as at the start; at a change the glue calls its two parts
+// itself: stream_rate_boundary() with interrupts off, in the stretch that
+// answers the host, then stream_rate_taken(), which logs it.
 void stream_set_rate(uint32_t rate);
+void stream_rate_boundary(uint32_t rate);
+void stream_rate_taken(uint32_t rate);
 // stream_set_alt(): the host selected an alt setting, so a stream that ran,
 // and the segments of it still queued, end once their packets are read
 // (stream_ending(): packets wait). stream_reset(): the same for a bus
@@ -43,6 +48,9 @@ uint32_t stream_drop(void);
 // if not, what came after the units it was told of is on the stop line
 // only (bpc1_checker_end_held())
 bool stream_end_held(void);
+// Its lost microframes before its first audio packet: on its stop line
+// only, no result's
+int64_t stream_lead_lost(void);
 bool stream_queue_empty(void);
 void stream_reset(void);
 

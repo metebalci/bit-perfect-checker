@@ -16,11 +16,16 @@
 // queued and handled by uac2_task() in the main loop.
 //
 // A stream start and a change of the sampling frequency wait for the main
-// loop (U2PS_STREAM_DEFER, U2PS_REQ_DEFER): it stops the old stream and sets
-// the new rate or format, which begins a new segment, before it opens the
-// stream or answers the request, so no packet of the new stream or rate
-// reaches the interrupt's side before. Only a pause begins a segment from
-// the interrupt.
+// loop (U2PS_STREAM_DEFER, U2PS_REQ_DEFER): it sets the new format, which
+// ends the old stream and makes the next packet begin a new segment, before
+// it opens the stream, so no packet of the new stream reaches the
+// interrupt's side before its segment. It answers the request and, only if
+// the answer went out, sets the new rate in the same stretch with
+// interrupts off, so the next packet the interrupt takes begins the new
+// rate's segment. That packet may still be one sent at the old rate: one
+// received while the answer masked the interrupt, or, from a host that
+// streams through SET_CUR, one sent after the status stage. Only a pause
+// begins a segment from the interrupt.
 
 #include "uac2.h"
 
@@ -577,17 +582,22 @@ static void unmounted(void) {
 }
 
 
-// A deferred change of the sampling frequency: the stream takes it (the
-// next packet begins a new segment; stream.c reads the old rate's packets
-// over the next passes), then the request is answered at once, so the host
-// sends the new rate's packets only after. A request no longer pending (a
-// new SETUP, a bus reset, a detach, a VBUS loss or a re-init cancelled it)
-// leaves u2ps at the old rate, and the stream goes back to it.
+// A deferred change of the sampling frequency: the request is answered,
+// and the stream takes the rate (the next packet begins a new segment;
+// stream.c reads the old rate's packets over the next passes) with
+// interrupts off, so no packet comes between, and the host sends the new
+// rate's packets only after. A request no longer pending (a new SETUP, a
+// bus reset, a detach, a VBUS loss or a re-init cancelled it) leaves u2ps
+// and the stream at the old rate: no boundary, no `rate` line.
 static void rate(const event_t *e) {
-  uint32_t old = status.rate;
-  stream_set_rate(e->value);
-  if (!u2ps_dev_reply(e->id, NULL, 0)) {
-    stream_set_rate(old);
+  board_irq_disable();
+  bool taken = u2ps_dev_reply(e->id, NULL, 0);
+  if (taken) {
+    stream_rate_boundary(e->value);
+  }
+  board_irq_enable();
+  if (taken) {
+    stream_rate_taken(e->value);
   }
 }
 
@@ -703,6 +713,9 @@ void uac2_task(void) {
   if (f == U2PS_FAULT_CLOSE) {
     log_line("usb fault close");
   } else if (f == U2PS_FAULT_START) {
+    // u2ps completed SET_INTERFACE without the open, and the packets the
+    // host sent before the open are lost unreported
+    fault();
     log_line("usb fault start timeout");
   }
   events_task();

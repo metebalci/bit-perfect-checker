@@ -62,8 +62,17 @@
 //                    for <n> passes of the main loop (DWC2 ends it over
 //                    several), then the port ends it: the stream's tail
 //                    holes, then on_stream_stop
+//   closepacket <p>  in the next slow close, a packet received in
+//                    microframe <p> as the close begins, before its passes
+//   closealt <a>     in the next slow close, the host's SET_INTERFACE
+//                    alt setting <a> as the close begins: u2ps holds it
+//                    until the close ends, and the host waits for it then
 //   ratenowait <hz>  SET CUR of the sampling frequency, and the host goes on
 //                    without waiting for the answer the glue defers
+//   irqpacket <p>    a pass of the main loop, in which a packet received in
+//                    microframe <p> comes as an interrupt at the first unmask
+//                    of its USB task (board_irq_enable()): one that came while
+//                    the vector was masked
 //   getcur           GET CUR of the sampling frequency: prints
 //                    "get_cur <hz>", the rate u2ps reports to the host
 //   evflood <n>      <n> SET_INTERFACE alt setting 0 requests before the main
@@ -112,7 +121,6 @@ status_t status;
 
 static uint8_t alt = 1;           // alt 1: 16 bits in 2-byte slots (UAC2_FORMATS_ALL)
 static uint32_t rate = 48000;
-static uint16_t packet_bytes;
 static uint64_t now;              // the microframe the main loop runs in
 static uint32_t cycles;
 static FILE *data;                // the packets' bytes, NULL for silence
@@ -120,6 +128,9 @@ static uint32_t hold;             // packets to come before the main loop runs a
 static uint32_t slow;             // microframes one pass of the main loop takes
 static uint32_t slow_once;        // microframes before the next pass's USB task
 static uint32_t close_slow;       // passes before the next alt 0's or setconfig's close ends
+static bool close_packet_due;     // "closepacket": its microframe
+static uint64_t close_packet;
+static int close_alt = -1;        // "closealt": the alt setting, or none
 static uint32_t wait_only;        // passes to come without the stream task
 
 bool board_button(void) { return false; }
@@ -141,8 +152,20 @@ uint32_t board_millis(void) {
 }
 uint32_t board_cycles(void) { return cycles += 100u; }
 uint32_t board_cpu_hz(void) { return 160000000u; }
+
+// "irqpacket": the packet that waits for the USB task's next unmask
+static const uint8_t *payload(uint16_t bytes);
+static uint16_t packet_bytes;
+static bool irq_packet_due;
+static uint64_t irq_packet;
+
 void board_irq_disable(void) {}
-void board_irq_enable(void) {}
+void board_irq_enable(void) {
+  if (irq_packet_due && in_usb_task) {
+    irq_packet_due = false;
+    u2ps_testkit_dev_packet_bytes(payload(packet_bytes), packet_bytes, (u2ps_uframe_t) (irq_packet & UFRAME_MASK));
+  }
+}
 void board_log_start(void) {}
 void family_usb_irq_start(void) {}
 
@@ -185,6 +208,7 @@ void log_line_reserved(const char *fmt, ...) {
   va_end(ap);
   if (strncmp(fmt, "stream stop", 11) == 0) {
     printf("%llu end_held %d\n", (unsigned long long) now, stream_end_held() ? 1 : 0);
+    printf("%llu lead_lost %lld\n", (unsigned long long) now, (long long) stream_lead_lost());
   }
   if (stray > 0 && strncmp(fmt, "stream stop", 11) == 0) {
     for (; stray > 0; stray--) {
@@ -271,6 +295,20 @@ static void set_alt(uint8_t a) {
 static void slow_close(uint8_t bm_request_type, uint8_t b_request, uint16_t w_value, uint16_t w_index) {
   U2PS_TESTKIT_CHECK(u2ps_fake_host_control(bm_request_type, b_request, w_value, w_index, 0, NULL, NULL)
                      == U2PS_FAKE_HOST_OK);
+  if (close_packet_due) {
+    close_packet_due = false;
+    now = close_packet < now ? now : close_packet;
+    // past the kit, which would end the close first
+    u2ps_fake_packet_bytes(payload(packet_bytes), packet_bytes, (u2ps_uframe_t) (close_packet & UFRAME_MASK));
+  }
+  int start_alt = close_alt;
+  close_alt = -1;
+  if (start_alt >= 0) {
+    alt = (uint8_t) start_alt;
+    packet_bytes = (uint16_t) (PACKET_FRAMES * UAC2_CHANNELS * uac2_alts[alt].slot);
+    U2PS_TESTKIT_CHECK(u2ps_fake_host_control(0x01, 11, alt, ITF_NUM_AUDIO_STREAMING, 0, NULL, NULL)
+                       == U2PS_FAKE_HOST_NAK);
+  }
   for (; close_slow > 0; close_slow--) {
     loop();
   }
@@ -278,6 +316,9 @@ static void slow_close(uint8_t bm_request_type, uint8_t b_request, uint16_t w_va
     u2ps_fake_closed();
   }
   loop();
+  if (start_alt >= 0) {
+    deferred(u2ps_testkit_dev_control_resume(NULL, NULL));
+  }
 }
 
 static void set_rate(uint32_t hz) {
@@ -417,6 +458,11 @@ int main(int argc, char **argv) {
       }
     } else if (sscanf(line, "waitonly %llu", &a) == 1) {
       wait_only = (uint32_t) a;
+    } else if (sscanf(line, "closepacket %llu", &a) == 1) {
+      close_packet = a;
+      close_packet_due = true;
+    } else if (sscanf(line, "closealt %llu", &a) == 1) {
+      close_alt = (int) a;
     } else if (sscanf(line, "closeslow %llu", &a) == 1) {
       close_slow = (uint32_t) a;
     } else if (sscanf(line, "ratenowait %llu", &a) == 1) {
@@ -425,6 +471,12 @@ int main(int argc, char **argv) {
              r == U2PS_TESTKIT_CONTROL_OK ? "ok" : r == U2PS_TESTKIT_CONTROL_NAK ? "pending"
              : r == U2PS_TESTKIT_CONTROL_STALL ? "stall" : "error");
       U2PS_TESTKIT_CHECK(r != U2PS_TESTKIT_CONTROL_ERROR);
+    } else if (sscanf(line, "irqpacket %llu", &a) == 1) {
+      irq_packet = a;
+      irq_packet_due = true;
+      now = a < now ? now : a;
+      loop();
+      U2PS_TESTKIT_CHECK(!irq_packet_due);
     } else if (strncmp(line, "getcur", 6) == 0) {
       uint32_t hz = 0;
       U2PS_TESTKIT_CHECK(u2ps_testkit_dev_get_sampling_frequency(&hz) == U2PS_TESTKIT_CONTROL_OK);
