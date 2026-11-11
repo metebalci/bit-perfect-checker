@@ -65,12 +65,15 @@ static void vbus_task(void) {
 }
 
 // The waits of display_init() (display.h): the device is attached by then,
-// so the USB stack and the VBUS debounce run meanwhile, and the host can
-// enumerate the device. At least ms, as HAL_Delay() waits.
+// so the USB stack, the stream's reading and the VBUS debounce run
+// meanwhile, and the host can enumerate the device and stream. A pass of
+// the stream task reads a bounded part of the packets (stream.c, drain()).
+// At least ms, as HAL_Delay() waits.
 void display_wait(uint32_t ms) {
   uint32_t t0 = board_millis();
   while (board_millis() - t0 <= ms) {
     uac2_task();
+    stream_task();
     vbus_task();
   }
 }

@@ -9,7 +9,8 @@ lent; the main loop reads it there and gives the buffers back in order.
 u2ps reports the microframes without a packet before the packet that ends
 them, with a reason: the host sent none (NO_PACKET), the device re-armed late
 (LATE), a corrupted packet (CORRUPTED); these count as lost and missed, LATE
-also as late= and CORRUPTED as crc= on the stream stop line. A zero-length
+also as late= on the stream stop line; CORRUPTED has no field of its own
+(the DWC2 core drops such a packet unseen). A zero-length
 packet counts as a missed microframe. Packets u2ps had no buffer for, because
 the main loop still held every one (NO_BUFFER), count as overflows: the
 checker hears of them before the next packet's frames, and the file is
@@ -109,14 +110,14 @@ class StreamHoles(unittest.TestCase):
         """As run_tool(), for one stream: its stop line's numbers."""
         stops, results, out = self.run_tool(packets)
         self.assertEqual(len(stops), 1, out[-2000:])
-        return {k: int(stops[0][k]) for k in ("lost", "missed", "holes", "maxhole", "doubled", "late", "crc",
+        return {k: int(stops[0][k]) for k in ("lost", "missed", "holes", "maxhole", "doubled", "late",
                                               "ovf", "pkts", "frames")}, results
 
-    def check(self, packets, lost, holes=None, maxhole=None, late=0, crc=0):
+    def check(self, packets, lost, holes=None, maxhole=None, late=0):
         stop, results = self.stream(packets)
         self.assertEqual(stop["pkts"], sum(1 for p in packets if isinstance(p, int)))
         self.assertEqual((stop["lost"], stop["missed"], stop["doubled"], stop["ovf"]), (lost, lost, 0, 0))
-        self.assertEqual((stop["late"], stop["crc"]), (late, crc))
+        self.assertEqual(stop["late"], late)
         if holes is not None:
             self.assertEqual(stop["holes"], holes)
         if maxhole is not None:
@@ -149,7 +150,13 @@ class StreamHoles(unittest.TestCase):
     def test_corrupted(self):
         k = START + 400
         packets = list(range(START, k)) + ["crc 1"] + list(range(k + 1, START + 800))
-        self.check(packets, lost=1, holes=1, maxhole=1, crc=1)
+        self.check(packets, lost=1, holes=1, maxhole=1)
+        # no field of its own on the stop line, nor u2ps's count on the
+        # counters line (always 0 on the DWC2 ports)
+        _, _, out = self.run_tool(packets)
+        stop = next(l for l in out.splitlines() if " stream stop " in l)
+        self.assertNotIn(" crc=", stop)
+        self.assertRegex(stop, r" late=0 ovf=0 ")
 
     def test_hole_in_parts(self):
         # u2ps may report one hole in several calls (at the ticks of a long
@@ -171,16 +178,15 @@ class StreamHoles(unittest.TestCase):
         # sends: no pause (u2ps_app_on_pause()), so the stream goes on, one
         # stream with the whole hole
         k = START + 400
-        for why, want in (("late", ("480", "480", "0", "0")), ("crc", ("480", "0", "480", "0")),
-                          ("nobuf", ("0", "0", "0", "480"))):
+        for why, want in (("late", ("480", "480", "0")), ("crc", ("480", "0", "0")), ("nobuf", ("0", "0", "480"))):
             with self.subTest(why=why):
                 packets = list(range(START, k)) + ["%s 480" % why, "skip 480"] + list(range(k + 480, k + 880))
                 # then a host pause of 600 microframes: the idle time counts
                 # from the last packet, the hole before it no part of it
                 packets += list(range(k + 1480, k + 1580))
                 stops, _, out = self.run_tool(packets)
-                self.assertEqual([(s["reason"], s["pkts"], s["lost"], s["late"], s["crc"], s["ovf"]) for s in stops],
-                                 [("idle", "800") + want, ("idle", "100", "0", "0", "0", "0")], out[-2000:])
+                self.assertEqual([(s["reason"], s["pkts"], s["lost"], s["late"], s["ovf"]) for s in stops],
+                                 [("idle", "800") + want, ("idle", "100", "0", "0", "0")], out[-2000:])
 
     def test_idle_after_overflows_with_gaps(self):
         # 19 packets held, then 20 that find no buffer, a microframe apart:
@@ -217,8 +223,9 @@ class StreamHoles(unittest.TestCase):
                     self.assertEqual((stop["ovf"], stop["lost"]), (total, "0"), out[-2000:])
                     self.assertEqual([(r["verdict"], r["ovf"]) for r in results], [("OVERRUN", total)])
                 else:
-                    self.assertEqual((stop["lost"], stop["missed"], stop["holes"], stop["maxhole"], stop[why]),
-                                     (total, total, "1", total, total), out[-2000:])
+                    self.assertEqual((stop["lost"], stop["missed"], stop["holes"], stop["maxhole"]),
+                                     (total, total, "1", total), out[-2000:])
+                    self.assertEqual(stop["late"], total if why == "late" else "0", out[-2000:])
                     self.assertEqual([r["lost"] for r in results], [total])
 
     def test_tail_hole_counted(self):
@@ -326,6 +333,10 @@ class StreamHoles(unittest.TestCase):
         _, _, out = self.run_tool(list(range(START, START + 400)) + list(range(START + 399, START + 800)))
         counters = [fields(line) for line in out.splitlines() if " usb counters " in line]
         self.assertEqual([c["uframe_back"] for c in counters], ["1"], out[-2000:])
+        # the fields in this order, no corrupted= (always 0 on the DWC2 ports)
+        self.assertEqual([list(c) for c in counters],
+                         [["late_completions", "late", "no_buffer", "fb_recoveries", "errors", "release_errors",
+                           "uframe_back", "ev_lost"]])
 
     # Overflows at a stream's end: the packets that found every buffer held
     # come as a NO_BUFFER hole with no packet after it in the stream
@@ -367,6 +378,26 @@ class StreamHoles(unittest.TestCase):
         # VBUS goes: u2ps reports the tail in the main loop
         # (uac2_unplug()), before the stream stops
         self.end_overflow(["unplug", "plug"] + list(range(START + 500, START + 700)), [("reset", "10"), ("idle", "0")])
+
+    def test_overflow_then_set_configuration_0(self):
+        # SET_CONFIGURATION 0 ends the configuration at once, and u2ps
+        # closes the stream after (u2ps_dev.h): the tail's overflows, which
+        # come at the close's end, still count in the stream, and it stops
+        # as at alt 0, also when the close takes main-loop passes
+        for close in ([], ["closeslow 3"]):
+            with self.subTest(close=close):
+                stops = self.end_overflow(close + ["setconfig 0", "setconfig 1", "alt 1"]
+                                          + list(range(START + 500, START + 700)), [("alt", "10"), ("idle", "0")])
+                self.check_all_read(stops[0])
+                # the device is no longer set up at once, and alt 0 comes
+                # when u2ps has closed the stream (before it if at once),
+                # then the stream's lines
+                out = self.run_tool(list(range(START, START + 100)) + close + ["setconfig 0"])[2]
+                lines = [l.split(" ", 1)[1] for l in out.splitlines()]
+                i = lines.index("stream start id=1 rate=48000 alt=1 slot=2 res=16 allow_silence=false")
+                want = ["usb disconnected", "alt 0"] if close else ["alt 0", "usb disconnected"]
+                self.assertEqual([lines[i + 1], lines[i + 2], lines[i + 3].split()[0], lines[i + 4].split()[:4]],
+                                 want + ["result", ["stream", "stop", "id=1", "reason=alt"]], out[-2000:])
 
     def test_overflow_then_reset(self):
         self.end_overflow(["reset"] + list(range(START + 500, START + 700)), [("reset", "10"), ("idle", "0")])
@@ -701,6 +732,23 @@ class StreamHoles(unittest.TestCase):
         self.assertEqual(sum(int(s["pkts"]) + int(s["ovf"]) for s in stops), 100 + 20 + 198)
         self.assertEqual([(s["reason"], s["ovf"]) for s in stops[-2:]], [("idle", "6"), ("idle", "0")], out[-2000:])
 
+    def test_zero_length_packets_of_no_segment(self):
+        # As above, a zero-length packet after the first 2 segment starts
+        # lost: those packets are no segment's, so they count in none, not
+        # as missed microframes of the newest segment, which the main loop
+        # stops reading before them; the 4 others of no segment count as
+        # overflows with the last one, which found no buffer
+        packets = list(range(START, START + 100)) + ["hold 20"]
+        for i in range(10):
+            b = START + 600 * (i + 1)
+            packets += [b, "zlp %d" % (b + 1) if i in (7, 8) else b + 1]
+        packets += list(range(START + 6602, START + 6800))
+        stops, _, out = self.run_tool(packets, usb_fault=1)
+        self.assertEqual(len(stops), 9, out[-2000:])
+        self.assertEqual(sum(int(s["pkts"]) + int(s["ovf"]) for s in stops), 100 + 18 + 198)
+        self.assertEqual([(s["lost"], s["missed"], s["holes"]) for s in stops], [("0", "0", "0")] * 9, out[-2000:])
+        self.assertEqual([(s["reason"], s["ovf"]) for s in stops[-2:]], [("idle", "4"), ("idle", "0")], out[-2000:])
+
     def test_zero_length_packets_between_runs(self):
         # u2ps counts zero-length packets as packets, so 450 of them make no
         # pause and no long gap: the stream goes on, and they are one hole
@@ -962,7 +1010,8 @@ class StreamHoles(unittest.TestCase):
         self.assertEqual([(s["reason"], s["ovf"]) for s in stops], [("alt", "0"), ("idle", "0")], out[-2000:])
         self.check_all_read(stops[0])
         # the main loop running only its USB task from the reset to the open
-        # (display_wait()): the open cuts them, as overflows
+        # (a stream task too slow for the start's wait, START_CHECK_MS): the
+        # open cuts them, as overflows
         stops, results, out = self.stall_at_end(["alt 0", "waitonly 100000", "reset", "alt 1", "waitonly 0", "slow 0"]
                                                 + list(range(START + 30000, START + 30400)), big=True, slow=32, file=False)
         self.assertEqual([s["reason"] for s in stops], ["alt", "idle"], out[-2000:])
@@ -1155,23 +1204,74 @@ class StreamHoles(unittest.TestCase):
                                  [("reset", "29", "31"), ("idle", "100", "0")], out[-2000:])
                 self.check_all_read(stops[0])
                 self.assertEqual([(r["verdict"], r["ovf"]) for r in results if r["stream"] == "1"], [("OVERRUN", "31")])
-        # the stop line now comes after the reset's
+        # the stop line comes after the reset's; at a formats change, read
+        # at once (stream_flush()), before the formats' line and the
+        # disconnect
         lines = self.reset_with_packets_held(["reset"])[2].splitlines()
         at_reset = next(i for i, l in enumerate(lines) if l.endswith(" usb reset"))
         at_stop = next(i for i, l in enumerate(lines) if " stream stop " in l)
         self.assertLess(at_reset, at_stop)
+        lines = self.reset_with_packets_held(["formats 16/2,24/3"])[2].splitlines()
+        at_stop = next(i for i, l in enumerate(lines) if " stream stop " in l)
+        at_formats = next(i for i, l in enumerate(lines) if l.endswith(" formats 16/2,24/3 changed=1"))
+        self.assertEqual(lines[at_formats + 1].split(" ", 1)[1], "usb disconnected")
+        self.assertLess(at_stop, at_formats)
 
     def test_reset_then_an_open_first(self):
-        # The same, the main loop running only its USB task (display_wait())
-        # until the new stream opens: the open cuts the stream, as at an alt
-        # change, and the 19 packets not read count as overflows with the 31
-        for ending in self.RESETS:
+        # The same, the main loop running only its USB task until the new
+        # stream opens (a stream task too slow for the start's wait,
+        # START_CHECK_MS): after a bus reset the open cuts the stream, as at
+        # an alt change, and the 19 packets not read count as overflows with
+        # the 31; a VBUS loss and a formats change read them at once
+        # (stream_flush()), so nothing is left to cut
+        for ending, cut in zip(self.RESETS, (True, False, False)):
             with self.subTest(ending=ending):
                 stops, results, out = self.reset_with_packets_held(ending, ["waitonly 100000"])
+                ovf = "50" if cut else "31"
                 self.assertEqual([(s["reason"], s["pkts"], s["ovf"]) for s in stops],
-                                 [("reset", "29", "50"), ("idle", "100", "0")], out[-2000:])
-                self.check_all_read(stops[0], read=False)
-                self.assertEqual([(r["verdict"], r["ovf"]) for r in results if r["stream"] == "1"], [("OVERRUN", "50")])
+                                 [("reset", "29", ovf), ("idle", "100", "0")], out[-2000:])
+                self.check_all_read(stops[0], read=not cut)
+                self.assertEqual([(r["verdict"], r["ovf"]) for r in results if r["stream"] == "1"], [("OVERRUN", ovf)])
+
+    def test_pull_mid_file(self):
+        # VBUS goes in the middle of a BPC1 file, 10 packets not read yet
+        # (main.c's actions, vbus_act()): they are read at once, and the cut
+        # file's result and the stream stop line come before "usb
+        # disconnected" and "run start", so the result stays in the run
+        # before (main.c)
+        pcm, path = self.bpc1(None, 16, 1, "<i2", 16, "pull.raw")
+        k = START + len(pcm) // 24 // 2
+        packets = list(range(START, k)) + ["hold 10"] + list(range(k, k + 10)) + ["pull", "plug"]
+        packets += list(range(k + 3000, k + 3400))
+        stops, results, out = self.run_tool(packets, path, 1)
+        self.assertEqual([(s["reason"], s["pkts"], s["ovf"]) for s in stops[:1]], [("reset", str(k + 10 - START), "0")],
+                         out[-2000:])
+        self.assertEqual([r["kind"] for r in results if r["stream"] == "1"], ["PCM"], out[-2000:])
+        lines = out.splitlines()
+        first = [i for i, l in enumerate(lines) if (" result " in l and fields(l)["stream"] == "1")
+                 or " stream stop id=1 " in l]
+        pull = [i for i, l in enumerate(lines) if l.endswith(" usb disconnected") or l.endswith(" run start")]
+        self.assertEqual(len(first), 2, out[-2000:])
+        self.assertEqual([lines[i].split(" ", 1)[1] for i in pull], ["usb disconnected", "run start"], out[-2000:])
+        self.assertLess(max(first), min(pull), out[-2000:])
+
+    def test_pull_with_a_backlog_over_a_pause(self):
+        # A pull while 1900 packets of a stream and 50 of the next segment,
+        # after a pause, wait: both are read at once, over many passes, and
+        # stop before the pull's lines
+        p = list(range(START, START + 100)) + ["hold 1960"] + list(range(START + 100, START + 1900))
+        p += list(range(START + 2400, START + 2450)) + ["pull", "plug"] + list(range(START + 30000, START + 30400))
+        stops, _, out = self.run_tool(p, big=True)
+        self.assertEqual([(s["id"], s["reason"], s["pkts"], s["ovf"]) for s in stops],
+                         [("1", "pause", "1900", "0"), ("2", "reset", "50", "0"), ("3", "idle", "400", "0")],
+                         out[-3000:])
+        for stop in stops:
+            self.check_all_read(stop)
+        lines = out.splitlines()
+        at_stop = next(i for i, l in enumerate(lines) if " stream stop id=2 " in l)
+        at_pull = next(i for i, l in enumerate(lines) if l.endswith(" usb disconnected"))
+        self.assertEqual(lines[at_pull + 1].split(" ", 1)[1], "run start")
+        self.assertLess(at_stop, at_pull)
 
     def test_cut_ends_each_segment(self):
         # A backlog over a pause cut by a new stream, the later segment with
@@ -1197,7 +1297,8 @@ class StreamHoles(unittest.TestCase):
 
     def test_cut_without_a_stream(self):
         # Packets of a stream that came while the main loop ran only its
-        # USB task (display_wait()), cut by the next stream's open: they are
+        # USB task (a stream task too slow for the start's wait,
+        # START_CHECK_MS), cut by the next stream's open: they are
         # a stream of their own, its packets overflows (19 held, 31 that
         # found no buffer)
         p = list(range(START, START + 100)) + ["alt 0", "idle 100", "waitonly 100000", "alt 1"]
@@ -1376,7 +1477,7 @@ class StreamHoles(unittest.TestCase):
         stops, results, out = self.run_tool(packets, path, 1)
         self.assertEqual([(r["verdict"], r["lost"], r["ovf"]) for r in results],
                          [("NOT_BIT_PERFECT", "3", "0"), ("UNKNOWN_SIGNAL", "1", "0")], out[-2000:])
-        self.assertEqual((stops[0]["late"], stops[0]["crc"], stops[0]["missed"]), ("3", "1", "4"))
+        self.assertEqual((stops[0]["late"], stops[0]["missed"]), ("3", "4"))
 
 
 if __name__ == "__main__":

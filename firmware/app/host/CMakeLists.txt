@@ -47,7 +47,7 @@ function(host_tool name class_mem)
   target_link_libraries(${name} PRIVATE u2ps_testkit_device)
 endfunction()
 
-set(STREAM_SOURCES stream_tool.c ${APP}/stream.c ${APP}/u2ps_glue.c ${APP}/usb_formats.c
+set(STREAM_SOURCES stream_tool.c ${APP}/stream.c ${APP}/u2ps_glue.c ${APP}/usb_formats.c ${APP}/vbus.c
     ${FIRMWARE}/bpc1/bpc1.c ${FIRMWARE}/bpc1/bpc1_checker.c)
 host_tool(usb_desc_tool ${CLASS_MEM_BYTES} usb_desc_tool.c ${APP}/usb_formats.c)
 host_tool(stream_tool ${CLASS_MEM_BYTES} ${STREAM_SOURCES})

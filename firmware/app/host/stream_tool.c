@@ -28,6 +28,9 @@
 //                    alt setting and rate as before
 //   unplug           VBUS goes, as main.c handles it (uac2_unplug(), the
 //                    pull-up off)
+//   pull             VBUS goes, as main.c handles a pull: vbus_act() with
+//                    main.c's actions (uac2_unplug(), then "usb
+//                    disconnected" and a new run, then the pull-up off)
 //   plug             VBUS comes back; the host enumerates as above
 //   slow <n>         each pass of the main loop from now on takes <n>
 //                    microframes
@@ -40,7 +43,7 @@
 //                    stack never lent come as interrupts (a fault the glue
 //                    must catch before it opens a stream)
 //   silence on|off   allow_silence for the streams that start after it
-//   setconfig        SET_CONFIGURATION 1 while configured
+//   setconfig [<v>]  SET_CONFIGURATION <v> (default 1)
 //   openfault        u2ps reports that the port refused the class memory
 //   len <n>          the packets after it carry <n> bytes (at most
 //                    PACKET_MAX), not 6 frames
@@ -55,7 +58,7 @@
 //   rate <hz>        SET CUR of the sampling frequency
 //   reset            a bus reset, then the enumeration and the alt setting
 //                    and rate as before
-//   closeslow <n>    the next alt 0 or setconfig leaves u2ps's close pending
+//   closeslow <n>    the next alt 0 or setconfig of a stream leaves u2ps's close pending
 //                    for <n> passes of the main loop (DWC2 ends it over
 //                    several), then the port ends it: the stream's tail
 //                    holes, then on_stream_stop
@@ -66,7 +69,9 @@
 //   evflood <n>      <n> SET_INTERFACE alt setting 0 requests before the main
 //                    loop runs: each queues an event for it
 //   waitonly <n>     the next <n> passes of the main loop run its USB task
-//                    only, as display_wait() does (main.c)
+//                    only: a stream task too slow to read the packets
+//                    before a start's wait runs out (START_CHECK_MS,
+//                    app/u2ps_glue.c)
 //
 // Microframe numbers are absolute here and only grow; u2ps gets them modulo
 // 0x4000. The main loop runs once in each microframe up to the packet's,
@@ -150,6 +155,9 @@ void load_loop(void) {}
 load_t load_take(void) { return (load_t) {0}; }
 
 void vbus_hold_pullup(uint32_t ms) { (void) ms; }
+
+// "pull": what main.c does at a pull (vbus_ops there)
+static const vbus_ops_t pull_ops = {.unplug = uac2_unplug, .run_start = stream_run_start, .pullup = uac2_pullup};
 
 void u2ps_app_on_contract(u2ps_contract_t violation) { (void) violation; }
 
@@ -369,6 +377,10 @@ int main(int argc, char **argv) {
       uac2_pullup(false);
       u2ps_testkit_dev_vbus(false);
       loop();
+    } else if (strncmp(line, "pull", 4) == 0) {
+      vbus_act(VBUS_GONE | VBUS_DISCONNECT, &pull_ops);
+      u2ps_testkit_dev_vbus(false);
+      loop();
     } else if (strncmp(line, "plug", 4) == 0) {
       u2ps_testkit_dev_vbus(true);
       uac2_vbus(true);
@@ -394,7 +406,9 @@ int main(int argc, char **argv) {
     } else if (sscanf(line, "stray %llu", &a) == 1) {
       stray = (uint32_t) a;
     } else if (strncmp(line, "setconfig", 9) == 0) {
-      u2ps_setup_t setup = {.bmRequestType = 0x00, .bRequest = 9, .wValue = 1};
+      unsigned v = 1;
+      (void) sscanf(line, "setconfig %u", &v);
+      u2ps_setup_t setup = {.bmRequestType = 0x00, .bRequest = 9, .wValue = (uint16_t) v};
       if (close_slow > 0) {
         slow_close(setup.bmRequestType, setup.bRequest, setup.wValue, setup.wIndex);
       } else {

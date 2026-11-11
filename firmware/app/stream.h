@@ -31,10 +31,12 @@ void stream_set_rate(uint32_t rate);
 // reset, a detach, a VBUS loss or a formats change. stream_cut(): before
 // the class memory is lent again, they end now, each segment as a stream of
 // its own, and their packets not read yet count as overflows; then the
-// queue is empty (stream_queue_empty()).
+// queue is empty (stream_queue_empty()). stream_flush(): after
+// stream_reset(), they are read and stop now, with their lines.
 void stream_set_alt(uint8_t alt);
 bool stream_ending(void);
 void stream_cut(void);
+void stream_flush(void);
 // Every queued packet goes unread and uncounted; returns how many went
 uint32_t stream_drop(void);
 // The last result of the stream that stopped last held the stream's end;

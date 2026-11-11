@@ -6,7 +6,8 @@
 // packet's own microframe, and reports the microframes without a packet
 // before the packet that ends them, with a reason (stream_hole_isr()):
 // missed microframes (the host sent nothing, the device re-armed late, a
-// corrupted packet; a zero-length packet counts as one too), and overflows:
+// corrupted packet, which the DWC2 core drops unseen, so u2ps reports none
+// there; a zero-length packet counts as one too), and overflows:
 // packets u2ps had no buffer for, because the main loop still held every
 // one. No two packets share a microframe, so "doubled" stays 0.
 //
@@ -63,6 +64,11 @@
 
 #define ARRAY_SIZE(a) (sizeof(a) / sizeof((a)[0]))
 
+// An invariant the host tools check (app/host/stub/family.h); nothing here
+#ifndef FAMILY_CHECK
+#define FAMILY_CHECK(x) ((void) sizeof(x))
+#endif
+
 #define UFRAME_MASK   0x3FFFu
 #define WINDOW_MS     1000u
 
@@ -77,7 +83,6 @@ typedef struct {
   uint64_t max_hole;   // the longest run
   uint64_t run;        // the run that the next packet ends, 0 for none
   uint64_t late;       // of the missed microframes: the device re-armed too late (u2ps LATE)
-  uint64_t crc;        // of the missed microframes: corrupted packets (u2ps CORRUPTED)
   uint64_t overflows;  // packets u2ps had no buffer for (u2ps NO_BUFFER), and those of no segment
   uint32_t rate;       // the rate the host had set when the segment began
   uint8_t alt, slot, resolution;  // the alt setting it began at
@@ -177,8 +182,6 @@ FAMILY_ISR_CODE void stream_hole_isr(uint32_t uframes, unsigned why) {
   missed(uframes);
   if (why == U2PS_MISS_LATE) {
     isr->late += uframes;
-  } else if (why == U2PS_MISS_CORRUPTED) {
-    isr->crc += uframes;
   }
 }
 
@@ -197,6 +200,9 @@ FAMILY_ISR_CODE void stream_restart_isr(void) {
 }
 
 FAMILY_ISR_CODE void stream_packet_isr(const uint8_t *data, uint16_t n_bytes, uint32_t uframe) {
+  // The queue's segment numbers never fall: the main loop reads no packet
+  // of a segment before the stream's (packet_done())
+  const packet_t *before = &packets[pk_wi > 0u ? pk_wi - 1u : PACKETS - 1u];
   packet_t *p = &packets[pk_wi];
   pk_wi = pk_wi + 1u < PACKETS ? pk_wi + 1u : 0u;
   p->data = data;
@@ -211,12 +217,16 @@ FAMILY_ISR_CODE void stream_packet_isr(const uint8_t *data, uint16_t n_bytes, ui
     // delimiter): it counts like a microframe without a packet, in the hole
     // before the next packet, and its microframe in the segment's, so that
     // a run of them longer than the microframe numbers wrap still counts.
+    // One of no segment (isr_orphaned) counts in none, as its microframe.
     // Queued all the same: u2ps holds it.
-    if (!isr_restart && !isr_orphaned) {
-      isr->uframes += gap;
+    if (!isr_orphaned) {
+      if (!isr_restart) {
+        isr->uframes += gap;
+      }
+      missed(1u);
     }
-    missed(1u);
     p->seq = isr->seq;
+    FAMILY_CHECK((int32_t) (p->seq - before->seq) >= 0);
     atomic_signal_fence(memory_order_release);  // the entry before the count
     pk_in++;
     return;
@@ -260,6 +270,7 @@ FAMILY_ISR_CODE void stream_packet_isr(const uint8_t *data, uint16_t n_bytes, ui
   }
   memset(&pending, 0, sizeof(pending));
   p->seq = isr->seq;
+  FAMILY_CHECK((int32_t) (p->seq - before->seq) >= 0);
 
   if (isr_orphaned) {
     // Queued in the newest segment's place, where the main loop stops
@@ -573,6 +584,7 @@ static const packet_t *packet_next(void) {
 // The packet packet_next() gave is read: its buffer goes back with
 // give_back()
 static void packet_done(const packet_t *p) {
+  FAMILY_CHECK((int32_t) (p->seq - s.seq) >= 0);
   pk_ri = pk_ri + 1u < PACKETS ? pk_ri + 1u : 0u;
   pk_read++;
   bytes_out_all += p->len;
@@ -1021,14 +1033,14 @@ static void stop(const char *reason) {
   log_held();
 
   log_line_reserved("stream stop id=%lu reason=%s dur=%lu.%03lu frames=%llu pkts=%llu rate=%lu.%02lu fpp=%u-%u "
-           "lost=%lld missed=%llu holes=%llu maxhole=%llu doubled=0 late=%llu crc=%llu ovf=%llu outside=%llu "
+           "lost=%lld missed=%llu holes=%llu maxhole=%llu doubled=0 late=%llu ovf=%llu outside=%llu "
            "silent=%llu results=%lu results_lost=%lu",
            (unsigned long) status.stream_id, reason, (unsigned long) (ms / 1000u),
            (unsigned long) (ms % 1000u), (unsigned long long) (c->bytes / fb), (unsigned long long) c->packets,
            (unsigned long) (r / 100u), (unsigned long) (r % 100u), (unsigned) (c->min_bytes / fb),
            (unsigned) (c->max_bytes / fb), (long long) net_lost(c), (unsigned long long) c->missed,
            (unsigned long long) c->holes, (unsigned long long) c->max_hole, (unsigned long long) c->late,
-           (unsigned long long) c->crc, (unsigned long long) c->overflows,
+           (unsigned long long) c->overflows,
            (unsigned long long) bpc1_checker_outside(&ck),
            (unsigned long long) bpc1_checker_silent(&ck), (unsigned long) s.stream_results,
            (unsigned long) bpc1_checker_results_lost(&ck));
@@ -1238,9 +1250,9 @@ bool stream_queue_empty(void) {
 // which stop() tells the checker of at the frame it has read up to; each
 // segment queued after it stops as a stream of its own, with its lines,
 // all its packets overflows; packets outside an alt setting are no
-// stream's. Also with no stream active (display_wait() runs no
-// stream_task()). Only the packets queued when it starts: one queued after
-// is a fault the glue catches (stream_queue_empty()).
+// stream's. Also with no stream active. Only the packets queued when it
+// starts: one queued after is a fault the glue catches
+// (stream_queue_empty()).
 void stream_cut(void) {
   uint32_t now = board_millis();
   uint32_t end = pk_in;
@@ -1253,6 +1265,15 @@ void stream_cut(void) {
     if (pk_out == end || !begin(now)) {
       break;
     }
+  }
+}
+
+// The stream that the host ended, and the segments queued after it, are
+// read and stop now, their lines first: at a pull, before the new run.
+// Each pass reads a packet at least, or stops or begins a segment.
+void stream_flush(void) {
+  for (uint32_t n = 0; (s.active || !stream_queue_empty()) && n < PACKETS + 2u * SEGMENTS; n++) {
+    stream_task();
   }
 }
 

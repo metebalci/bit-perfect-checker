@@ -464,7 +464,9 @@ void uac2_release(uint32_t n) {
 
 // u2ps's counters since boot, logged when one changed; a lost event is a
 // fault. Lost events are the event queue's and the segment starts the
-// stream's interrupt dropped (stream_lost_starts()).
+// stream's interrupt dropped (stream_lost_starts()). Not logged: corrupted,
+// always 0 on the DWC2 port, whose core drops a CRC-error packet unseen
+// (u2ps_dwc2_dcd.c, u2ps_dport_stats()).
 static void counters_task(uint32_t now) {
   if (!counters_due && now - counters_ms < COUNTERS_MS) {
     return;
@@ -479,10 +481,10 @@ static void counters_task(uint32_t now) {
   }
   counters = st;
   counters_ev_lost = lost;
-  log_line("usb counters late_completions=%lu late=%lu no_buffer=%lu corrupted=%lu fb_recoveries=%lu errors=%lu "
+  log_line("usb counters late_completions=%lu late=%lu no_buffer=%lu fb_recoveries=%lu errors=%lu "
            "release_errors=%lu uframe_back=%lu ev_lost=%lu",
            (unsigned long) st.late_completions, (unsigned long) st.late, (unsigned long) st.no_buffer,
-           (unsigned long) st.corrupted, (unsigned long) st.fb_recoveries, (unsigned long) st.errors,
+           (unsigned long) st.fb_recoveries, (unsigned long) st.errors,
            (unsigned long) st.release_errors, (unsigned long) st.uframe_back, (unsigned long) lost);
   if (lost != 0u) {
     fault();
@@ -531,7 +533,7 @@ static void reset_stream(void) {
   stream_reset();
 }
 
-// The host set alt 0, or a configuration, which sets it: a start not yet
+// The host set alt 0, or SET_CONFIGURATION, which sets it: a start not yet
 // opened is cancelled in u2ps. An open stream ends once u2ps has stopped it
 // (EV_STOP), since its close may take a while (DWC2) and the stream's tail
 // holes, overflows among them, come before on_stream_stop: they count in
@@ -545,9 +547,19 @@ static void alt0(void) {
   }
 }
 
-// The device is no longer set up: the configuration ended
-static void unmounted(void) {
-  reset_stream();
+// SET_CONFIGURATION sets every interface to alt 0 (USB 2.0 9.1.1.5): as
+// alt 0, but not at the enumeration's first one, when no alt setting is
+// open
+static void set_configuration(void) {
+  if (status.alt != 0) {
+    alt0();
+  } else {
+    pending_due = false;
+  }
+}
+
+// The configuration ended
+static void unconfigured(void) {
   mounted = false;
   if (status.usb != USB_NOT_MOUNTED) {
     status.usb = USB_NOT_MOUNTED;
@@ -556,6 +568,12 @@ static void unmounted(void) {
       log_line("usb disconnected");
     }
   }
+}
+
+// The device is no longer set up, and the stream ends with it
+static void unmounted(void) {
+  reset_stream();
+  unconfigured();
 }
 
 
@@ -592,9 +610,14 @@ static void handle(const event_t *e) {
         status.high_speed = e->value == U2PS_SPEED_HIGH;
         status_changed();
         log_line("usb mounted speed=%s", status.high_speed ? "high" : "full");
+      } else if (e->why == U2PS_CONFIG_END_SET_CONFIGURATION) {
+        // SET_CONFIGURATION 0: u2ps closes the stream after it, and the
+        // stream's tail comes before on_stream_stop (u2ps_dev.h), so it
+        // ends as at alt 0
+        set_configuration();
+        unconfigured();
       } else if (e->why != U2PS_CONFIG_END_BUS_RESET) {
-        // SET_CONFIGURATION 0, a detach, VBUS or a re-init; a bus reset is
-        // EV_RESET's
+        // A detach, VBUS or a re-init; a bus reset is EV_RESET's
         unmounted();
       }
       break;
@@ -605,12 +628,7 @@ static void handle(const event_t *e) {
       alt0();
       break;
     case EV_SET_CONFIG:
-      // Not at the enumeration's first one: no alt setting is open then
-      if (status.alt != 0) {
-        alt0();
-      } else {
-        pending_due = false;
-      }
+      set_configuration();
       break;
     case EV_STOP:
       counters_due = true;
@@ -696,13 +714,15 @@ bool uac2_quiet(void) {
 }
 
 // VBUS has gone (vbus.c, debounced): the stack ends the stream and the
-// configuration at once (their lines first); the caller logs the
-// disconnect, then ends the attach
+// configuration at once, and the packets not read yet are read now, so
+// their lines come first; the caller logs the disconnect and starts a new
+// run, then ends the attach
 void uac2_unplug(void) {
   quiet = true;
   u2ps_dev_vbus(false);
   events_task();
   unmounted();
+  stream_flush();
   quiet = false;
 }
 
@@ -729,6 +749,7 @@ bool uac2_formats(const char *text) {
   uac2_pullup(false);
   events_task();
   reset_stream();
+  stream_flush();  // the stream's lines before the formats'
   status.usb = USB_NOT_MOUNTED;
   status_changed();
   mounted = false;
