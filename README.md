@@ -89,8 +89,8 @@ test files.
    and ST's STM32CubeProgrammer, following the Build and Flash sections of the
    [firmware README](firmware/README.md): a few commands, ending in the
    `flash` target. Copying the binary to the ST-LINK's USB drive works too,
-   except on the DK2, whose ST-LINK shows no drive. A ready-made binary is to
-   be published with firmware 1.1.0. The device uses
+   except on the DK2, whose ST-LINK shows no drive. Each firmware release also
+   has ready-made binaries on the project's releases page. The device uses
    Objective Development's shared USB ID for audio class devices, 16C0:27E0
    ([USB ID](firmware/README.md#usb-id)).
 3. **The test files.** Download them from the project's releases, one zip
@@ -425,7 +425,7 @@ Its exit status is the first of these that holds:
 |---|---|
 | 3 | the player command failed |
 | 2 | no result: the device did not answer, or no stream arrived |
-| 1 | any result is `NOT_BIT_PERFECT` or `UNKNOWN_SIGNAL`, or, with `--expect <n>`, fewer than n results are `BIT_PERFECT` or `OVERRUN` (a file that did not arrive at all) |
+| 1 | any result is `NOT_BIT_PERFECT` or `UNKNOWN_SIGNAL`, or, with `--expect <n>`, fewer than n files (results of a kind other than `NONE`) are `BIT_PERFECT` or `OVERRUN` (a file that did not arrive at all) |
 | 4 | not fully judged, play again: any result is `OVERRUN` (the device's receive buffer overflowed), or the reporting is incomplete: a stream's `results_lost` is above 0, fewer result lines arrived than its `stream stop` line's `results=`, or the timeout ended the wait before a stream stopped |
 | 0 | at least one result arrived and all are `BIT_PERFECT` |
 
@@ -527,12 +527,14 @@ files find them.
   generator compute the DSD payload differently once a file's position
   passes 2^32, which at DSD256 is after about 380 s. No published file is
   that long (the DSD files last under 13 s). Not resolved yet.
-- **A bus reset during a stream was seen once on hardware.** A USB bus
-  reset closes the audio function without telling the firmware, which then
-  ends the stream itself with `reason=reset` and logs `usb reset`. It
-  happened once, on an iPad, when the cable was pulled during a stream. The
-  Linux host used for tests sets alt setting 0 before it resets the port, so
-  there the stream has always ended before the reset arrives.
+- **A bus reset during a stream is untested on hardware.** Only the host
+  tests cover it. At a USB bus reset the stream ends as at alt setting 0:
+  the packets the firmware has not read yet are still checked, and if the
+  host opens the next stream first, they count as overflows. The firmware
+  logs `usb reset`, then the stream's `stream stop` line with
+  `reason=reset` once its packets are read. The Linux host used for tests
+  sets alt setting 0 before it resets the port, so there the stream has
+  always ended before the reset arrives.
 - **ffmpeg decodes some ALAC packets wrongly.** Decoders based on ffmpeg
   (8.0.1 and its current development version) and Apple's ALAC codec clamp
   the history of ALAC's adaptive Golomb coder on different values, so
@@ -554,11 +556,10 @@ submodule in `generator/third_party/alac`.
 
 The firmware uses:
 
-- [TinyUSB](https://github.com/hathach/tinyusb) (MIT), by Ha Thach and
-  contributors, release 0.21.0 with a local patch for zero-length audio
-  packets, and an optional one, off by default, for the re-arm of the
-  isochronous OUT endpoint (see the
-  [firmware README](firmware/README.md#tinyusb-patches))
+- [u2ps](https://github.com/metebalci/uac2-playback-stack)
+  (uac2-playback-stack, MIT), by Mete Balci, release 0.1.0, the USB Audio
+  Class 2.0 playback stack, as the USB device stack (see the
+  [firmware README](firmware/README.md#usb-stack))
 - ST's CMSIS device files ([STM32U5](https://github.com/STMicroelectronics/cmsis_device_u5),
   [STM32F7](https://github.com/STMicroelectronics/cmsis_device_f7); Apache-2.0)
   and HAL ([STM32U5](https://github.com/STMicroelectronics/stm32u5xx_hal_driver),
@@ -572,9 +573,10 @@ The firmware uses:
   BSD-3-Clause notice: the ST7789H2 set-up of the F723's panel and the
   RK050HR18 timing of the DK2's
 
-`firmware/boards` and `firmware/families` follow TinyUSB's board files for
-the STM32U5; the STM32F723E-DISCO's clock set-up follows ST's STM32CubeF7
-examples for the board.
+`firmware/boards` and `firmware/families` follow the board files of
+[TinyUSB](https://github.com/hathach/tinyusb) (MIT) for the STM32U5; the
+STM32F723E-DISCO's clock set-up follows ST's STM32CubeF7 examples for the
+board.
 
 The payload hash of BPC1 uses the lowbias32 constants published by Chris
 Wellons, and the channel keys are the first output of SplitMix64 (Sebastiano

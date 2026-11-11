@@ -11,14 +11,13 @@ are the NUCLEO-U5A5ZJ-Q, the STM32F723E-DISCO and the STM32U5G9J-DK2
 |---|---|
 | `app/` | everything that is the same on every board: USB descriptors and audio class requests, the stream probe and checker, the log and console, LED patterns, load figures, the status, and the status screen's content and drawing |
 | `bpc1/` | the BPC1 signal and the online checker engine in portable C, which host tests also build |
-| `include/` | what `app/` needs from a board ([`board.h`](include/board.h)) and from a display ([`display.h`](include/display.h)), and what the BPC1 generator needs from a board with a USB host port ([`board_host.h`](include/board_host.h)) |
+| `include/` | what `app/` needs from a board ([`board.h`](include/board.h)) and from a display ([`display.h`](include/display.h)) |
 | `families/<family>/` | one MCU family: CPU flags, ST's CMSIS and HAL modules, HAL configuration, linker scripts, and the code all boards of the family share (USB controller and PHY, log UART, tick) |
 | `boards/<board>/` | one board: `board.cmake` (family, MCU, crystal, linker script, sources) and `board.c` (clock tree, LEDs, button, VBUS, which UART is the log), and for a board with a display its panel driver, screen layout and touch driver |
 | `shields/<shield>/` | an add-on for a board, such as a display shield; none yet |
-| `bpc1-generator/` | the BPC1 generator, a USB host that is to play the BPC1 test signal to a checker: its own CMake project on the same boards and families ([its README](bpc1-generator/README.md)) |
-| `cmake/` | the toolchain file, the version stamp, the flash target, and `common.cmake`, which the checker and the BPC1 generator share |
+| `cmake/` | the toolchain file, the version stamp, the flash target, and `common.cmake`: folders, compile options and warnings, the board and family, the image |
 | `tools/` | `fontgen.py`, which turns [Spleen](https://github.com/fcambus/spleen) bitmap fonts into C arrays at build time, and `package.py`, which builds the release zip ([Release](#release)) |
-| `lib/` | pinned submodules: [TinyUSB](https://github.com/hathach/tinyusb) 0.21.0, ST's CMSIS device files ([STM32U5](https://github.com/STMicroelectronics/cmsis_device_u5), [STM32F7](https://github.com/STMicroelectronics/cmsis_device_f7)) and HAL ([STM32U5](https://github.com/STMicroelectronics/stm32u5xx_hal_driver), [STM32F7](https://github.com/STMicroelectronics/stm32f7xx_hal_driver)), Arm's [CMSIS 5](https://github.com/ARM-software/CMSIS_5) core headers, at the commits TinyUSB 0.21.0 tests with, and Spleen 2.2.0 for the screens' fonts; `patches/` holds the local patches to TinyUSB ([below](#tinyusb-patches)) |
+| `lib/` | pinned submodules: [u2ps](https://github.com/metebalci/uac2-playback-stack) 0.1.0, the USB device stack ([below](#usb-stack)), ST's CMSIS device files ([STM32U5](https://github.com/STMicroelectronics/cmsis_device_u5), [STM32F7](https://github.com/STMicroelectronics/cmsis_device_f7)) and HAL ([STM32U5](https://github.com/STMicroelectronics/stm32u5xx_hal_driver), [STM32F7](https://github.com/STMicroelectronics/stm32f7xx_hal_driver)), Arm's [CMSIS 5](https://github.com/ARM-software/CMSIS_5) core headers, and Spleen 2.2.0 for the screens' fonts |
 
 | Board | Family | Display |
 |---|---|---|
@@ -43,8 +42,8 @@ the host sends, and checks every frame against the test signal:
 - **Not from a virtual machine:** play from a host that drives its USB
   controller itself. A virtual machine sends packets late or skips them,
   with the controller passed through as well as with an emulated one, and
-  the device counts those as lost ([below](#tinyusb-patches),
-  [measurements](../docs/measurements.md)).
+  the device counts those as lost
+  ([measurements](../docs/measurements.md)).
 - **Rates:** 44.1, 48, 88.2, 96, 176.4, 192, 352.8, 384, 705.6 and 768 kHz,
   stereo.
 - **Formats:** 16-bit in 2-byte slots, 24-bit in 4-byte slots, 32-bit in
@@ -73,8 +72,8 @@ the host sends, and checks every frame against the test signal:
   STM32F723E-DISCO, and PA1 (USBC_DETECT) on the STM32U5G9J-DK2.
 
 For each stream it counts packets and frames, the average rate, packets lost
-(microframes without a packet, and receive FIFO overflows), the bits in use,
-and DoP markers. The checker ([`bpc1/bpc1_checker.h`](bpc1/bpc1_checker.h))
+(microframes without a packet), overflows (packets that found every buffer
+held), the bits in use, and DoP markers. The checker ([`bpc1/bpc1_checker.h`](bpc1/bpc1_checker.h))
 gets every frame as 32-bit left-justified words, with the host's rate and the
 slot's bits, and starts over with each stream. It finds each BPC1 file in the
 stream by its X-syncs, PCM or DoP, and gives each file its own verdict: hosts
@@ -86,13 +85,16 @@ The device takes every rate up to 768 kHz. Whether every USB packet reaches
 it depends on the host. An iPad lost no packet at any rate, 768 kHz included,
 so the iPad is the reference test for the highest rates. On one Linux host, a
 virtual machine with a USB 3 card passed through to it, a few packets went
-missing. Up to 192 kHz no packet was lost in any stream; at 352.8 and 384 kHz
-a stream lost a few packets now and then; at 705.6 and 768 kHz streams lost a
-few packets each with 3- and 4-byte slots (about one in 3 800 to 17 000, in
+missing (measured with builds up to firmware 1.1.1, all on TinyUSB,
+[measurements](../docs/measurements.md)). Up to 192 kHz no packet was lost
+in any stream; at 352.8 and 384 kHz a stream lost a few packets now and
+then; at 705.6 and 768 kHz streams lost a few packets each with 3- and
+4-byte slots (about one in 3 800 to 17 000, in
 holes of one or two microframes) and sometimes with 2-byte slots too. Most
 of them were packets the host's controller skipped, two in a row; the
-few the device missed came late in their microframe, and the optional
-re-arm patch removes them ([below](#tinyusb-patches)). A lost packet shows as `lost`, so it is told
+few the device missed came late in their microframe, and a re-arm for the
+microframe after the packet, as the USB stack re-arms ([below](#usb-stack)),
+removed them there. A lost packet shows as `lost`, so it is told
 apart from an altered sample. A loss in a file's body makes the file
 `NOT_BIT_PERFECT`; a loss in its lead-in or tail is counted in `lost` but
 does not change the verdict ([12.6](../docs/bpc1.md#126-verdicts)).
@@ -104,82 +106,33 @@ selects alt 3; all 32 bits still arrive. A Linux stream carries 17 to
 20 ms more than the file, inside the file's extent (see
 [measurements](../docs/measurements.md#27-frames-beyond-the-file)).
 
-### TinyUSB patches
+### USB stack
 
-The submodule stays at TinyUSB 0.21.0, unmodified. The build applies the
-patches in `lib/patches/` to copies of the files in the build folder and
-compiles those copies instead; a patch that no longer applies exactly fails
-the build. `-DBPC_TUSB_PATCHES=<list>` chooses them: `zlp`, the default,
-`iso_out`, both (`zlp;iso_out`, which firmware 1.1.0 was built with), or
-`none`.
+The USB device stack is [u2ps](https://github.com/metebalci/uac2-playback-stack)
+(uac2-playback-stack), release 0.1.0, the submodule `lib/u2ps`, used
+unmodified; `-DU2PS_DIR=<folder>` names another u2ps tree. The build sets
+u2ps's options: `U2PS_CHIP` from the board's `board.cmake`,
+`U2PS_DWC2_HSE_HZ` from its `HSE_VALUE`, `U2PS_ISO_OUT_COUNT_MAX` (the most
+buffers of a stream) from the family's `family.cmake`, `U2PS_VBUS=app`,
+since the firmware reads VBUS itself and reports it, and
+`U2PS_CONTROL_HOOK=ON`. `-DU2PS_LTO=OFF` turns off the link-time
+optimisation of u2ps's libraries, which is on by default.
+[`app/u2ps_glue.c`](app/u2ps_glue.c) connects u2ps to the firmware, and u2ps
+builds every descriptor from the device's description in
+[`app/usb_formats.c`](app/usb_formats.c).
 
-- **`zlp`**,
-  [`tinyusb-audio-out-zlp.patch`](lib/patches/tinyusb-audio-out-zlp.patch),
-  on `src/class/audio/audio_device.c`. With the DWC2 controller in DMA mode
-  the audio driver copies each received packet into its FIFO, and on a
-  zero-length packet it returned before re-arming the endpoint, so the
-  device received nothing more until the host selected an alt setting
-  again. USB Audio Data Formats 2.0 (2.1 and 2.3.1.5) lets a host send a
-  zero-length packet in place of any packet, and the device must handle it.
-  With the patch, a zero-length packet re-arms the endpoint and counts like
-  a microframe without a packet (`lost`). Tested on all three boards with a
-  test player that sends three zero-length packets inside a 48 kHz 16-bit
-  file: without the patch the stream stopped at the first one
-  (`NOT_BIT_PERFECT end=STOP diff=5.000`, then `stream stop reason=idle`);
-  with it the file was `BIT_PERFECT` with `lost=3`. The Linux hosts measured
-  never sent a zero-length packet. TinyUSB has merged the fix
-  ([pull request 4443](https://github.com/hathach/tinyusb/pull/4443),
-  commit `8692556e335a` on master); the local patch goes once a TinyUSB
-  release contains it.
-- **`iso_out`**,
-  [`tinyusb-dwc2-iso-out-next.patch`](lib/patches/tinyusb-dwc2-iso-out-next.patch),
-  on `src/portable/synopsys/dwc2/dcd_dwc2.c`, off by default: an option
-  for hosts that send packets late in the microframe, such as a virtual
-  machine with a passed-through USB controller. The endpoint holds one
-  transfer at a time and is re-armed from the interrupt of each packet. The
-  controller receives an isochronous OUT packet only in a microframe whose
-  parity is the endpoint's EONUM bit, and TinyUSB 0.21.0 sets that bit from
-  the microframe at the time of the re-arm. So when a packet completes late
-  in its microframe P and the re-arm runs into P+1, the endpoint waits for
-  P+2, and the packet the host sends in P+1 is lost although its token has
-  not come yet. With the patch, the driver notes P at each completion and
-  re-arms for P+1 as long as P+1 has not passed; otherwise the rule is as
-  before. The cost: a re-arm that lands after the host's packet of P+1 now
-  waits for P+3 and loses 2 packets instead of 1. Measured, 169 of 170 late
-  re-arms on real traffic received the next packet. The patch was offered
-  to TinyUSB as
-  [pull request 4444](https://github.com/hathach/tinyusb/pull/4444) and
-  closed without merging: TinyUSB's maintainer reproduced the late
-  completions on a matching setup, but in the maintainer's build the patch
-  lost more packets, not fewer, so it stays a local patch here.
-
-What the `iso_out` patch gains depends on the host. The late completions
-came from one host setup: Linux in a virtual machine with a Renesas
-uPD720201 USB 3 card passed through to it, the board behind a hub. A wire
-capture on such a setup showed late OUT tokens from the host's periodic
-schedule, most likely caused by the virtual machine's passthrough. There,
-without the patch, the device missed 66, 17 and 15 packets the host had sent
-(NUCLEO-U5A5ZJ-Q, STM32U5G9J-DK2 and STM32F723E-DISCO, in 40, 20 and 60
-streams at 705.6 and 768 kHz); with it, none, and every lost packet was one
-the host skipped. On a bare-metal Linux laptop with an Intel controller the
-NUCLEO-U5A5ZJ-Q, with the same test build as on the first host and without
-the patch, never had a late completion (the latest came 50 us into the
-microframe) and lost nothing in 15 streams. A bare-metal Linux PC with an
-AMD controller, the board directly on its root port, never had one either
-(the latest came 75 us into the microframe) and lost nothing in 30 streams,
-and an iPad never lost a packet. Windows and macOS were not measured for
-this. On a host that never completes a packet late, the patch arms exactly
-what the unpatched driver arms. It adds about 5 % to the USB interrupt's
-longest run
-([measurements](../docs/measurements.md#210-late-completions-and-the-re-arm-patch))
-and must be rebased onto each TinyUSB update, so the default build leaves
-it out. The patch helps this firmware, whose re-arm runs in the transfer-complete
-interrupt a few us into the next microframe; it is not a safe change for
-every TinyUSB device.
+u2ps arms the audio OUT endpoint for the microframe after each packet's
+while that microframe has not passed, so a packet that completes late in
+its microframe does not cost the next one; it reports each packet with the
+microframe it came in, and each microframe without one with its cause
+([Load figures](#load-figures)). The reasons are in
+[design.md](../docs/design.md#u2ps).
 
 `-DBPC_TEST_INJECT=ON`, for test builds only and never in a release, adds
 the console command `inject <every> <us>|off`, which re-arms every Nth
-packet late on purpose ([`app/inject.h`](app/inject.h)).
+packet late on purpose, on u2ps's injection hook, and `inject passes`, the
+time u2ps's interrupt handler takes per kind of pass
+([`app/inject.h`](app/inject.h)).
 
 ## Boards
 
@@ -191,9 +144,8 @@ NUCLEO-U5A5ZJ-Q's user port is a USB-C connector.
 ### STM32F723E-DISCO
 
 - **Ports:** the user port is CN19 (micro-AB, USB OTG HS). The checker
-  leaves the port's VBUS switch off, since it is a device on that port; the
-  [BPC1 generator](bpc1-generator/README.md) is a host there and switches it
-  on. The ST-LINK port is CN1, the board's default supply. The log is on USART6
+  leaves the port's VBUS switch off, since it is a device on that port. The
+  ST-LINK port is CN1, the board's default supply. The log is on USART6
   (PC6, PC7), behind the ST-LINK's virtual COM port.
 - **LEDs:** red LD5 (PA7), green LD6 (PB1) and blue LD1 (PA5, through the
   solder bridge SB14), as in [LEDs](#leds).
@@ -279,12 +231,13 @@ red do ([LEDs](#leds)). White text on black, in Spleen's fonts:
 
 The screen has no counters and no detail rows; the serial log has them.
 
-**Drawing never holds up USB.** The receive FIFO holds about 5 ms of audio at
-768 kHz, and the main loop must empty it. Drawing is cut into small units
+**Drawing never holds up USB.** The device's buffers hold 7 ms of audio on
+the STM32F723E-DISCO in 4-byte slots ([Load figures](#load-figures)), and
+the main loop must read them. Drawing is cut into small units
 (a strip of the band, one character), and `display_task()` runs on every
 pass of the main loop and starts a unit only if it fits in about 0.2 ms with
-the USB interrupts that come meanwhile. It draws only while the FIFO holds
-less than 0.5 ms of audio, and redraws only the characters that changed.
+the USB interrupts that come meanwhile. It draws only while less than
+0.5 ms of received audio waits to be read, and redraws only the characters that changed.
 Each unit's time is measured once at start-up. The hourglass's blink is one
 such unit.
 
@@ -355,8 +308,8 @@ The setting in effect is on the `boot` line, the `status` answer and every
 
 ## Build
 
-Needs `arm-none-eabi-gcc` with newlib, CMake 3.21 or later, Ninja and
-`patch` ([TinyUSB patches](#tinyusb-patches)). A board with a display also needs
+Needs `arm-none-eabi-gcc` with newlib, CMake 3.22 or later (u2ps's
+minimum) and Ninja. A board with a display also needs
 Python 3, which converts the fonts at build time. From the repository root:
 
 ```
@@ -473,37 +426,44 @@ their meaning.
 
 | Event | Meaning |
 |---|---|
-| `boot fw=<version> board=<board> role=bit-perfect-checker usb=<vid>:<pid> allow_silence=<true/false>` | start-up, with the firmware version ([Release](#release)), which firmware this is (the [BPC1 generator](bpc1-generator/README.md) says `role=bpc1-generator`) and the [allowed silence](#allowed-silence) |
+| `boot fw=<version> board=<board> role=bit-perfect-checker usb=<vid>:<pid> allow_silence=<true/false>` | start-up, with the firmware version ([Release](#release)), which firmware this is (`role=bit-perfect-checker`) and the [allowed silence](#allowed-silence) |
 | `led <colour> <pin>` | the LED test at start-up, after `usb connecting` (or after the pull-up went off for want of VBUS): red, green, blue, each for 0.3 s; no line for a colour the board lacks. The host may set the device up meanwhile |
 | `display st7789h2 id=0x<hex> fill_us=<n>` | STM32F723E-DISCO, at start-up: the panel answered and the screen was cleared in `fill_us` microseconds; `display st7789h2 id=0x<hex> missing` if the panel did not answer (no screen is drawn) |
 | `display ltdc <w>x<h> l8 fb=0x<hex> fill_us=<n>` | STM32U5G9J-DK2, at start-up: the panel runs at that size from an 8-bit frame buffer at that address, and the screen was cleared in `fill_us` microseconds; `display ltdc missing` if the panel did not start (no screen is drawn); `display sram6 clock was off` if the frame buffer's RAM bank had no clock and the firmware switched it on |
 | `display green=<n>` | STM32U5G9J-DK2, after its `display ltdc` line: the panel's full green is (0, `<n>`, 0) (`PANEL_GREEN_MAX`, [Boards](#stm32u5g9j-dk2)); not logged when it is 255 |
 | `touch <controller> id=0x<hex> g_mode=0x<hex>` | STM32F723E-DISCO, at start-up: the touch controller found, `ft6x36` or `ft3x67`; `touch none id=0x<hex> g_mode=0x<hex>` if no controller was found. STM32U5G9J-DK2: `touch gt911 id=<text> cfg=0x<hex> sw1=0x<hex> rate=<n> int=<0/1>`, the registers read from the controller, or `touch none` |
 | `display drawn ...`, `display units strip_us=<n> band_glyph_us=<n> text_glyph_us=<n> clear_us=<n>`, `display hourglass ...`, `display ltdc fuif=<n> terrif=<n> touch_reads=<n>` | only in a build with `-DDISPLAY_LOG=ON` ([Screen](#screen)): what drawing cost, and on the DK2 the LTDC's FIFO underruns and transfer errors |
-| `touch off after errors` | STM32U5G9J-DK2: three failed transfers to the touch controller in a row; touch stays off until the next reset. After a failed transfer the firmware waits 1 s before the next, and it reads the controller only while the receive FIFO holds less than 0.5 ms of audio |
+| `touch off after errors` | STM32U5G9J-DK2: three failed transfers to the touch controller in a row; touch stays off until the next reset. After a failed transfer the firmware waits 1 s before the next, and it reads the controller only while less than 0.5 ms of received audio waits to be read |
 | `formats <list>` | the formats offered, as alt settings 1 to n; at boot, and after a `formats` command, with `changed=0` or `changed=1` |
 | `usb mounted speed=high` | a host has set the device up |
 | `usb mounted speed=full` | a host has set the device up at Full-Speed (a Full-Speed port, hub or cable on the way): the device offers no audio, so no stream can come |
-| `usb disconnected` | the cable was pulled (VBUS gone for 50 ms): once per pull, after the lines of a stream it cut and before `run start`, also when a host reset the bus first (`usb reset`) or never set the device up; or the host deconfigured the device while it was set up |
-| `usb suspended`, `usb resumed` | the host suspended or resumed the bus; with VBUS still present the device stays connected. A pulled cable logs `usb suspended` first, since the USB controller sees only the bus going idle, and `usb disconnected` once VBUS has been gone for 50 ms: measured 45 to 49 ms later on the NUCLEO-U5A5ZJ-Q and the STM32U5G9J-DK2, about 0.3 s later on the STM32F723E-DISCO. The stream the pull cut stops with `reason=idle` before `usb disconnected` |
-| `usb reset` | the host reset the bus while the device was set up: an open stream stops (`reason=reset`), and the host enumerates the device again |
-| `usb disconnected`, `usb connecting` | the device leaves the bus to change its formats (the D+ pull-up goes off for 0.3 s), and comes back when that time has passed and VBUS is present |
+| `usb disconnected` | the cable was pulled (VBUS gone for 50 ms): once per pull, after the `result` and `stream stop` lines of a stream the pull cut and before `run start`, also when a host reset the bus first (`usb reset`) or never set the device up; or the host deconfigured the device while it was set up (SET_CONFIGURATION 0): a stream open then ends as at alt 0, with an `alt 0` line after this one and `reason=alt` |
+| `usb suspended`, `usb resumed` | the host suspended or resumed the bus; with VBUS still present the device stays connected. A pulled cable logs `usb suspended` first, since the USB controller sees only the bus going idle, and `usb disconnected` once VBUS has been gone for 50 ms: measured 45 to 49 ms later on the NUCLEO-U5A5ZJ-Q and the STM32U5G9J-DK2, about 0.3 s later on the STM32F723E-DISCO. The stream the pull cut stops with `reason=idle` when its 50 ms of idle pass first, else with `reason=reset`: at the pull the firmware reads the packets not read yet at once. Either way its `result` and `stream stop` lines come before `usb disconnected` |
+| `usb reset` | the host reset the bus while the device was set up: an open stream ends, its packets not read yet are still checked, and its `stream stop` line (`reason=reset`) follows this one once they are read (if the host opens the next stream first, those still unread count as overflows); the host enumerates the device again |
+| `usb disconnected`, `usb connecting` | the device leaves the bus to change its formats (the D+ pull-up goes off for 0.3 s), and comes back when that time has passed and VBUS is present. A stream the change ends is read at once: its `result` and `stream stop` lines (`reason=reset`) come before the `formats ... changed=1` answer and `usb disconnected` |
 | `usb connecting` | at start-up with VBUS present, before the LED test; or VBUS is back for 50 ms after a pull, or after a boot without VBUS: the device turns its D+ pull-up on, and the host enumerates it (`usb mounted`) |
 | `rate <Hz>` | the host set the sample rate; at boot, the rate the device reports before a host sets one (48000) |
 | `rate unsupported=<Hz>` | the host asked for a rate that is not offered (stalled) |
-| `alt <n> slot=<bytes> res=<bits>` | the host selected a streaming alt setting; `alt 0` closes it |
+| `alt <n> slot=<bytes> res=<bits>` | the host selected a streaming alt setting; `alt 0` closes it. The line comes when the host's request does (`alt 0` for an open stream once the USB stack has closed the stream), before the `result` and `stream stop reason=alt` lines of the stream it ended, which follow once that stream's packets are read; a `stream start` can follow it too, of a stream that began before the change (after a pause or a rate change, packets not yet read) and shows the old alt setting |
 | `stream start id=<n> rate=<Hz> alt=<n> slot=<bytes> res=<bits> allow_silence=<true/false>` | the first packet of stream `<n>`, counted from 1 since boot, with the allowed silence in effect |
 | `stat id=<n> rate=<Hz> frames=<n> pkts=<n> bits=<n> dop=<0/1> lost=<n> ovf=<n> <load>` | every second while streaming: average rate so far, frames this second, packets so far, bits in use this second, DoP, losses so far, and the [load figures](#load-figures) of this second |
 | `lock kind=<PCM/SWEEP/DSD> dop=<0/1> rate=<Hz> depth=<bits> seed=0x<hex> block=<n> frame=<n>` | the checker found a file: its kind and identity from the first X-sync it read, whether it came as DoP, (`rate` is the file's, the DSD bit rate for DSD; `depth` is 1 for DSD), that X-sync's block, and the received frame it starts at |
 | `depth bits=<n>` | the bits in use changed |
 | `dop on`, `dop off` | more or fewer than half of the frames carry DoP markers |
 | `lost packets=<n> total=<n>` | microframes passed without a packet (a zero-length packet counts as none) |
-| `overflow packets=<n> total=<n>` | the receive FIFO was full, so data was overwritten |
+| `overflow packets=<n> total=<n>` | packets came while the device still held every buffer, so they were not received ([Load figures](#load-figures)) |
 | `result seq=<n> stream=<n> file=<n> verdict=<verdict> kind=<kind> ...` | **the outcome of one file**: see [Result lines](#result-lines) |
-| `stream stop id=<n> reason=<why> dur=<s> frames=<n> pkts=<n> rate=<Hz> fpp=<min>-<max> lost=<n> missed=<n> holes=<n> maxhole=<n> doubled=<n> ovf=<n> outside=<frames> silent=<frames> results=<n> results_lost=<n>` | end of a stream, after its last `result` line: `alt` (alt setting changed), `idle` (no packet for 50 ms, as after a cable pull), `rate` (the host set another rate during the stream), `reset` (the device stopped being set up: a bus reset, the host deconfiguring the device, a cable pull judged before the 50 ms of idle have passed, or a `formats` change) or `pause`; `fpp` is frames per packet; `holes` counts the runs of microframes without a packet and `maxhole` is the longest; `outside` is the number of frames of the stream outside every file's extent ([12.6](../docs/bpc1.md#126-verdicts)), so host padding can be measured; `silent` is the number of those frames that were allowed silence, which gave no result (0 unless `allow_silence` is `true`); `results` is the number of result lines of the stream, and `results_lost` the number of results of the stream the checker dropped because its queue of finished results was full |
+| `stream stop id=<n> reason=<why> dur=<s> frames=<n> pkts=<n> rate=<Hz> fpp=<min>-<max> lost=<n> missed=<n> holes=<n> maxhole=<n> doubled=<n> late=<n> ovf=<n> outside=<frames> silent=<frames> results=<n> results_lost=<n>` | end of a stream, after its last `result` line: `alt` (alt setting changed, also to 0 by the host's SET_CONFIGURATION, to a configuration or to 0; the line comes once the packets of the old alt setting are read, after the `alt` line), `idle` (no packet, zero-length ones included, for 50 ms once every packet that came is read, as after a cable pull; microframes in which a packet came late, damaged or without a free buffer are no part of these 50 ms, nor of a `pause`), `rate` (the host set another rate during the stream; the line comes once the packets of the old rate are read, after the `rate` line), `reset` (the device stopped being set up: a bus reset, a cable pull judged before the 50 ms of idle have passed, or a `formats` change; after a bus reset the line comes once the stream's packets are read, after the `usb reset` line; at a pull or a `formats` change the firmware reads them at once, and the line comes before `usb disconnected` and the `formats` answer) or `pause` (the host sent again after 50 ms without a packet); `fpp` is frames per packet; `holes` counts the runs of microframes without a packet and `maxhole` is the longest; of the `missed` microframes, `late` are those the device re-armed for too late; `outside` is the number of frames of the stream outside every file's extent ([12.6](../docs/bpc1.md#126-verdicts)), so host padding can be measured; `silent` is the number of those frames that were allowed silence, which gave no result (0 unless `allow_silence` is `true`); `results` is the number of result lines of the stream, and `results_lost` the number of results of the stream the checker dropped because its queue of finished results was full |
 | `stall <ms>` | the [`stall` command](#commands-to-the-device) started its busy-wait of `<ms>` milliseconds |
 | `run start` | a new run begins: the user button was pressed or the touch screen tapped, the `mark` command arrived, the USB cable was pulled (after `usb disconnected`), or the board reset; green and red go off ([LEDs](#leds)). It follows any `result` line still waiting at that moment, whose result belongs to the run before |
 | `usb unsupported get/set entity=<id> ctrl=<n> req=<n>` | a class request the device does not answer |
+| `usb counters late_completions=<n> late=<n> no_buffer=<n> fb_recoveries=<n> errors=<n> release_errors=<n> uframe_back=<n> ev_lost=<n>` | the USB stack's counters, logged when one has changed, looked at every second and after each stream: packets whose re-arm came in a later microframe, microframes re-armed for too late, microframes without a buffer, feedback endpoint recoveries, port errors, buffer returns the stack ignored, packets not after the one before, and USB events the firmware lost, among them stream boundaries (a pause, a rate or alt setting change) that came while the main loop was eight segments behind, whose packets are then not checked ([Result lines](#result-lines)). `release_errors` and `uframe_back` count since the USB stack last started (at boot or a `formats` change), the others since boot. `ev_lost` above 0 is a fault: all LEDs light |
+| `usb init failed reason=<name> description=<name> port=<name>` | the USB stack did not start, so the device never attaches; all LEDs light. `reason` is u2ps's (`clock`, `power`, `security`, `phy`, `reset`, `mode`, `memory`, `description`, `port`, `dma_memory`, `timer`), `description` the rule of the device's description broken (`ok` if none), `port` the controller port's own reason (`ok`, `clock`, `power`, `tzen`, `phy`, `reset`, `mode`, `fifo`, `cycles`); `timer` and `cycles`: the CPU's cycle counter, which u2ps times its waits with, does not count |
+| `usb fault open reason=<name>` | the controller refused the buffers the firmware gave a stream (`count`, `mem_null`, `stride_short`, `stride_align`, `mem_align`, `not_dma`, `stream`): the alt setting stays 0, the host sees a stall, and all LEDs light |
+| `usb fault start result=<name>` | a stream start the firmware answered from its main loop did not open: `not_pending` (the host or a reset cancelled it before), `refused`, `fault` (with `usb fault open` after it) |
+| `usb fault start timeout` | the host's SET_INTERFACE for a stream start waited 30 ms for the firmware; its status stage then completes, and the stream may still open |
+| `usb fault close` | a stream's close took longer than 10 ms |
+| `usb fault queue not empty dropped=<n>` | a new stream opened while packets of the old one were still queued; they were dropped unread (`dropped`: how many), the stream opens all the same, and all LEDs light |
 | `error formats=<text>` | the list given to the `formats` command is not valid; the offered formats stay as they were |
 | `error allow_silence=<text>` | the argument of the `allow_silence` command is neither `true` nor `false`; the setting stays |
 | `error formats-default=<list>` | at boot: the build's `UAC2_FORMATS` is not valid, so the device offers all four formats |
@@ -558,40 +518,65 @@ and 0 in the file's fields. The fields:
 | `rate`, `alt`, `slot`, `res` | what the host chose: the frame rate, alt setting, slot bytes, resolution |
 | `bits` | the bits in use of the received words over the file's body, for PCM and DoP alike (DoP in 3- or 4-byte slots: 24 when the padding below it is zero) |
 | `end` | how the file ended: `LAST` (its block flagged last arrived), `NEXT` (another file followed), `BACK` (the block index went back), `STOP` (the stream stopped first) |
-| `diff` | the position in the file of the first body unit that did not arrive as expected, in seconds from the file's start as generated, 3 decimals, rounded half up (PCM: frame index / rate; DSD: byte index x 8 / DSD rate): the earliest of the body's first unit, when the rate or channel count is wrong or the first body block's X-sync or the lead-in X-sync before it is missing; the first body unit that differs or did not arrive (in the R-header chips of r5 and r6, as the R-header rule of [12.6](../docs/bpc1.md#126-verdicts) places it); and the first unit after the body, when the X-sync after the body is missing. Where a limit X-sync is broken or cut off, the body runs from after the last lead-in X-sync received to the first tail X-sync received. `-` for `BIT_PERFECT`, `UNKNOWN_SIGNAL` and `OVERRUN` (12.6) |
-| `lost`, `ovf` | packets lost and receive FIFO overflows that fall in the result's frames, by their place in the stream: a lost packet counts in the result of the first frame after it, an overflow in the result of the frame where the checker learns of it, normally the one it marks `OVERRUN`. Those between two results count in the later one; the stream's last result line also takes those after every result and those in frames not read before the stream stopped. A stream's result lines add up to its `stream stop` line's `lost` and `ovf`, except with `allow_silence` `true` when the stream ends in allowed silence after its last result: the losses there are on no result line, only on the `stream stop` line. The verdict follows the frames, not these counts |
-| `dur` | a received duration, unlike `diff`, which is a position in the file: the file's received frames, from its first X-sync to its end, at most to the end of its extent ([12.6](../docs/bpc1.md#126-verdicts)), divided by `rate`; seconds, 3 decimals |
+| `diff` | the position in the file of the first body unit that did not arrive as expected, in seconds from the file's start as generated, 3 decimals, rounded half up (PCM: frame index / rate; DSD: byte index x 8 / DSD rate): the earliest of the body's first unit, when the rate or channel count is wrong or the first body block's X-sync or the lead-in X-sync before it is missing; the first body unit that differs or did not arrive (in the R-header chips of r5 and r6, as the R-header rule of [12.6](../docs/bpc1.md#126-verdicts) places it, also in the file's first R-header in the lead-in when its count disagrees with the file: a LAST block at another index, or an X-sync whose block index is the declared size or higher; for a file cut before its body's end, the first unit after the cut); and the first unit after the body, when the X-sync after the body is missing. Where a limit X-sync is broken or cut off, the body runs from after the last lead-in X-sync received to the first tail X-sync received. `-` for `BIT_PERFECT`, `UNKNOWN_SIGNAL` and `OVERRUN` (12.6) |
+| `lost`, `ovf` | packets lost and overflows (packets that found every buffer of the device held) that fall in the result's frames, by their place in the stream: a lost packet counts in the result of the first frame after it, an overflow in the result of the first frame received after it ([12.6](../docs/bpc1.md#126-verdicts), rule 2), which is `OVERRUN`, or `NOT_BIT_PERFECT` when its difference came first. A file is complete when its LAST block arrived whole and its first R-header's count, if it has one, is that block's index + 1; otherwise it is cut (also with its LAST block whole, when its R-header gives another count) and holds its frames up to the next file's first X-sync, at most to its extent's end, and the losses and overflows right there, at the cut; at the end of a complete file, or of a stretch, they count in the next result. The stream's last result line also takes those after every result and those in frames not read before the stream stopped, except lost packets and overflows after the last file's LAST block, where that file is complete and the stream ends inside its extent: they did not touch the file, so they are on the `stream stop` line only. A stream's result lines add up to its `stream stop` line's `lost` and `ovf`, except with `allow_silence` `true` when the stream ends in allowed silence that gave no result (the losses there are on no result line, only on the `stream stop` line, also when the last file's line came only at the stop), and except those losses and overflows after the last file's LAST block where that file is complete. The verdict follows the frames, not these counts |
+| `dur` | a received duration, unlike `diff`, which is a position in the file: the file's received frames, from its first X-sync to its end, divided by `rate`; seconds, 3 decimals. A complete file ends at its LAST block's end; a cut file at the next file's first X-sync, at most at the end of its extent or of the stream ([12.6](../docs/bpc1.md#126-verdicts)) |
 
 The limits of `lost`, `ovf` and the frames checked:
 
-- The device keeps up to 1024 loss events not yet charged to a result, and
-  its USB interrupt up to 64 not yet taken by the main loop. Only when one
-  queue is full, which takes more than 64 holes while the main loop is held
-  up (as by `stall`) or more than 1024 in files not yet finished, do later
-  events merge into the newest one of their stream, so that their counts
-  can land on the result line of an earlier file.
-- Each packet is counted in the microframe it came in ([Load
-  figures](#load-figures)), so a packet that completes late leaves no hole.
-  When the USB interrupt enters two or more microframes after a packet, its
-  re-arm is late too and packets were lost there anyway: the count stays
-  right, and that hole is placed one packet early.
-- When the host selects another alt setting, alt 0 included, TinyUSB clears
-  the receive FIFO before the firmware hears of it
-  (`lib/tinyusb/src/class/audio/audio_device.c:1123`), so the frames still
-  queued, at most the FIFO's fill (about 0.25 ms of audio, measured at
-  768 kHz), do not reach the checker. For an intact file these are frames of
-  its tail, and the verdict is unaffected.
+- The device keeps up to 1024 loss events not yet charged to a result.
+  Only when that queue is full, which takes more than 1024 holes in files
+  not yet finished, do later events merge into the newest one, so that
+  their counts can land on the result line of an earlier file.
+- The USB stack reports the microframes without a packet before the packet
+  that ends them ([Load figures](#load-figures)). Microframes after the
+  last packet the controller saw, at the end of a stream, are never
+  counted. A hole before a packet the controller saw but did not deliver
+  (an overflow) is reported at the stream's stop or at the stack's long
+  gap, and counts in that stream. A hole the stack reports in parts counts
+  once in `holes`, with its whole length.
+- When the host selects another alt setting, alt 0 included, or resets the
+  bus, the packets the firmware has not read yet are still checked, over
+  the next main-loop passes, and the stream's `result` and `stream stop`
+  lines follow once they are, as if the stream had ended there. When the
+  cable is pulled or the formats change, the firmware reads them at once,
+  so these lines come before `usb disconnected` and `run start`, or before
+  the `formats` answer, and the result of a cut file stays in the run
+  before. If the host opens a new stream
+  first, the firmware checks what it can for up to 20 ms from the host's
+  request (the USB stack holds the request for at most 30 ms, and the host
+  allows 50 ms), and the packets still unread
+  then count as overflows (`ovf`) at their place, so a file they fall in is
+  `OVERRUN`. Each later stream still waiting behind them (after a pause or
+  a rate change) then ends with its own `stream start` and `stream stop`
+  lines, all its packets overflows, so the stream ids after it rise by as
+  many. A stream cut before any of its frames was read has no result line,
+  since no unit of it arrived ([12.6](../docs/bpc1.md#126-verdicts)), only
+  its `stream stop` line with its counts. Packets only wait when the main
+  loop was held up: it reads each packet in the pass after it arrives.
+- When a stream boundary is lost (`ev_lost` in `usb counters`), the packets
+  that come until the next stream can begin are not checked: they count as
+  overflows of that next stream, or of the stream before if a pause, a rate
+  or an alt setting change comes first, so a file they fall in is
+  `OVERRUN`. Zero-length packets among them count in no stream.
+- Zero-length packets keep a stream open: the USB stack counts them as
+  packets, so a run of them makes no pause and no `idle` stop, only one
+  hole of as many missed microframes. Their microframes count in `dur` and
+  `rate`.
 
 None of these changes the totals: a stream's result lines still add up to
 its `stream stop` line, except for the allowed silence at its end (above).
 
-For example, a 24-bit 48 kHz file that overran the receive FIFO after a
-`stall 200` (time stamps left out; the `stream stop` line follows the
-`result` line):
+For example, a 48 kHz 24-bit file in 3-byte slots on the
+STM32F723E-DISCO, which overran after a `stall 200`, from a development
+build of 1.2.0 (time stamps and that build's `crc=0` field left out; the
+`stream stop` line follows the `result` line). The stream's `rate` reads
+low, since the overflowed packets' frames never arrived while their
+microframes count:
 
 ```
-result seq=30 stream=30 file=1 verdict=OVERRUN kind=PCM dop=0 seed=0x42504331 nch=2 file_rate=48000 depth=24 rate=48000 alt=4 slot=3 res=24 bits=24 end=LAST diff=- lost=0 ovf=684 dur=12.458
-stream stop id=30 reason=alt dur=12.649 frames=607164 pkts=101194 rate=48000.00 fpp=6-6 lost=0 missed=0 holes=0 maxhole=0 doubled=0 ovf=684 outside=0 silent=0 results=1 results_lost=0
+result seq=35 stream=35 file=1 verdict=OVERRUN kind=PCM dop=0 seed=0x42504331 nch=2 file_rate=48000 depth=24 rate=48000 alt=4 slot=3 res=24 bits=24 end=LAST diff=- lost=0 ovf=1526 dur=12.438
+stream stop id=35 reason=alt dur=12.649 frames=598014 pkts=99669 rate=47276.16 fpp=6-6 lost=0 missed=0 holes=0 maxhole=0 doubled=0 late=0 ovf=1526 outside=0 silent=0 results=1 results_lost=0
 ```
 
 The verdicts, from the BPC1 specification
@@ -601,7 +586,7 @@ their order of precedence; only `BIT_PERFECT` is a pass:
 | Verdict | Meaning |
 |---|---|
 | `UNKNOWN_SIGNAL` | the units belong to no file: outside every file's extent, silence included unless [allowed](#allowed-silence) (a DoP file received without markers has no readable X-sync and gives it) |
-| `OVERRUN` | the device's own receive FIFO overflowed between the file's first received unit and its end (or, with no file open, over the stretch), which overwrites frames not read yet, and no difference of the file came before the overflow: the file is not judged; play it again. A file whose first difference came before the overflow is `NOT_BIT_PERFECT`, with that difference's `diff` |
+| `OVERRUN` | the device ran out of its own buffers in the file's frames (or in the stretch's, with kind `NONE`): packets came while it still held every buffer, so they were not received, and no difference of the file came before them: the file is not judged; play it again. A file whose first difference came before the overflow is `NOT_BIT_PERFECT`, with that difference's `diff`. A cut file, one that did not complete its LAST block (the next file's first X-sync, its extent's end or the stream's end came first) or whose first R-header gives another count than its LAST block's index + 1, holds an overflow right at the cut. An overflow right after a complete file's LAST block is not the file's: it belongs to what follows, the next file or the stretch of unknown signal after the file's extent; where the stream ends inside the file's extent, it belongs to no result and shows on the `stream stop` line only |
 | `BIT_PERFECT` | the received rate and channel count are the file's, the body arrived as one run of consecutive units, every unit equal to the expected one in every channel, and the X-syncs before and after the body arrived intact (12.6 a to d) |
 | `NOT_BIT_PERFECT` | the file was found and 12.6 (a), (b), (c) or (d) does not hold; `diff` says where the first difference was. Packets lost on the bus show here, with `lost` above 0 |
 
@@ -621,12 +606,17 @@ From the CPU's cycle counter (DWT), in every `stat` line for that second:
 | `ck_cpf` | checker cycles per frame |
 | `ck_pct` | time in the checker, percent |
 | `loop_max` | microseconds of the longest main-loop iteration, interrupts included |
-| `fifo_max` | the fullest the receive FIFO got, as microseconds of audio |
+| `fifo_max` | the most audio received and not read yet, in microseconds |
 
 The CPU runs at 160 MHz on the NUCLEO-U5A5ZJ-Q and the STM32U5G9J-DK2 and at
-216 MHz on the STM32F723E-DISCO; `isr_max` and `ck_cpf` count CPU cycles. The
-receive FIFO holds 32 760 bytes, 5.3 ms at 768 kHz in 4-byte slots;
-`fifo_max` near that means the main loop is close to falling behind.
+216 MHz on the STM32F723E-DISCO; `isr_max` and `ck_cpf` count CPU cycles.
+The device gives the USB stack as many buffers for a stream as its class
+memory holds, one packet each, so one microframe (125 us) of audio at every
+rate: on the STM32U5 boards (1 MB) 1351 buffers (169 ms) in 4-byte slots and
+2702 (338 ms) in 2-byte slots, on the STM32F723E-DISCO (44 KB in DTCM) 56
+(7 ms) and 108 (13.5 ms). The USB stack keeps one of them armed, so the
+device holds one fewer. `fifo_max` near that means the main loop is close to
+falling behind; beyond it packets overflow.
 
 The average rate is measured against the host's microframe clock, so it
 shows the rate the host actually sends at. The bits in use are counted from
@@ -634,15 +624,14 @@ the most significant bit of the slot down to the lowest bit set in any
 sample: 16-bit content in a 4-byte slot shows `bits=16`.
 
 `lost` is `missed - doubled`. `missed` counts microframes that passed without
-a packet. Each packet is counted in its own microframe P: the controller
-receives an isochronous OUT packet only in a microframe whose parity is the
-endpoint's EONUM bit, and the interrupt that serves the packet enters in P
-or P+1, so the microframe number and EONUM read at the interrupt's entry
-give P. `doubled` counts packets counted in the same microframe as the one
-before, which cannot happen this way: it is 0, and `lost` equals `missed`.
-The field stays in the log line. (Builds before 1.1.0 read the microframe
-after the re-arm, so a late completion showed as a one-microframe hole plus
-a doubled packet; the net stayed right.)
+a packet, as the USB stack reports them before the packet that ends them:
+the host sent none, the device re-armed too late (`late`), or the USB
+controller dropped a packet with a CRC error unseen, which counts as a
+microframe without a packet; a zero-length packet counts as one too.
+The stack gives each packet its own microframe, so `doubled`, packets
+counted in the same microframe as the one before, is 0, and `lost` equals
+`missed`. The field stays in the log line. Microframes in which a packet
+found no buffer count as overflows (`ovf`), not as lost.
 
 ### Commands to the device
 
@@ -656,7 +645,7 @@ One command per line, ended by CR or LF. Each answer is one line:
 | `formats [<list> \| default]` | `formats <list>`; with a list, offer those formats from now on (`changed=1`, then the device reconnects; `changed=0` if they are the formats already offered); a list that is not valid answers `error formats=<text>` |
 | `allow_silence [true\|false]` | `allow_silence <value>`; with an argument, sets the [allowed silence](#allowed-silence) for the next stream; without one, only shows the setting; another argument answers `error allow_silence=<text>` |
 | `version` | `version fw=<version> board=<board> role=bit-perfect-checker usb=<vid>:<pid>` |
-| `stall <ms>` | test command: `stall <ms>` and then the main loop busy-waits for `<ms>` milliseconds (1 to 2000) with interrupts on, so the USB interrupt keeps filling the receive FIFO while nothing drains it; used to force `OVERRUN` on purpose. Other values answer `error stall=<value>` |
+| `stall <ms>` | test command: `stall <ms>` and then the main loop busy-waits for `<ms>` milliseconds (1 to 2000) with interrupts on, so the USB interrupt keeps filling the device's buffers while nothing reads them; used to force `OVERRUN` on purpose, with a stall longer than the buffers last ([Load figures](#load-figures)). Other values answer `error stall=<value>` |
 | `help` | `help commands=status,result,mark,formats,allow_silence,version,help test=stall` |
 
 Anything else gets `error unknown-command=<word>` or `error line-too-long`.
@@ -683,7 +672,8 @@ once the host has the device back, and `run` then plays.
 at its `stream stop` line, which says how many results it had), prints
 them, and exits with 3 if the player failed, else 2 if no result arrived,
 else 1 when any result is `NOT_BIT_PERFECT` or `UNKNOWN_SIGNAL` (or fewer
-than N results are `BIT_PERFECT` or `OVERRUN` with `--expect N`),
+than N files, results of a kind other than `NONE`, are `BIT_PERFECT` or
+`OVERRUN` with `--expect N`),
 else 4 when any is `OVERRUN` or the reporting is incomplete (a
 `stream stop` line with `results_lost` above 0, fewer result lines than its
 `results=`, or a stream unfinished at the timeout), else 0: at least one
@@ -740,22 +730,26 @@ Each case builds on the one before.
 
 1. Copy `boards/nucleo_u5a5zj_q/` to `boards/<board>/`.
 2. In `board.cmake`, set `MCU_VARIANT` (it picks the CMSIS header and
-   startup file), `HSE_VALUE` and `LINKER_SCRIPT`. Add a linker script to
+   startup file), `HSE_VALUE`, `LINKER_SCRIPT` and `U2PS_CHIP`, the chip as
+   u2ps names it (`stm32u5a5`, which the STM32U5G9J-DK2 uses too). Add a linker script to
    `families/stm32u5/linker/` if the memory differs.
 3. In `board.c`, write the clock tree, the LED pins (`board_led_name()`
    returns NULL for a colour the board lacks), the log UART's pins and its
-   `<UART>_IRQHandler`, the USB PHY's clock, and `board_vbus()`, which reads
-   the user USB port's VBUS.
+   `<UART>_IRQHandler`, the USB pins (`family_usb_pins()`; u2ps starts the
+   PHY from the HSE), and `board_vbus()`, which reads the user USB port's
+   VBUS.
 4. Build with `-DBOARD=<board>`.
 
 **A board of another family** (the STM32F723E-DISCO's `families/stm32f7/` was
 added this way): add `families/<family>/` like `families/stm32u5/` or
 `families/stm32f7/`, with
-`family.cmake` (CPU flags, TinyUSB's `CFG_TUSB_MCU`, the HAL modules),
-`family.c` (USB controller and PHY start-up, `board_usb_microframe()`, the
-log UART, tick, interrupts), the HAL configuration and linker scripts; add
-that family's CMSIS and HAL to `lib/` as submodules, pinned to the commits
-TinyUSB's `tools/get_deps.py` lists. Then add the board as above.
+`family.cmake` (CPU flags, the HAL modules, and the class memory for
+u2ps's buffers: `FAMILY_CLASS_MEM_BYTES` and `U2PS_ISO_OUT_COUNT_MAX`),
+`family.c` (the USB pins and interrupt, whose handler calls u2ps's
+`u2ps_dwc2_dcd_irq()`, the log UART, tick, interrupts), the HAL
+configuration and linker scripts; add that family's CMSIS and HAL to `lib/`
+as pinned submodules. The chip needs a u2ps port (`U2PS_CHIP`). Then add
+the board as above.
 
 **A board with a display** (a Discovery or evaluation kit): implement
 [`display.h`](include/display.h) in the board's folder and list the file in
@@ -767,10 +761,11 @@ list(APPEND DISPLAY_SOURCES ${CMAKE_CURRENT_LIST_DIR}/display.c)
 
 `display_update()` gets the [status](app/status.h) after every change and
 does not draw. `display_task()` is called on every pass of the main loop and
-draws at most about 0.2 ms at a time, because the receive FIFO holds about
-5 ms of audio at 768 kHz. `display_init()` runs after the device has
+draws at most about 0.2 ms at a time, because the device's buffers hold as
+little as 7 ms of audio ([Load figures](#load-figures)). `display_init()` runs after the device has
 attached, so it waits only with `display_wait()`, which keeps the USB stack
-running for the host's enumeration. `display_led_test()` (optional) is
+and the stream's reading running, so that the host can enumerate the device
+and a stream that starts meanwhile is checked. `display_led_test()` (optional) is
 called as the start-up LED test lights each LED, for a splash that shows the
 same colours.
 The fault handler calls `board_fault()` before it stops; a board with a

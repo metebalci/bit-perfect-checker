@@ -15,6 +15,11 @@ stage it was made with, because the device changed during the work:
 | 1.0.0 release candidate | `fw=1.0.0`, before the tag `firmware-v1.0.0` |
 | After 1.0.0 | builds made after the tag `firmware-v1.0.0` (sections 2.8 and 2.9) |
 | 1.1.0 | builds of the code of firmware 1.1.0: each packet counted in its own microframe, and both TinyUSB patches (sections 2.10 to 2.14) |
+| 1.1.1 | firmware 1.1.1: the zero-length packet patch only, the re-arm patch off (section 7) |
+
+Every stage here was built on TinyUSB, with the local patches each section
+names. From firmware 1.2.0 the USB device stack is u2ps
+([design.md](design.md#u2ps)); no figure here comes from it.
 
 Verdicts are named as the spec names them now. Firmware 1.0.0 logged the
 `OVERRUN` verdict under an earlier, longer name.
@@ -61,8 +66,9 @@ Contents:
   STM32F723E-DISCO, and sections 2.10, 2.11, 2.13 and 2.14 an
   STM32U5G9J-DK2. The USB controller's mode is in section 2.3.
 - **Test files.** The BPC1 regular set and, in the early runs, the 32-bit
-  WAVs the generator writes on request. Streams of the early runs last 8.6 s
-  (352.8 kHz and above) or 12.6 s; later files are 12.6 s at every rate.
+  WAVs the BPC1 file generator writes on request. Streams of the early runs
+  last 8.6 s (352.8 kHz and above) or 12.6 s; later files are 12.6 s at
+  every rate.
 - `lost` is `missed - doubled` ([firmware README](../firmware/README.md#load-figures)):
   packets missing on the bus. A *hole* is a run of microframes without a
   packet; `maxhole` is the longest. Firmware 1.1.0 counts each packet in its
@@ -155,10 +161,11 @@ The first Linux run on the PCIe controller used the DWC2 controller in slave
 (FIFO) mode, where the CPU copies each packet in the interrupt. Of its 33
 streams, 10 lost packets: 3 to 33 each at 705.6 and 768 kHz, and 1 to 4 at
 352.8 and 384 kHz. The firmware uses DMA mode
-(`firmware/app/tusb_config.h:15-20`), where the controller moves the packets
-itself and the next transfer is armed sooner; every other run of section 2.2
-used it. The two modes were not compared on the same streams with repeats,
-so a benefit of DMA mode is not proven.
+(`firmware/app/tusb_config.h:15-20` at the tag `firmware-v1.0.0`), where
+the controller moves the packets itself and the next transfer is armed
+sooner; every other run of section 2.2 used it. The two modes were not
+compared on the same streams with repeats, so a benefit of DMA mode is not
+proven.
 
 An earlier change to TinyUSB's audio driver, which re-armed the isochronous
 OUT endpoint before copying the packet, was tried for the highest rates and
@@ -190,14 +197,15 @@ every SET_CUR it receives.
 
 A host that finds the rate it wants already reported by GET_CUR need not set
 it, and Linux does not. So the stream and the checker must start at the rate
-GET_CUR reports (`firmware/app/uac2.c:46-48`).
+GET_CUR reports (`firmware/app/uac2.c:46-48` at the tag `firmware-v1.0.0`).
 
 ### 2.6 Feedback
 
-The first feedback packet after an alt setting is chosen is 0: the TinyUSB
-driver clears the feedback value, and the firmware sets it again after the
-endpoints are open (`firmware/app/uac2.c:208-219`). Linux ignores a feedback
-of 0.
+On firmware 1.0.0 to 1.1.1 the first feedback packet after an alt setting
+was chosen was 0: the TinyUSB driver cleared the feedback value, and the
+firmware set it again after the endpoints were open
+(`firmware/app/uac2.c:208-219` at the tag `firmware-v1.0.0`). Linux ignores
+a feedback of 0.
 
 ### 2.7 Frames beyond the file
 
@@ -248,8 +256,11 @@ packet; the controller receives a packet only in a microframe whose parity
 the re-arm sets. Unpatched, TinyUSB 0.21.0 takes that parity from the
 microframe at the time of the re-arm, so a re-arm that runs into the next
 microframe waits for the one after it, and the device misses the packet in
-between. The re-arm patch (firmware README, "TinyUSB patches") targets the
-microframe after the packet instead, while it has not passed.
+between. The re-arm patch of firmware 1.1.0
+(`firmware/lib/patches/tinyusb-dwc2-iso-out-next.patch` at the tag
+`firmware-v1.1.0`) targets the microframe after the packet instead, while it
+has not passed. u2ps, the USB stack from firmware 1.2.0, arms by the same
+rule ([design.md](design.md#u2ps)).
 
 **When packets complete.** Test builds with a time stamp at each SOF, PCIe
 controller setup: time from the SOF of a packet's microframe to the entry
@@ -368,11 +379,11 @@ virtual machine, with a wire capture, and reported in
   completions were not interrupt latency.
 - In the maintainer's build the re-arm patch lost more packets, not fewer:
   30, 38 and 34 against 20, 27 and 15 per 20 s stream at 768 kHz in DMA
-  mode. The pull request was closed without merging, and the patch stays
-  local to this firmware.
+  mode. The pull request was closed without merging, and the patch stayed
+  local to firmware 1.1.0 and 1.1.1.
 
-The measurements of section 2.10 still stand: in this firmware the re-arm
-runs in the transfer-complete interrupt, 0 to 4.5 us into the next
+The measurements of section 2.10 still stand: in firmware 1.1.0 the re-arm
+ran in the transfer-complete interrupt, 0 to 4.5 us into the next
 microframe after a late packet, and on the PCIe controller setup the
 device's own misses went from 66, 17 and 15 to 0. The patch helps here,
 but it is not a safe general change.
@@ -423,9 +434,9 @@ or 1 in every stream with a complete capture. It is 1, one packet the host
 sent with status 0 that the device neither received nor counted as lost,
 in about half the streams: 99 of 203 in section 2.10 and 51 of 89 matrix
 streams in section 2.13. It was seen in every build, with and without the
-patches and with the counter of earlier stages alike. It never shows as a
-hole, so it is a stream's first or last packet, and no verdict changes. Its
-cause is not known yet.
+patches and with the counter of earlier stages alike, all on TinyUSB. It
+never shows as a hole, so it is a stream's first or last packet, and no
+verdict changes. Its cause is not known yet.
 
 ## 3. A virtual machine with USB port passthrough
 
@@ -475,7 +486,10 @@ board as its USB DAC:
 
 The largest values of the `stat` lines (the [load
 figures](../firmware/README.md#load-figures)) over the 768 kHz streams of a
-run, firmware of the 1.0.0 release candidate or the build just before it:
+run, firmware of the 1.0.0 release candidate or the build just before it.
+This firmware kept the received audio in a receive FIFO in TinyUSB's audio
+driver; from 1.2.0 the device checks each packet in the USB stack's buffers,
+and `fifo_max` is the audio received and not read yet:
 
 | Host and format | `isr_pct` | `isr_max` (cycles) | `ck_cpf` | `ck_pct` | `loop_max` (us) | `fifo_max` (us) |
 |---|---|---|---|---|---|---|
@@ -487,9 +501,10 @@ The Linux rows are the range of two runs. The CPU of the NUCLEO-U5A5ZJ-Q runs at
 
 - The longest main-loop iteration was under 0.5 ms, and the receive FIFO got
   at most 0.375 ms full. The FIFO holds 32,760 bytes
-  (`firmware/app/tusb_config.h:43`), which is 5.3 ms of audio at 768 kHz in
-  4-byte slots. Code added to the main loop, such as a display driver, must
-  return well within that (the firmware README asks for about a millisecond).
+  (`firmware/app/tusb_config.h:43` at the tag `firmware-v1.0.0`), which is
+  5.3 ms of audio at 768 kHz in 4-byte slots. Code added to the main loop,
+  such as a display driver, must return well within that (the firmware
+  README at that tag asked for about a millisecond).
 - **The FIFO's time** is 32,760 bytes divided by (bytes per frame times the
   rate): 5.33 ms at 768 kHz with 4-byte slots (8 bytes per frame), 10.66 ms
   at 768 kHz with 2-byte slots, 113.75 ms at 48 kHz with 3-byte slots.

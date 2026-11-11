@@ -146,6 +146,27 @@ them:
   the hardware checker's buffer overflowed is `NOT_BIT_PERFECT`, since the
   overflow cannot undo a proven difference. `OVERRUN` is for an overflow
   before any difference. It is never reported as a fault of the host.
+- **One span per file.** A file is judged on the units its result holds, so
+  no unit belongs to two results, and where an overflow or a lost packet
+  falls decides which result counts it. A file that completes its LAST block
+  ends there, and what comes after belongs to the next result. A file cut
+  before that holds the units up to the next file's first X-sync, at most to
+  its extent's end: only an X-sync shows where the next file's units start,
+  so an overflow right at the cut is counted on the file that did not arrive
+  whole. Being cut does not fail a file by itself: a file cut in its tail,
+  after its body and the tail X-sync after it, passes.
+- **The declared size.** A file's size is its first R-header's count, and the
+  file's blocks are checked against it: an intact LAST X-sync at another
+  index, an X-sync whose block index is the declared size or higher, or a body
+  R-header with another count means the data were changed, and the file is
+  `NOT_BIT_PERFECT`. A count disagrees in either direction, too large or too
+  small. The first R-header read decides and no later one replaces it, so the
+  size does not depend on which R-headers arrived; a count too small gives
+  the file no count, so its extent follows its X-syncs. The LAST
+  block gives the size only where no R-header does, so short files without an
+  R-header, and files whose R-headers did not arrive, still have one. A file
+  whose LAST block's index + 1 is not its R-header's count is cut, not
+  complete.
 - **What a verdict detects.** Changes that players, mixers, operating systems
   and transports make, not a stream crafted to pass. The format is public and
   carries no secret, and in v1 a forged early TAIL X-sync cannot be told from a
@@ -364,7 +385,7 @@ show:
   microframe differs between hosts. A packet that completes late in its
   microframe makes a device with a single re-armed OUT transfer miss the
   next one unless the re-arm targets the microframe after the packet
-  (section 8, TinyUSB; the measurements are in
+  (section 8, u2ps; the measurements are in
   [measurements.md](measurements.md#210-late-completions-and-the-re-arm-patch)).
 
 ## 7. Hardware
@@ -374,11 +395,11 @@ show:
 The checker needs a USB High-Speed device with an on-chip PHY at 768 kHz and
 enough CPU to check every frame. The choice is the **STM32U5A5** (Cortex-M33
 at 160 MHz, 2.5 MB of RAM, 4 MB of flash, an on-chip High-Speed PHY), with
-[TinyUSB](https://github.com/hathach/tinyusb) (MIT), on the **NUCLEO-U5A5ZJ-Q**
-board. TinyUSB supports the controller's USB core (Synopsys DWC2) at
-High-Speed, has UAC2 examples, and has an STM32U5 board file that the
-firmware's board files follow. The firmware's USB descriptor and receive path
-take every rate to 768 kHz.
+[u2ps](https://github.com/metebalci/uac2-playback-stack) (MIT) as the USB
+device stack, on the **NUCLEO-U5A5ZJ-Q** board. u2ps is a USB Audio Class 2
+playback stack for the controller's USB core (Synopsys DWC2) at High-Speed,
+with ports for the STM32U5A5 and the STM32F723 (section 8, u2ps). The
+firmware's USB description and receive path take every rate to 768 kHz.
 
 Alternatives, and why not:
 
@@ -404,7 +425,7 @@ Alternatives, and why not:
   AT32, HPMicro, Espressif ESP32-P4) give no gain over STM32 here: external
   flash or less proven UAC2 stacks.
 
-The firmware uses TinyUSB, not ST's own USB middleware.
+The firmware uses u2ps, not ST's own USB middleware.
 
 ### Boards and displays
 
@@ -453,10 +474,11 @@ The firmware uses TinyUSB, not ST's own USB middleware.
   version and three squares, red, green and blue, that light as the start-up
   LED test lights its LEDs, in the same order and timing. It does not delay
   USB.
-- **Drawing never holds up USB.** The receive FIFO holds about 5 ms of audio at
-  768 kHz, so the screen is drawn from the main loop in units of about 0.2 ms
-  at most (a strip of the band, one character), only while the FIFO holds
-  less than 0.5 ms of audio, and only the characters that changed
+- **Drawing never holds up USB.** The device's buffers hold as little as
+  7 ms of audio (the STM32F723E-DISCO in 4-byte slots, section 8, u2ps), so
+  the screen is drawn from the main loop in units of about 0.2 ms at most (a
+  strip of the band, one character), only while less than 0.5 ms of
+  received audio waits to be read, and only the characters that changed
   (`firmware/app/screen.h`).
 - **The DK2's frame buffer has one byte per pixel and a fixed RGB332
   palette,** 384,000 bytes instead of 768,000 for RGB565; the screen uses only
@@ -489,7 +511,7 @@ The firmware uses TinyUSB, not ST's own USB middleware.
 
 - A UAC2 High-Speed sink, asynchronous, with an explicit feedback endpoint that
   always sends the constant nominal rate (16.16). There is no audio clock to
-  follow, so the host's USB timing paces the stream (`firmware/app/uac2.c`).
+  follow, so the host's USB timing paces the stream (`firmware/app/u2ps_glue.c`).
   The data endpoint declares no lock delay, as UAC2 requires of an
   asynchronous endpoint (4.10.1.2).
 - Four streaming alt settings: 16-bit in 2-byte slots, 24-bit in 4-byte
@@ -512,25 +534,26 @@ The firmware uses TinyUSB, not ST's own USB middleware.
   AudioStreaming interfaces), and no clock or terminals, since a USB
   streaming terminal is one that a streaming interface links to. The device
   qualifier and the other-speed configuration describe the other speed
-  (USB 2.0 9.6.2, 9.6.4). TinyUSB's audio driver opens an AudioControl
-  interface only with a streaming interface after it, so at Full-Speed a
-  small driver of the firmware's own opens it (`firmware/app/uac2.c`).
+  (USB 2.0 9.6.2, 9.6.4). u2ps gives this Full-Speed configuration by
+  default.
 - **Terminals.** The audio function's input terminal is USB streaming, and
   its output terminal is a digital audio interface (0x0602, USB Audio 2.0
   Terminal Types, Table 2-6). The checker drives no transducer, and a
   speaker or headphones type could make a host offer speaker or headphone
   features.
-- **Connection state.** The USB controller does not sense VBUS (TinyUSB
-  forces the session valid), so on its own it cannot tell a pulled cable from
-  a host that suspended the bus. Each board reads its user USB port's VBUS
-  in the main loop instead (`board_vbus()`); VBUS gone for 50 ms ends the
+- **Connection state.** The USB stack does not sense VBUS (u2ps runs in
+  its VBUS mode `app`, in which the firmware reports VBUS), so on its own it
+  cannot tell a pulled cable from a host that suspended the bus. Each board
+  reads its user USB port's VBUS in the main loop instead (`board_vbus()`)
+  and reports it to u2ps; VBUS gone for 50 ms ends the
   configuration as a controller with VBUS sensing would, and the device
   reports not connected (`firmware/app/main.c`, `firmware/app/vbus.c`). A
   host that only suspends the bus leaves VBUS on, and the device stays
-  connected and waiting. Without VBUS the device turns its D+ pull-up off
-  (TinyUSB's `tud_disconnect()`), from boot too, since USB 2.0 (7.1.5.1)
-  forbids pulling D+ up without VBUS and a host may refuse a device that
-  does; VBUS back for 50 ms turns it on again (`tud_connect()`). A detected disconnect also starts a new run. A pulled
+  connected and waiting. Without VBUS the device keeps its D+ pull-up off
+  (u2ps puts it on only while VBUS is reported present), from boot too,
+  since USB 2.0 (7.1.5.1) forbids pulling D+ up without VBUS and a host may
+  refuse a device that does; VBUS back for 50 ms turns it on again. A
+  detected disconnect also starts a new run. A pulled
   cable shows as NOT CONNECTED on a screen and as a fast blue blink.
 - **USB ID.** The device uses Objective Development's shared VID/PID pair for
   audio class devices, 16C0:27E0, under the serial-number rules of its
@@ -543,76 +566,66 @@ The firmware uses TinyUSB, not ST's own USB middleware.
   their own. Other build options set another VID:PID, which changes only the
   IDs in the descriptors.
 
-### TinyUSB
+### u2ps
 
-The submodule stays at release 0.21.0. The build applies local patches
-from `firmware/lib/patches/` to copies of the files in the build folder. The
-submodule is not modified, and a patch that no longer applies fails the
-build. The build option `BPC_TUSB_PATCHES` selects them; the default, and
-the release, has the zero-length packet patch only. The re-arm patch is an
-option for hosts that send packets late in the microframe, such as a
-virtual machine with a passed-through USB controller.
+The USB device stack is u2ps (uac2-playback-stack), release 0.1.0, a pinned
+submodule used unmodified (`firmware/lib/u2ps`). It is a USB Audio Class 2
+playback stack and nothing more: one audio function, with no class table and
+no generic endpoint API. The figures in [measurements.md](measurements.md)
+come from builds up to firmware 1.1.1, all on TinyUSB. What the checker
+takes from u2ps:
 
-- **Zero-length packets** (`tinyusb-audio-out-zlp.patch`, the audio
-  driver). USB Audio Data Formats 2.0 allows a zero-length packet in place
-  of any packet. In DMA mode the driver returned before re-arming the OUT
-  endpoint, and the device received nothing more until the host selected an
-  alt setting again. With the patch the endpoint is re-armed, and the
-  zero-length packet counts as a microframe without a packet. TinyUSB has
-  merged the same fix upstream; the local patch goes once a TinyUSB release
-  contains it.
-- **Re-arm for the next microframe** (`tinyusb-dwc2-iso-out-next.patch`,
-  the DWC2 driver). The isochronous OUT endpoint holds one transfer at a
-  time and is re-armed from the interrupt of each packet. The controller
-  receives a packet only in a microframe whose parity the re-arm sets, and
-  the unpatched driver takes that parity from the microframe at the time of
-  the re-arm. A packet that completes late in its microframe P then has its
-  re-arm run into P+1, the endpoint waits for P+2, and the host's packet in
-  P+1 is lost although its token has not come yet. The patch notes P at the
-  completion and re-arms for P+1 while P+1 has not passed. A re-arm that
-  lands after the host's packet of P+1 then loses 2 packets instead of 1;
-  measured, almost every late re-arm lands before it. TinyUSB did not take
-  the patch: in its maintainer's build, on a matching host, it lost more
-  packets, not fewer, so it is not a safe general change and stays local.
+- **Each packet in its own microframe, each gap with its cause.** u2ps
+  reports every packet with the microframe it came in, and every microframe
+  without one with its cause: the host sent none, the device re-armed too
+  late, or no buffer was free. The hole counter counts these as they come,
+  so a late completion leaves no hole, `doubled` is 0, and the `stream stop`
+  line tells the device's own misses (`late`) apart from what the host did
+  not send. The controller of these boards drops a packet with a CRC error
+  unseen, so it counts as a microframe without a packet.
+- **Re-arm for the next microframe.** The controller receives an
+  isochronous OUT packet only in a microframe whose parity the endpoint is
+  armed for, and the endpoint is re-armed from the interrupt of each packet.
+  When a packet completes late in its microframe P and the re-arm runs into
+  P+1, u2ps still arms for P+1 while P+1 has not passed
+  (`port/dwc2/dcd/u2ps_dwc2_iso.c` in u2ps), so the host's packet in P+1 is
+  received; a re-arm for the microframe after the current one would wait
+  for P+2 and lose it. A re-arm that lands after the host's packet of P+1
+  waits for P+3 and loses 2 packets instead of 1. Of the hosts measured,
+  late completions came from one host path only, a virtual machine with a
+  USB 3 card passed through and the board behind a hub; there this rule
+  removed the device's own misses, so every lost packet was one the host
+  skipped. On the bare-metal hosts measured no packet completed late, and
+  the rule arms what the other would.
+- **No copy.** u2ps never copies audio. The firmware lends it the stream's
+  buffers, one packet each; the controller's DMA writes each packet into
+  one, and the main loop checks it there and gives the buffer back. The
+  depth therefore counts in packets, one microframe of audio each at every
+  rate: on the STM32U5 boards 1 MB of class memory holds 1351 packets
+  (169 ms) in 4-byte slots and 2702 (338 ms) in 2-byte slots, on the
+  STM32F723E-DISCO 44 KB in DTCM (zero wait states for the CPU, reached by
+  the USB DMA, not cached) hold 56 (7 ms) and 108 (13.5 ms). u2ps keeps one
+  of them armed, so the firmware holds one fewer.
+- **An overflow is a packet with no buffer.** A packet that comes while the
+  firmware holds every buffer it may hold is not received. u2ps reports it
+  in its own microframe, and the firmware counts it as an overflow (`ovf`),
+  not as lost, so a file it falls in is `OVERRUN` unless a difference came
+  before it (section 4).
+- **Zero-length packets.** USB Audio Data Formats 2.0 allows a zero-length
+  packet in place of any packet. u2ps delivers it as a packet of no frames:
+  it keeps the stream open, and the firmware counts it as a microframe
+  without a packet.
+- **Stream starts and rate changes in the main loop.** u2ps holds the
+  host's request until the firmware answers it from the main loop, which
+  first stops the old stream and sets the new rate or format, so no packet
+  of the new stream or rate reaches the checker before
+  (`firmware/app/u2ps_glue.c`).
 
-What the re-arm patch gains depends on the host. Of the hosts measured,
-late completions came from one host path only, a virtual machine with a
-USB 3 card passed through and the board behind a hub. A wire capture on
-such a setup showed late OUT tokens from the host's periodic schedule, most
-likely caused by the passthrough. There this firmware's re-arm runs a few
-us into the next microframe, and the patch removes the device's own misses,
-so every lost packet is one the host skipped. On the bare-metal hosts
-measured, Linux with an Intel and with an AMD controller, no packet
-completed late, and the patch arms exactly what the unpatched driver arms;
-an iPad lost no packet without it. The patch is therefore not in the
-default build. Its costs: about 5 % more on the USB interrupt's longest
-run, a loss of 2 packets instead of 1 when a re-arm lands after the host's
-packet, and a rebase onto each TinyUSB update. Without it, the longest run
-is on the STM32F723E-DISCO at 705.6 kHz with 24-bit samples in 3-byte
-slots: 2,106 cycles, 9.8 us, within the 10 us (2,160 cycles at 216 MHz)
-budgeted for that board's interrupt. With the patch that class of streams
-reached 2,219 cycles, 10.3 us, over that budget.
-
-On the STM32U5 boards, the firmware keeps the RX FIFO at the audio OUT
-endpoint's size from each bus reset on, where TinyUSB sizes it for EP0
-alone. With the smaller FIFO, after a bus reset within frames 0 to 255 of
-the host's 2,048-frame count, the U5's controller NAKs the status stage of
-the next control read until frame 256, although the firmware has armed it.
-That took up to 127 ms, where USB 2.0 (9.2.6.4) allows 50 ms. The
-STM32F723 does not do this, and its firmware is unchanged.
-
-Handling the controller's "incomplete isochronous OUT" interrupt as well is
-not used: that interrupt comes at 80 % of the microframe, so re-arming from
-it lost the packets that arrive later in the microframe, and the device
-missed more packets, not fewer.
-
-The hole counter counts each packet in its own microframe, from the
-microframe number and the endpoint's EONUM bit read when the USB interrupt
-enters: the interrupt that serves a packet enters in its microframe or the
-next. A late completion therefore leaves no hole.
-
-The receive FIFO between the USB interrupt and the main loop holds 32,760
-bytes, 5.3 ms at 768 kHz in 4-byte slots; TinyUSB's FIFO is limited to 32 KB.
+The controller's "incomplete isochronous OUT" interrupt stays masked, and
+the misses come from the microframe numbers. Re-arming from that interrupt
+was measured: it comes at 80 % of the microframe, so it lost the packets
+that arrive later in the microframe, and the device missed more packets,
+not fewer.
 
 ### The checker in the firmware
 
@@ -685,7 +698,8 @@ iPad. macOS, Windows and Android are not tested.
   lost a few packets now and then. At 705.6 and 768 kHz streams lost a few
   packets each with 3- and 4-byte slots, about one in 3,800 to 17,000, in
   holes of one or two microframes, and sometimes with 2-byte slots too. With
-  the re-arm patch every lost packet was one the host's controller skipped.
+  a re-arm for the next microframe, as u2ps re-arms (section 8, u2ps), every
+  lost packet was one the host's controller skipped.
 - **Linux, a bare-metal laptop with an Intel controller.** No packet was lost
   in 15 streams at 705.6 and 768 kHz.
 - **Linux, a bare-metal PC with an AMD controller.** No packet was lost in
@@ -707,4 +721,4 @@ iPad. macOS, Windows and Android are not tested.
   `reason=rate` and starts a new one at the new rate.
 
 The figures behind these results, with the firmware stage of each, and the
-load and receive-FIFO margins at 768 kHz are in [measurements.md](measurements.md).
+load margins at 768 kHz are in [measurements.md](measurements.md).
