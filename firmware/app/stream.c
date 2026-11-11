@@ -36,11 +36,15 @@
 // of the rate; the queue notes each packet's segment, and the main loop
 // feeds the old stream's checker up to the new segment, over as many
 // passes as that takes, before it starts the new one. When the host stops
-// the stream (an alt change, alt 0), the packets not read yet are checked
-// too, over the next passes, since the glue lends their buffers again only
-// at the next stream's open; if that open must come first, the glue cuts
-// the stream there (stream_cut()), and the packets still unread count as
-// overflows at their place. At a reset they go unread.
+// the stream (an alt change, alt 0, a bus reset, a detach, a VBUS loss, a
+// formats change), the packets not read yet are checked too, over the next
+// passes, since the glue lends their buffers again only at the next
+// stream's open; if that open must come first, the glue cuts the stream
+// there (stream_cut()): the packets still unread count as overflows at
+// their place, and each segment still queued stops as a stream of its own.
+// When the main loop is so far behind that the interrupt has no segment
+// left to begin, the packets until it has one are no segment's: they go
+// unread, as overflows (stream_packet_isr()).
 
 #include "stream.h"
 
@@ -68,13 +72,13 @@ typedef struct {
   uint64_t packets;
   uint64_t bytes;
   uint64_t uframes;    // microframes from the first packet to the last
-  uint32_t missed;     // microframes without a packet, overflows not included
-  uint32_t holes;      // runs of such microframes
-  uint32_t max_hole;   // the longest run
-  uint32_t run;        // the run that the next packet ends, 0 for none
-  uint32_t late;       // of the missed microframes: the device re-armed too late (u2ps LATE)
-  uint32_t crc;        // of the missed microframes: corrupted packets (u2ps CORRUPTED)
-  uint32_t overflows;  // packets u2ps had no buffer for (u2ps NO_BUFFER)
+  uint64_t missed;     // microframes without a packet, overflows not included
+  uint64_t holes;      // runs of such microframes
+  uint64_t max_hole;   // the longest run
+  uint64_t run;        // the run that the next packet ends, 0 for none
+  uint64_t late;       // of the missed microframes: the device re-armed too late (u2ps LATE)
+  uint64_t crc;        // of the missed microframes: corrupted packets (u2ps CORRUPTED)
+  uint64_t overflows;  // packets u2ps had no buffer for (u2ps NO_BUFFER), and those of no segment
   uint32_t rate;       // the rate the host had set when the segment began
   uint8_t alt, slot, resolution;  // the alt setting it began at
   uint16_t min_bytes;
@@ -85,7 +89,7 @@ typedef struct {
 // the main loop may be behind by several segments, and reads each one's
 // counters until it has finished it. The interrupt begins a new segment
 // only in a slot that is not the main loop's (main_seq); else the packets
-// after a pause go on in the newest segment.
+// after the boundary are no segment's (isr_orphaned) until it can.
 #define SEGMENTS 8u
 
 static counters_t segments[SEGMENTS];
@@ -98,9 +102,13 @@ static volatile uint8_t isr_alt;          // and the alt setting (stream_set_alt
 static volatile uint8_t isr_slot;
 static volatile uint8_t isr_resolution;
 static volatile uint32_t isr_lost_starts; // segment starts dropped: the main loop was SEGMENTS behind
+static bool isr_orphaned;                 // since a dropped start: the packets are no segment's
+static uint32_t isr_orphans;              // those packets, overflows of the segment they end up in
 
 // The holes u2ps reported since the last packet, which go with the next
-// packet's entry, for their place in the stream
+// packet's entry, for their place in the stream (32 bits, as there: a hole
+// of more than 2^32 microframes, 6.2 days, counts in full in its
+// segment's counters, but not in its place)
 typedef struct {
   uint32_t missed;
   uint32_t overflows;
@@ -120,6 +128,7 @@ typedef struct {
   uint32_t lost;       // microframes without a packet before it
   uint32_t overflows;  // packets u2ps had no buffer for before it
   uint16_t len;
+  bool orphan;         // no segment's: not read, an overflow (isr_orphans)
 } packet_t;
 
 #define PACKETS USB_BUFFERS_MAX
@@ -139,7 +148,7 @@ static uint64_t bytes_out_all;       // main loop only
 
 // Missed microframes, in the run the next packet ends: the run is one
 // hole, however many reports u2ps splits it into
-static FAMILY_ISR_CODE void missed(uint32_t uframes) {
+static FAMILY_ISR_CODE void missed(uint64_t uframes) {
   isr->missed += uframes;
   if (isr->run == 0u) {
     isr->holes++;
@@ -173,8 +182,18 @@ FAMILY_ISR_CODE void stream_hole_isr(uint32_t uframes, unsigned why) {
   }
 }
 
-FAMILY_ISR_CODE void stream_restart_isr(void) {
+// The next packet begins a new segment. The packets since a segment start
+// the interrupt dropped came before this boundary: overflows of the newest
+// segment, at its end, where the main loop stopped reading. Also in the
+// main loop, with interrupts off.
+static FAMILY_ISR_CODE void boundary(void) {
+  isr->overflows += isr_orphans;
+  isr_orphans = 0;
   isr_restart = true;
+}
+
+FAMILY_ISR_CODE void stream_restart_isr(void) {
+  boundary();
 }
 
 FAMILY_ISR_CODE void stream_packet_isr(const uint8_t *data, uint16_t n_bytes, uint32_t uframe) {
@@ -184,23 +203,28 @@ FAMILY_ISR_CODE void stream_packet_isr(const uint8_t *data, uint16_t n_bytes, ui
   p->len = n_bytes;
   p->lost = 0;
   p->overflows = 0;
+  p->orphan = false;
+  uint32_t gap = (uframe - isr_last_uframe) & UFRAME_MASK;
+  isr_last_uframe = uframe;
   if (n_bytes == 0) {
     // A zero-length packet carries no frames (UAC2 calls it a transfer
     // delimiter): it counts like a microframe without a packet, in the hole
-    // before the next packet. Queued all the same: u2ps holds it.
+    // before the next packet, and its microframe in the segment's, so that
+    // a run of them longer than the microframe numbers wrap still counts.
+    // Queued all the same: u2ps holds it.
+    if (!isr_restart && !isr_orphaned) {
+      isr->uframes += gap;
+    }
     missed(1u);
     p->seq = isr->seq;
     atomic_signal_fence(memory_order_release);  // the entry before the count
     pk_in++;
     return;
   }
-  uint32_t gap = (uframe - isr_last_uframe) & UFRAME_MASK;
-  isr_last_uframe = uframe;
 
-  if (isr_restart) {
+  if (isr_restart || isr_orphaned) {
     // The holes before a segment's first packet counted in the segment
     // they ended
-    isr_restart = false;
     uint32_t seq = isr->seq + 1u;
     if (seq - main_seq < SEGMENTS) {
       isr = &segments[seq % SEGMENTS];
@@ -212,11 +236,22 @@ FAMILY_ISR_CODE void stream_packet_isr(const uint8_t *data, uint16_t n_bytes, ui
       isr->resolution = isr_resolution;
       isr->min_bytes = n_bytes;
       isr->max_bytes = n_bytes;
+      // The packets of no segment just before it, with no boundary
+      // between (boundary()): overflows before its first frame
+      isr->overflows = isr_orphans;
+      p->overflows = isr_orphans;
+      isr_orphans = 0;
+      isr_orphaned = false;
     } else {
       // A pause, rate or alt boundary lost: the glue counts it as a lost
-      // event (stream_lost_starts()), a fault
-      isr_lost_starts++;
+      // event (stream_lost_starts()), a fault. The packets are no
+      // segment's until a segment can begin, tried at each packet.
+      if (isr_restart) {
+        isr_lost_starts++;
+      }
+      isr_orphaned = true;
     }
+    isr_restart = false;
   } else {
     isr->uframes += gap;
     isr->run = 0;
@@ -226,13 +261,21 @@ FAMILY_ISR_CODE void stream_packet_isr(const uint8_t *data, uint16_t n_bytes, ui
   memset(&pending, 0, sizeof(pending));
   p->seq = isr->seq;
 
-  isr->packets++;
-  isr->bytes += n_bytes;
-  if (n_bytes < isr->min_bytes) {
-    isr->min_bytes = n_bytes;
-  }
-  if (n_bytes > isr->max_bytes) {
-    isr->max_bytes = n_bytes;
+  if (isr_orphaned) {
+    // Queued in the newest segment's place, where the main loop stops
+    // reading it; counted in none
+    p->orphan = true;
+    isr->run = 0;
+    isr_orphans++;
+  } else {
+    isr->packets++;
+    isr->bytes += n_bytes;
+    if (n_bytes < isr->min_bytes) {
+      isr->min_bytes = n_bytes;
+    }
+    if (n_bytes > isr->max_bytes) {
+      isr->max_bytes = n_bytes;
+    }
   }
   bytes_in += n_bytes;
   atomic_signal_fence(memory_order_release);  // the entry before the count
@@ -273,8 +316,8 @@ typedef struct {
 // Lost packets or overflows of the stream, before the checker's frame `at`
 typedef struct {
   uint64_t at;
-  int32_t lost;
-  uint32_t overflows;
+  int64_t lost;
+  uint64_t overflows;
 } event_t;
 
 // Events not yet charged to a result: those of the file being checked,
@@ -289,8 +332,8 @@ typedef struct {
   const bpc1_report_t *r;
   uint32_t rate;
   uint8_t alt, slot, resolution;
-  int32_t lost;
-  uint32_t overflows;
+  int64_t lost;
+  uint64_t overflows;
 } result_t;
 
 static struct {
@@ -298,14 +341,14 @@ static struct {
   uint32_t seq;
   uint32_t rate;        // the rate the stream started with, its segment's
   uint8_t alt, slot, resolution;  // the alt setting it started at, its segment's
-  uint32_t cut;         // packets not read when the stream was cut, counted as overflows
+  uint64_t cut;         // packets not read when the stream was cut, counted as overflows
   counters_t last;      // latest counters of the active stream
   uint64_t idle_packets;  // packets when stream_task() last saw them change
   uint32_t last_packet_ms;
   uint32_t window_ms;
-  int32_t lost_logged;  // net lost packets already logged
-  uint32_t overflows_logged;
-  uint32_t overflows_fed;  // overflows the checker was told of
+  int64_t lost_logged;  // net lost packets already logged
+  uint64_t overflows_logged;
+  uint64_t overflows_fed;  // overflows the checker was told of
   uint32_t last_marker;
   probe_t window;       // this second
   int bits;             // last logged, -1 before the first window
@@ -326,13 +369,13 @@ static struct {
   uint64_t fed;             // frames given to the checker
   event_t events[EVENTS];
   uint32_t n_events;
-  int32_t lost_charged;     // charged to results so far
-  uint32_t overflows_charged;
+  int64_t lost_charged;     // charged to results so far
+  uint64_t overflows_charged;
   // results
   bool held;                // a result whose line waits (pop_results())
   bpc1_report_t held_r;
-  int32_t held_lost;
-  uint32_t held_overflows;
+  int64_t held_lost;
+  uint64_t held_overflows;
   uint32_t stream_results;  // result lines of this stream
   uint32_t results_lost;    // results the checker dropped, as far as the run counts know
   uint64_t diff_file;       // first frame of the file status.file_diff names
@@ -355,8 +398,18 @@ static uint32_t frame_bytes(void) {
 
 // Net lost packets: u2ps gives each packet its own microframe, so no
 // doubled microframe takes a missed one back
-static int32_t net_lost(const counters_t *c) {
-  return (int32_t) c->missed;
+static int64_t net_lost(const counters_t *c) {
+  return (int64_t) c->missed;
+}
+
+// The display's counts (status.h) are 32 bits: a count beyond them stays at
+// their largest value
+static uint32_t count32(uint64_t n) {
+  return n > UINT32_MAX ? UINT32_MAX : (uint32_t) n;
+}
+
+static uint32_t lost32(int64_t lost) {
+  return count32(lost > 0 ? (uint64_t) lost : 0u);
 }
 
 // Average rate of the stream so far, in 1/100 Hz of the host's clock.
@@ -448,7 +501,7 @@ static const uint32_t *probe(const uint8_t *b, uint32_t frames) {
 // Lost packets and overflows, by where they fell
 //--------------------------------------------------------------------+
 
-static void event_add(uint64_t at, int32_t lost, uint32_t overflows) {
+static void event_add(uint64_t at, int64_t lost, uint64_t overflows) {
   if (s.n_events == EVENTS) {
     event_t *newest = &s.events[EVENTS - 1u];
     newest->lost += lost;
@@ -478,7 +531,7 @@ static bool take(void) {
 
 // The events that fall before the checker's frame `end`, out of the queue;
 // with `at_end`, those at `end` too: a cut file's (12.6)
-static void charge(uint64_t end, bool at_end, int32_t *lost, uint32_t *overflows) {
+static void charge(uint64_t end, bool at_end, int64_t *lost, uint64_t *overflows) {
   uint32_t k = 0;
   *lost = 0;
   *overflows = 0;
@@ -498,7 +551,7 @@ static void charge(uint64_t end, bool at_end, int32_t *lost, uint32_t *overflows
 
 // Overflows the checker has not been told of: told at frame s.fed, where
 // they count
-static void tell_overflows(uint32_t overflows) {
+static void tell_overflows(uint64_t overflows) {
   event_add(s.fed, 0, overflows);
   s.overflows_fed += overflows;
   bpc1_checker_overrun(&ck);
@@ -594,10 +647,12 @@ static uint32_t drain(bool check) {
     if (p->seq != s.seq && (int32_t) (p->seq - s.seq) > 0) {
       break;  // the next segment's first packet stays for it, outside a stream too
     }
-    // A packet of an older segment, not read in time, goes unread
-    if (check && fb != 0 && p->seq == s.seq) {
+    // A packet of an older segment, not read in time, goes unread, and so
+    // does one of no segment (an overflow, counted by the interrupt), where
+    // the stream's segment was cut
+    if (check && fb != 0 && p->seq == s.seq && !p->orphan) {
       if (p->lost > 0) {
-        event_add(s.fed, (int32_t) p->lost, 0);
+        event_add(s.fed, p->lost, 0);
       }
       if (p->overflows > 0) {
         tell_overflows(p->overflows);
@@ -623,7 +678,23 @@ static uint32_t next_segment(void) {
   return p != NULL && (int32_t) (p->seq - s.seq) > 0 ? p->seq : 0u;
 }
 
-// The packets queued by now go unread (an alt change, a reset)
+// The packets of the stream's segment s.seq, and of older ones, go unread,
+// up to the one counted `end` (pk_in); returns how many of them carried
+// audio and were some segment's
+static uint64_t skip(uint32_t end) {
+  uint64_t n = 0;
+  const packet_t *p;
+  while ((int32_t) (end - (pk_out + pk_read)) > 0 && (p = packet_next()) != NULL && (int32_t) (p->seq - s.seq) <= 0) {
+    if (p->len > 0u && !p->orphan) {
+      n++;
+    }
+    packet_done(p);
+  }
+  give_back();
+  return n;
+}
+
+// The packets queued by now go unread and uncounted (stream_drop())
 static void drop_all(void) {
   uint32_t end = pk_in;
   const packet_t *p;
@@ -679,7 +750,7 @@ static void format_result(char *out, uint32_t size, const result_t *x) {
   log_append(out, size, &n, " rate=%lu alt=%u slot=%u res=%u bits=%u end=%s diff=%s", (unsigned long) x->rate,
              x->alt, x->slot, x->resolution, r->bits, bpc1_end_name(r->end), diff);
   uint32_t ms = x->rate ? (uint32_t) (r->frames * 1000u / x->rate) : 0;
-  log_append(out, size, &n, " lost=%ld ovf=%lu dur=%lu.%03lu", (long) x->lost, (unsigned long) x->overflows,
+  log_append(out, size, &n, " lost=%lld ovf=%llu dur=%lu.%03lu", (long long) x->lost, (unsigned long long) x->overflows,
              (unsigned long) (ms / 1000u), (unsigned long) (ms % 1000u));
 }
 
@@ -738,8 +809,8 @@ static void log_held(void) {
   status.last_in_run = run_starts == 0;
   status.last_verdict = s.held_r.verdict;
   status.last_end = s.held_r.end;
-  status.last_lost = s.held_lost;
-  status.last_overflows = s.held_overflows;
+  status.last_lost = s.held_lost > INT32_MAX ? INT32_MAX : (int32_t) s.held_lost;
+  status.last_overflows = count32(s.held_overflows);
   bpc1_diff_text(&s.held_r, status.last_diff, sizeof(status.last_diff));
   status.last_kind = s.held_r.kind;
   status.last_depth = s.held_r.depth;
@@ -910,6 +981,14 @@ static void stop(const char *reason) {
   if (!s.active) {
     return;
   }
+  // Packets of no segment that no segment followed: this stream's
+  // overflows, at the frame where it was cut
+  board_irq_disable();
+  if (isr->seq == s.seq) {
+    isr->overflows += isr_orphans;
+    isr_orphans = 0;
+  }
+  board_irq_enable();
   (void) take();
   memset(&s.window, 0, sizeof(s.window));
   counters_t last = s.last;
@@ -942,28 +1021,29 @@ static void stop(const char *reason) {
   log_held();
 
   log_line_reserved("stream stop id=%lu reason=%s dur=%lu.%03lu frames=%llu pkts=%llu rate=%lu.%02lu fpp=%u-%u "
-           "lost=%ld missed=%lu holes=%lu maxhole=%lu doubled=0 late=%lu crc=%lu ovf=%lu outside=%llu silent=%llu "
-           "results=%lu results_lost=%lu",
+           "lost=%lld missed=%llu holes=%llu maxhole=%llu doubled=0 late=%llu crc=%llu ovf=%llu outside=%llu "
+           "silent=%llu results=%lu results_lost=%lu",
            (unsigned long) status.stream_id, reason, (unsigned long) (ms / 1000u),
            (unsigned long) (ms % 1000u), (unsigned long long) (c->bytes / fb), (unsigned long long) c->packets,
            (unsigned long) (r / 100u), (unsigned long) (r % 100u), (unsigned) (c->min_bytes / fb),
-           (unsigned) (c->max_bytes / fb), (long) net_lost(c), (unsigned long) c->missed,
-           (unsigned long) c->holes, (unsigned long) c->max_hole, (unsigned long) c->late,
-           (unsigned long) c->crc, (unsigned long) c->overflows, (unsigned long long) bpc1_checker_outside(&ck),
+           (unsigned) (c->max_bytes / fb), (long long) net_lost(c), (unsigned long long) c->missed,
+           (unsigned long long) c->holes, (unsigned long long) c->max_hole, (unsigned long long) c->late,
+           (unsigned long long) c->crc, (unsigned long long) c->overflows,
+           (unsigned long long) bpc1_checker_outside(&ck),
            (unsigned long long) bpc1_checker_silent(&ck), (unsigned long) s.stream_results,
            (unsigned long) bpc1_checker_results_lost(&ck));
 
   s.active = false;
   s.part_n = 0;
-  status.lost = (uint32_t) (net_lost(c) > 0 ? net_lost(c) : 0);
-  status.overflows = c->overflows;
+  status.lost = lost32(net_lost(c));
+  status.overflows = count32(c->overflows);
   status.file_diff_known = false;
   status.file_kind = 0;
   // The interrupt may have begun the next segment already (a host gap just
   // over the idle time): a restart now would cut that segment short.
   board_irq_disable();
   if (isr->seq == s.seq) {
-    isr_restart = true;
+    boundary();
   }
   board_irq_enable();
   status.streaming = false;
@@ -984,35 +1064,35 @@ static void report(void) {
     s.dop = dop;
   }
 
-  int32_t lost = net_lost(c);
+  int64_t lost = net_lost(c);
   if (lost > s.lost_logged) {
-    log_line("lost packets=%ld total=%ld", (long) (lost - s.lost_logged), (long) lost);
+    log_line("lost packets=%lld total=%lld", (long long) (lost - s.lost_logged), (long long) lost);
     s.lost_logged = lost;
   }
   if (c->overflows > s.overflows_logged) {
-    log_line("overflow packets=%lu total=%lu", (unsigned long) (c->overflows - s.overflows_logged),
-             (unsigned long) c->overflows);
+    log_line("overflow packets=%llu total=%llu", (unsigned long long) (c->overflows - s.overflows_logged),
+             (unsigned long long) c->overflows);
     s.overflows_logged = c->overflows;
   }
 
   figures_take();
   const figures_t *f = &s.figures;
   uint32_t r = rate_x100(c);
-  log_line("stat id=%lu rate=%lu.%02lu frames=%lu pkts=%llu bits=%d dop=%d lost=%ld ovf=%lu isr_pct=%lu.%lu "
+  log_line("stat id=%lu rate=%lu.%02lu frames=%lu pkts=%llu bits=%d dop=%d lost=%lld ovf=%llu isr_pct=%lu.%lu "
            "isr_max=%lu ck_cpf=%lu ck_pct=%lu.%lu loop_max=%lu fifo_max=%lu",
            (unsigned long) status.stream_id, (unsigned long) (r / 100u), (unsigned long) (r % 100u),
-           (unsigned long) s.window.probe_frames, (unsigned long long) c->packets, bits, dop, (long) lost,
-           (unsigned long) c->overflows, (unsigned long) (f->isr_pct10 / 10u),
+           (unsigned long) s.window.probe_frames, (unsigned long long) c->packets, bits, dop, (long long) lost,
+           (unsigned long long) c->overflows, (unsigned long) (f->isr_pct10 / 10u),
            (unsigned long) (f->isr_pct10 % 10u), (unsigned long) f->isr_max, (unsigned long) f->ck_cpf,
            (unsigned long) (f->ck_pct10 / 10u), (unsigned long) (f->ck_pct10 % 10u),
            (unsigned long) f->loop_max, (unsigned long) f->fifo_max);
 
-  if (status.bits != bits || status.dop != (dop != 0) || status.lost != (uint32_t) (lost > 0 ? lost : 0)
-      || status.overflows != c->overflows) {
+  if (status.bits != bits || status.dop != (dop != 0) || status.lost != lost32(lost)
+      || status.overflows != count32(c->overflows)) {
     status.bits = (uint8_t) bits;
     status.dop = dop != 0;
-    status.lost = (uint32_t) (lost > 0 ? lost : 0);
-    status.overflows = c->overflows;
+    status.lost = lost32(lost);
+    status.overflows = count32(c->overflows);
     status_changed();
   }
   memset(&s.window, 0, sizeof(s.window));
@@ -1023,29 +1103,51 @@ static void report(void) {
 static bool rate_ends;
 static uint32_t rate_end_seq;
 
-// The segment that ran when the host last set an alt setting: it and the
-// segments before it end once their packets are read, the last one for
-// that ("alt"), each one before it at the pause that followed it
-static bool alt_ends;
-static uint32_t alt_end_seq;
+// The segment that ran when the host last ended the stream: an alt
+// setting ("alt"), a bus reset, a detach, a VBUS loss or a formats change
+// ("reset"). It and the segments before it end once their packets are
+// read, the last one for that, each one before it at the pause that
+// followed it. The first end of a segment names it: a reset after alt 0,
+// or an alt setting after a reset, ends no more.
+static bool host_ends;
+static uint32_t host_end_seq;
+static const char *host_end_reason;
+
+// With interrupts off: the newest segment ends for reason
+static void host_end(const char *reason) {
+  if (!host_ends || host_end_seq != isr->seq) {
+    host_end_seq = isr->seq;
+    host_end_reason = reason;
+  }
+  host_ends = true;
+  boundary();
+}
 
 // Why the stream ends, when no packet of it comes any more
 static const char *end_reason(bool rate_end) {
-  return alt_ends && alt_end_seq == s.seq ? "alt" : rate_end ? "rate" : "pause";
+  return host_ends && host_end_seq == s.seq ? host_end_reason : rate_end ? "rate" : "pause";
 }
 
-// The host's alt setting ended the stream's segment or a later one
-static bool alt_ended(void) {
-  return alt_ends && (int32_t) (alt_end_seq - s.seq) >= 0;
+// The host ended the stream's segment or a later one
+static bool host_ended(void) {
+  return host_ends && (int32_t) (host_end_seq - s.seq) >= 0;
+}
+
+// The stream stops for why it ends
+static void end_stream(void) {
+  bool rate_end = rate_ends && rate_end_seq == s.seq;
+  stop(end_reason(rate_end));
+  rate_ends = rate_ends && !rate_end;
 }
 
 // The next segment after a stopped stream, once the packets before it are
-// read: a stream, or packets outside an alt setting
-static void begin(uint32_t now) {
+// read: a stream, or packets outside an alt setting. False if there is
+// none yet.
+static bool begin(uint32_t now) {
   uint32_t next = next_segment();
   counters_t c;
   if (next == 0u || !take_segment(next, &c)) {
-    return;
+    return false;
   }
   main_seq = next;
   if (c.slot != 0) {
@@ -1053,6 +1155,7 @@ static void begin(uint32_t now) {
   } else {
     s.seq = next;  // packets outside an alt setting: not a stream
   }
+  return true;
 }
 
 void stream_task(void) {
@@ -1060,7 +1163,7 @@ void stream_task(void) {
   if (!s.active) {
     (void) drain(false);  // whatever arrives outside a stream is not checked
     memset(&s.window, 0, sizeof(s.window));
-    begin(now);
+    (void) begin(now);
     if (!s.active) {
       return;
     }
@@ -1081,10 +1184,9 @@ void stream_task(void) {
   // the stream comes any more, and it ends once those that came are read
   counters_t c = snapshot();
   bool rate_end = rate_ends && rate_end_seq == s.seq;
-  if ((c.seq != s.seq || rate_end || alt_ended()) && !unread()) {
-    stop(end_reason(rate_end));
-    rate_ends = rate_ends && !rate_end;
-    begin(now);
+  if ((c.seq != s.seq || rate_end || host_ended()) && !unread()) {
+    end_stream();
+    (void) begin(now);
   } else if (now - s.last_packet_ms >= STREAM_IDLE_MS && uac2_quiet()) {
     // u2ps saw its long gap at the last tick, and reported every hole of
     // the stream up to then (uac2_quiet())
@@ -1106,7 +1208,7 @@ void stream_set_rate(uint32_t rate) {
   if (rate != status.rate) {
     board_irq_disable();
     isr_rate = rate;
-    isr_restart = true;
+    boundary();
     rate_end_seq = isr->seq;
     board_irq_enable();
     rate_ends = true;
@@ -1132,22 +1234,25 @@ bool stream_queue_empty(void) {
   return pk_in == pk_out + pk_read;
 }
 
+// Every packet that waits goes unread: the stream's count as its overflows,
+// which stop() tells the checker of at the frame it has read up to; each
+// segment queued after it stops as a stream of its own, with its lines,
+// all its packets overflows; packets outside an alt setting are no
+// stream's. Also with no stream active (display_wait() runs no
+// stream_task()). Only the packets queued when it starts: one queued after
+// is a fault the glue catches (stream_queue_empty()).
 void stream_cut(void) {
-  // Every packet that waits: the stream's, and those of segments after it
-  // that never began; stop() tells the checker of the stream's at the frame
-  // it has read up to, and theirs count with it
-  uint32_t n = 0;
-  const packet_t *p;
-  while ((p = packet_next()) != NULL) {
-    if (p->len > 0u) {
-      n++;
+  uint32_t now = board_millis();
+  uint32_t end = pk_in;
+  for (;;) {
+    uint64_t n = skip(end);
+    if (s.active) {
+      s.cut += n;
+      end_stream();
     }
-    packet_done(p);
-  }
-  give_back();
-  if (s.active) {
-    s.cut += n;
-    stop(end_reason(rate_ends && rate_end_seq == s.seq));
+    if (pk_out == end || !begin(now)) {
+      break;
+    }
   }
 }
 
@@ -1166,10 +1271,8 @@ void stream_set_alt(uint8_t alt) {
   isr_alt = alt;
   isr_slot = status.slot;
   isr_resolution = status.resolution;
-  isr_restart = true;
-  alt_end_seq = isr->seq;
+  host_end("alt");
   board_irq_enable();
-  alt_ends = true;
   if (alt == 0) {
     log_line("alt 0");
   } else {
@@ -1177,14 +1280,10 @@ void stream_set_alt(uint8_t alt) {
   }
 }
 
-// A stream the host already ended with an alt setting is cut as at an
-// open; else the stream stops for the reset, its packets unread
+// The stream ends as at alt 0: u2ps has stopped it, and the glue lends its
+// memory again only at the next open, so the packets not read yet are
+// checked over the next passes, unless that open cuts it first
 void stream_reset(void) {
-  if (s.active && alt_ended()) {
-    stream_cut();
-  }
-  stop("reset");
-  drop_all();
   status.alt = 0;
   status.slot = 0;
   status.resolution = 0;
@@ -1193,6 +1292,6 @@ void stream_reset(void) {
   isr_alt = 0;
   isr_slot = 0;
   isr_resolution = 0;
-  isr_restart = true;
+  host_end("reset");
   board_irq_enable();
 }

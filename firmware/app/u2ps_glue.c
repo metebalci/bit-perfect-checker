@@ -97,6 +97,7 @@ _Static_assert(USB_BUFFERS_MAX <= U2PS_ISO_OUT_COUNT_MAX,
 
 static volatile uint32_t isr_stream;   // the open stream's number, 0 for none
 static volatile uint32_t isr_packets;  // packets u2ps delivered, zero-length ones included
+static volatile uint32_t isr_sent;     // hole microframes in which the host sent (not NO_PACKET)
 
 //--------------------------------------------------------------------+
 // Events from the callbacks to the main loop
@@ -229,6 +230,9 @@ FAMILY_ISR_CODE void u2ps_app_on_packet(const uint8_t *data, uint16_t len, u2ps_
 // calls comes from inside stream.c, and stream.c reads what these write
 // only with interrupts off.
 FAMILY_ISR_CODE void u2ps_app_on_hole(uint16_t uframes, u2ps_miss_t why) {
+  if (why != U2PS_MISS_NO_PACKET) {
+    isr_sent += uframes;
+  }
   stream_hole_isr(uframes, (unsigned) why);
 }
 
@@ -382,6 +386,7 @@ static bool quiet;       // a detach the caller logs itself (a pull, a formats c
 static bool counters_due;
 static uint32_t quiet_packets;  // isr_packets as the last tick before a new one saw them
 static uint32_t quiet_start;    // that tick's time
+static uint32_t quiet_sent;     // isr_sent then
 static bool long_gap;           // u2ps's long gap, as the last tick saw it
 static bool alt0_due;           // alt 0 for the stream, once u2ps has stopped it (EV_STOP)
 static uint32_t counters_ms;
@@ -518,7 +523,8 @@ static void start_task(uint32_t now) {
   }
 }
 
-// The stream ends now, and a start that waits is no longer pending in u2ps
+// The stream ends (its packets not read yet are still checked,
+// stream_reset()), and a start that waits is no longer pending in u2ps
 static void reset_stream(void) {
   pending_due = false;
   alt0_due = false;
@@ -663,14 +669,18 @@ void uac2_task(void) {
   // u2ps's long gap counts from the first tick that saw no new packet. The
   // packets are counted before the tick and the gap judged after it, with
   // the same time, so it can only start later here and end no sooner than
-  // u2ps's: when quiet, u2ps has flushed the gap's holes in this tick
+  // u2ps's: when quiet, u2ps has flushed the gap's holes in this tick. As
+  // for u2ps's pause (u2ps_app_on_pause()), the microframes of the holes in
+  // which the host sent (LATE, NO_BUFFER, CORRUPTED), which the ticks of a
+  // long gap report, this tick's included, are no part of the gap
   uint32_t seen = isr_packets;
   u2ps_fault_t f = u2ps_dev_tick(now);
   if (seen != quiet_packets) {
     quiet_packets = seen;
     quiet_start = now;
+    quiet_sent = isr_sent;
   }
-  long_gap = now - quiet_start > U2PS_GAP_PAUSE / 8u;
+  long_gap = (uint64_t) (now - quiet_start) * 8u > U2PS_GAP_PAUSE + (uint64_t) (isr_sent - quiet_sent);
   if (f == U2PS_FAULT_CLOSE) {
     log_line("usb fault close");
   } else if (f == U2PS_FAULT_START) {

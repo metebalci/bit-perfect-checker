@@ -27,10 +27,11 @@
 void stream_set_rate(uint32_t rate);
 // stream_set_alt(): the host selected an alt setting, so a stream that ran,
 // and the segments of it still queued, end once their packets are read
-// (stream_ending(): packets wait). stream_cut(): before the class memory is
-// lent again, they end now, and their packets not read yet count as
-// overflows; then the queue is empty (stream_queue_empty()).
-// stream_reset(): the stream ends now, its packets unread.
+// (stream_ending(): packets wait). stream_reset(): the same for a bus
+// reset, a detach, a VBUS loss or a formats change. stream_cut(): before
+// the class memory is lent again, they end now, each segment as a stream of
+// its own, and their packets not read yet count as overflows; then the
+// queue is empty (stream_queue_empty()).
 void stream_set_alt(uint8_t alt);
 bool stream_ending(void);
 void stream_cut(void);
