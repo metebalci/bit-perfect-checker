@@ -442,7 +442,7 @@ their meaning.
 | `usb reset` | the host reset the bus while the device was set up: an open stream ends, its packets not read yet are still checked, and its `stream stop` line (`reason=reset`) follows this one once they are read (if the host opens the next stream first, those still unread count as overflows); the host enumerates the device again |
 | `usb disconnected`, `usb connecting` | the device leaves the bus to change its formats (the D+ pull-up goes off for 0.3 s), and comes back when that time has passed and VBUS is present. A stream the change ends is read at once: its `result` and `stream stop` lines (`reason=reset`) come before the `formats ... changed=1` answer and `usb disconnected` |
 | `usb connecting` | at start-up with VBUS present, before the LED test; or VBUS is back for 50 ms after a pull, or after a boot without VBUS: the device turns its D+ pull-up on, and the host enumerates it (`usb mounted`) |
-| `rate <Hz>` | the host set the sample rate; at boot, the rate the device reports before a host sets one (48000) |
+| `rate <Hz>` | the host set the sample rate; at boot, the rate the device reports before a host sets one (48000). During a stream the device answers the request and sets the stream boundary together, and logs this line only if the answer went out; a request cancelled before the answer (a bus reset, a detach or a new request) leaves the rate and the stream as they were, with no `rate` line |
 | `rate unsupported=<Hz>` | the host asked for a rate that is not offered (stalled) |
 | `alt <n> slot=<bytes> res=<bits>` | the host selected a streaming alt setting; `alt 0` closes it. The line comes when the host's request does (`alt 0` for an open stream once the USB stack has closed the stream), before the `result` and `stream stop reason=alt` lines of the stream it ended, which follow once that stream's packets are read; a `stream start` can follow it too, of a stream that began before the change (after a pause or a rate change, packets not yet read) and shows the old alt setting |
 | `stream start id=<n> rate=<Hz> alt=<n> slot=<bytes> res=<bits> allow_silence=<true/false>` | the first packet of stream `<n>`, counted from 1 since boot, with the allowed silence in effect |
@@ -453,7 +453,7 @@ their meaning.
 | `lost packets=<n> total=<n>` | microframes passed without a packet (a zero-length packet counts as none) |
 | `overflow packets=<n> total=<n>` | packets came while the device still held every buffer, so they were not received ([Load figures](#load-figures)) |
 | `result seq=<n> stream=<n> file=<n> verdict=<verdict> kind=<kind> ...` | **the outcome of one file**: see [Result lines](#result-lines) |
-| `stream stop id=<n> reason=<why> dur=<s> frames=<n> pkts=<n> rate=<Hz> fpp=<min>-<max> lost=<n> missed=<n> holes=<n> maxhole=<n> doubled=<n> late=<n> ovf=<n> outside=<frames> silent=<frames> results=<n> results_lost=<n>` | end of a stream, after its last `result` line: `alt` (alt setting changed, also to 0 by the host's SET_CONFIGURATION, to a configuration or to 0; the line comes once the packets of the old alt setting are read, after the `alt` line), `idle` (no packet, zero-length ones included, for 50 ms once every packet that came is read, as after a cable pull; microframes in which a packet came late, damaged or without a free buffer are no part of these 50 ms, nor of a `pause`), `rate` (the host set another rate during the stream; the line comes once the packets of the old rate are read, after the `rate` line), `reset` (the device stopped being set up: a bus reset, a cable pull judged before the 50 ms of idle have passed, or a `formats` change; after a bus reset the line comes once the stream's packets are read, after the `usb reset` line; at a pull or a `formats` change the firmware reads them at once, and the line comes before `usb disconnected` and the `formats` answer) or `pause` (the host sent again after 50 ms without a packet); `fpp` is frames per packet; `holes` counts the runs of microframes without a packet and `maxhole` is the longest; of the `missed` microframes, `late` are those the device re-armed for too late; `outside` is the number of frames of the stream outside every file's extent ([12.6](../docs/bpc1.md#126-verdicts)), so host padding can be measured; `silent` is the number of those frames that were allowed silence, which gave no result (0 unless `allow_silence` is `true`); `results` is the number of result lines of the stream, and `results_lost` the number of results of the stream the checker dropped because its queue of finished results was full |
+| `stream stop id=<n> reason=<why> dur=<s> frames=<n> pkts=<n> rate=<Hz> fpp=<min>-<max> lost=<n> missed=<n> holes=<n> maxhole=<n> doubled=<n> late=<n> ovf=<n> outside=<frames> silent=<frames> results=<n> results_lost=<n>` | end of a stream, after its last `result` line: `alt` (alt setting changed, also to 0 by the host's SET_CONFIGURATION, to a configuration or to 0; the line comes once the packets of the old alt setting are read, after the `alt` line), `idle` (no packet, zero-length ones included, for 50 ms once every packet that came is read, as after a cable pull; microframes in which a packet came late or found no free buffer are no part of these 50 ms, nor of a `pause`; a damaged packet, which the USB controller drops unseen, counts as no packet), `rate` (the host set another rate during the stream; the stream stops with the new rate's first packet, or after 50 ms without a packet, once the packets of the old rate are read, after the `rate` line, so overflows (packets that found no buffer) before the change count in it), `reset` (the device stopped being set up: a bus reset, a cable pull judged before the 50 ms of idle have passed, or a `formats` change; after a bus reset the line comes once the stream's packets are read, after the `usb reset` line; at a pull or a `formats` change the firmware reads them at once, and the line comes before `usb disconnected` and the `formats` answer) or `pause` (the host sent again after 50 ms without a packet); `fpp` is frames per packet; `holes` counts the runs of microframes without a packet and `maxhole` is the longest; of the `missed` microframes, `late` are those the device re-armed for too late; `outside` is the number of frames of the stream outside every file's extent ([12.6](../docs/bpc1.md#126-verdicts)), so host padding can be measured; `silent` is the number of those frames that were allowed silence, which gave no result (0 unless `allow_silence` is `true`); `results` is the number of result lines of the stream, and `results_lost` the number of results of the stream the checker dropped because its queue of finished results was full |
 | `stall <ms>` | the [`stall` command](#commands-to-the-device) started its busy-wait of `<ms>` milliseconds |
 | `run start` | a new run begins: the user button was pressed or the touch screen tapped, the `mark` command arrived, the USB cable was pulled (after `usb disconnected`), or the board reset; green and red go off ([LEDs](#leds)). It follows any `result` line still waiting at that moment, whose result belongs to the run before |
 | `usb unsupported get/set entity=<id> ctrl=<n> req=<n>` | a class request the device does not answer |
@@ -461,7 +461,7 @@ their meaning.
 | `usb init failed reason=<name> description=<name> port=<name>` | the USB stack did not start, so the device never attaches; all LEDs light. `reason` is u2ps's (`clock`, `power`, `security`, `phy`, `reset`, `mode`, `memory`, `description`, `port`, `dma_memory`, `timer`), `description` the rule of the device's description broken (`ok` if none), `port` the controller port's own reason (`ok`, `clock`, `power`, `tzen`, `phy`, `reset`, `mode`, `fifo`, `cycles`); `timer` and `cycles`: the CPU's cycle counter, which u2ps times its waits with, does not count |
 | `usb fault open reason=<name>` | the controller refused the buffers the firmware gave a stream (`count`, `mem_null`, `stride_short`, `stride_align`, `mem_align`, `not_dma`, `stream`): the alt setting stays 0, the host sees a stall, and all LEDs light |
 | `usb fault start result=<name>` | a stream start the firmware answered from its main loop did not open: `not_pending` (the host or a reset cancelled it before), `refused`, `fault` (with `usb fault open` after it) |
-| `usb fault start timeout` | the host's SET_INTERFACE for a stream start waited 30 ms for the firmware; its status stage then completes, and the stream may still open |
+| `usb fault start timeout` | the host's SET_INTERFACE for a stream start waited 30 ms for the firmware; its status stage then completes, and the stream may still open. All LEDs light: the packets the host sent before the open are lost, and the USB stack does not report them |
 | `usb fault close` | a stream's close took longer than 10 ms |
 | `usb fault queue not empty dropped=<n>` | a new stream opened while packets of the old one were still queued; they were dropped unread (`dropped`: how many), the stream opens all the same, and all LEDs light |
 | `error formats=<text>` | the list given to the `formats` command is not valid; the offered formats stay as they were |
@@ -519,7 +519,7 @@ and 0 in the file's fields. The fields:
 | `bits` | the bits in use of the received words over the file's body, for PCM and DoP alike (DoP in 3- or 4-byte slots: 24 when the padding below it is zero) |
 | `end` | how the file ended: `LAST` (its block flagged last arrived), `NEXT` (another file followed), `BACK` (the block index went back), `STOP` (the stream stopped first) |
 | `diff` | the position in the file of the first body unit that did not arrive as expected, in seconds from the file's start as generated, 3 decimals, rounded half up (PCM: frame index / rate; DSD: byte index x 8 / DSD rate): the earliest of the body's first unit, when the rate or channel count is wrong or the first body block's X-sync or the lead-in X-sync before it is missing; the first body unit that differs or did not arrive (in the R-header chips of r5 and r6, as the R-header rule of [12.6](../docs/bpc1.md#126-verdicts) places it, also in the file's first R-header in the lead-in when its count disagrees with the file: a LAST block at another index, or an X-sync whose block index is the declared size or higher; for a file cut before its body's end, the first unit after the cut); and the first unit after the body, when the X-sync after the body is missing. Where a limit X-sync is broken or cut off, the body runs from after the last lead-in X-sync received to the first tail X-sync received. `-` for `BIT_PERFECT`, `UNKNOWN_SIGNAL` and `OVERRUN` (12.6) |
-| `lost`, `ovf` | packets lost and overflows (packets that found every buffer of the device held) that fall in the result's frames, by their place in the stream: a lost packet counts in the result of the first frame after it, an overflow in the result of the first frame received after it ([12.6](../docs/bpc1.md#126-verdicts), rule 2), which is `OVERRUN`, or `NOT_BIT_PERFECT` when its difference came first. A file is complete when its LAST block arrived whole and its first R-header's count, if it has one, is that block's index + 1; otherwise it is cut (also with its LAST block whole, when its R-header gives another count) and holds its frames up to the next file's first X-sync, at most to its extent's end, and the losses and overflows right there, at the cut; at the end of a complete file, or of a stretch, they count in the next result. The stream's last result line also takes those after every result and those in frames not read before the stream stopped, except lost packets and overflows after the last file's LAST block, where that file is complete and the stream ends inside its extent: they did not touch the file, so they are on the `stream stop` line only. A stream's result lines add up to its `stream stop` line's `lost` and `ovf`, except with `allow_silence` `true` when the stream ends in allowed silence that gave no result (the losses there are on no result line, only on the `stream stop` line, also when the last file's line came only at the stop), and except those losses and overflows after the last file's LAST block where that file is complete. The verdict follows the frames, not these counts |
+| `lost`, `ovf` | packets lost and overflows (packets that found every buffer of the device held) that fall in the result's frames, by their place in the stream: a lost packet counts in the result of the first frame after it, an overflow in the result of the first frame received after it ([12.6](../docs/bpc1.md#126-verdicts), rule 2), which is `OVERRUN`, or `NOT_BIT_PERFECT` when its difference came first. A file is complete when its LAST block arrived whole and its first R-header's count, if it has one, is that block's index + 1; otherwise it is cut (also with its LAST block whole, when its R-header gives another count) and holds its frames up to the next file's first X-sync, at most to its extent's end, and the losses and overflows right there, at the cut; at the end of a complete file, or of a stretch, they count in the next result. The stream's last result line also takes those after every result and those in frames not read before the stream stopped, except lost packets and overflows after the last file's LAST block, where that file is complete and the stream ends inside its extent: they did not touch the file, so they are on the `stream stop` line only. A stream's result lines add up to its `stream stop` line's `lost` and `ovf`, except with `allow_silence` `true` when the stream ends in allowed silence that gave no result (the losses there are on no result line, only on the `stream stop` line, also when the last file's line came only at the stop), except those losses and overflows after the last file's LAST block where that file is complete, and except the microframes counted before the stream's first packet with audio (zero-length packets after a pause or a rate change, and holes before that packet), which are on the `stream stop` line only, never in a result. The verdict follows the frames, not these counts |
 | `dur` | a received duration, unlike `diff`, which is a position in the file: the file's received frames, from its first X-sync to its end, divided by `rate`; seconds, 3 decimals. A complete file ends at its LAST block's end; a cut file at the next file's first X-sync, at most at the end of its extent or of the stream ([12.6](../docs/bpc1.md#126-verdicts)) |
 
 The limits of `lost`, `ovf` and the frames checked:
@@ -531,9 +531,14 @@ The limits of `lost`, `ovf` and the frames checked:
 - The USB stack reports the microframes without a packet before the packet
   that ends them ([Load figures](#load-figures)). Microframes after the
   last packet the controller saw, at the end of a stream, are never
-  counted. A hole before a packet the controller saw but did not deliver
-  (an overflow) is reported at the stream's stop or at the stack's long
-  gap, and counts in that stream. A hole the stack reports in parts counts
+  counted. At a rate change, microframes without a packet between the old
+  rate's last packet and the new rate's first count in neither stream, as
+  at any stream's end; those the device re-armed for too late (`late`),
+  and packets that found no buffer, count in the old stream. A hole before
+  a packet the controller saw but did not deliver (an overflow) is reported
+  at the stream's stop or at the stack's long gap, and counts in that
+  stream. Overflows reported before a stream's first packet count in the
+  stream before it, at its end. A hole the stack reports in parts counts
   once in `holes`, with its whole length.
 - When the host selects another alt setting, alt 0 included, or resets the
   bus, the packets the firmware has not read yet are still checked, over
@@ -547,12 +552,15 @@ The limits of `lost`, `ovf` and the frames checked:
   request (the USB stack holds the request for at most 30 ms, and the host
   allows 50 ms), and the packets still unread
   then count as overflows (`ovf`) at their place, so a file they fall in is
-  `OVERRUN`. Each later stream still waiting behind them (after a pause or
-  a rate change) then ends with its own `stream start` and `stream stop`
+  `OVERRUN`. They count as overflows only: `pkts`, `frames` and `fpp` on
+  the `stream stop` line leave them out, and `rate` reads low, as after
+  any overflow. Each later stream still waiting behind them (after a pause
+  or a rate change) then ends with its own `stream start` and `stream stop`
   lines, all its packets overflows, so the stream ids after it rise by as
   many. A stream cut before any of its frames was read has no result line,
   since no unit of it arrived ([12.6](../docs/bpc1.md#126-verdicts)), only
-  its `stream stop` line with its counts. Packets only wait when the main
+  its `stream stop` line with its counts, and one cut before any of its
+  packets was read shows `pkts=0 frames=0 fpp=0-0`. Packets only wait when the main
   loop was held up: it reads each packet in the pass after it arrives.
 - When a stream boundary is lost (`ev_lost` in `usb counters`), the packets
   that come until the next stream can begin are not checked: they count as
@@ -562,10 +570,17 @@ The limits of `lost`, `ovf` and the frames checked:
 - Zero-length packets keep a stream open: the USB stack counts them as
   packets, so a run of them makes no pause and no `idle` stop, only one
   hole of as many missed microframes. Their microframes count in `dur` and
-  `rate`.
+  `rate`. A zero-length packet after a pause or a rate change begins the
+  new stream; its microframes count in that stream's `lost` and `dur`.
+  Microframes counted before a stream's first packet with audio
+  (zero-length packets after a pause or a rate change, and holes before
+  that packet) show on the stream's `stream stop` line only, never in a
+  result.
 
-None of these changes the totals: a stream's result lines still add up to
-its `stream stop` line, except for the allowed silence at its end (above).
+None of these changes the totals: a stream's result lines add up to its
+`stream stop` line, except as the `lost`, `ovf` row says, and for a stream
+with no result line (silence only while allowed, or cut before any of its
+frames was read), whose counts are on its `stream stop` line only.
 
 For example, a 48 kHz 24-bit file in 3-byte slots on the
 STM32F723E-DISCO, which overran after a `stall 200`, from a development
@@ -631,7 +646,10 @@ microframe without a packet; a zero-length packet counts as one too.
 The stack gives each packet its own microframe, so `doubled`, packets
 counted in the same microframe as the one before, is 0, and `lost` equals
 `missed`. The field stays in the log line. Microframes in which a packet
-found no buffer count as overflows (`ovf`), not as lost.
+found no buffer count as overflows (`ovf`), not as lost. This holds for a
+zero-length packet too: the USB stack does not report the length of a
+packet that found no buffer, so a file it falls in is `OVERRUN` although
+that packet carried no audio.
 
 ### Commands to the device
 

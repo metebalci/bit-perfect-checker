@@ -616,10 +616,17 @@ takes from u2ps:
   it keeps the stream open, and the firmware counts it as a microframe
   without a packet.
 - **Stream starts and rate changes in the main loop.** u2ps holds the
-  host's request until the firmware answers it from the main loop, which
-  first stops the old stream and sets the new rate or format, so no packet
-  of the new stream or rate reaches the checker before
-  (`firmware/app/u2ps_glue.c`).
+  host's request until the firmware answers it from the main loop
+  (`firmware/app/u2ps_glue.c`). For a rate change, the firmware answers the
+  request and sets the stream boundary together, with interrupts off, and
+  only if the answer went out, so no packet of the old rate comes after the
+  boundary and none of the new rate before it, and a cancelled request
+  leaves the rate and the stream as they were; the old rate's packets are
+  checked over the next passes. For a stream start, the firmware sets the
+  new format, which ends the old stream, and opens the new one once the old
+  stream's packets are read, at most 20 ms after the request, since u2ps
+  holds it for at most 30 ms; the packets still unread then count as
+  overflows.
 
 The controller's "incomplete isochronous OUT" interrupt stays masked, and
 the misses come from the microframe numbers. Re-arming from that interrupt
