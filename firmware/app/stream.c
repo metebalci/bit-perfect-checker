@@ -45,7 +45,11 @@
 // their place, and each segment still queued stops as a stream of its own.
 // When the main loop is so far behind that the interrupt has no segment
 // left to begin, the packets until it has one are no segment's: they go
-// unread, as overflows (stream_packet_isr()).
+// unread, as overflows (stream_packet_isr()). The dropped start shows as
+// ev_lost= on the `usb counters` line. NO_PACKET and LATE holes reported
+// meanwhile count in the newest segment the interrupt began, as its
+// stream's lost=, missed= and holes= (stream_hole_isr()); the checker does
+// not hear of them, so they change no verdict and no LED.
 
 #include "stream.h"
 

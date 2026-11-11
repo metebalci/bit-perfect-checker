@@ -390,14 +390,15 @@ class StreamHoles(unittest.TestCase):
                                           + list(range(START + 500, START + 700)), [("alt", "10"), ("idle", "0")])
                 self.check_all_read(stops[0])
                 # the device is no longer set up at once, and alt 0 comes
-                # when u2ps has closed the stream (before it if at once),
-                # then the stream's lines
+                # when u2ps has closed the stream, then the stream's lines:
+                # u2ps's own order (u2ps_dev.h), whether the close ends
+                # before the main loop sees the end or after
                 out = self.run_tool(list(range(START, START + 100)) + close + ["setconfig 0"])[2]
                 lines = [l.split(" ", 1)[1] for l in out.splitlines()]
                 i = lines.index("stream start id=1 rate=48000 alt=1 slot=2 res=16 allow_silence=false")
-                want = ["usb disconnected", "alt 0"] if close else ["alt 0", "usb disconnected"]
                 self.assertEqual([lines[i + 1], lines[i + 2], lines[i + 3].split()[0], lines[i + 4].split()[:4]],
-                                 want + ["result", ["stream", "stop", "id=1", "reason=alt"]], out[-2000:])
+                                 ["usb disconnected", "alt 0", "result", ["stream", "stop", "id=1", "reason=alt"]],
+                                 out[-2000:])
 
     def test_overflow_then_reset(self):
         self.end_overflow(["reset"] + list(range(START + 500, START + 700)), [("reset", "10"), ("idle", "0")])

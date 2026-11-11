@@ -613,9 +613,10 @@ static void handle(const event_t *e) {
       } else if (e->why == U2PS_CONFIG_END_SET_CONFIGURATION) {
         // SET_CONFIGURATION 0: u2ps closes the stream after it, and the
         // stream's tail comes before on_stream_stop (u2ps_dev.h), so it
-        // ends as at alt 0
-        set_configuration();
+        // ends as at alt 0; `usb disconnected` first, in u2ps's order,
+        // also when the close has already ended
         unconfigured();
+        set_configuration();
       } else if (e->why != U2PS_CONFIG_END_BUS_RESET) {
         // A detach, VBUS or a re-init; a bus reset is EV_RESET's
         unmounted();
