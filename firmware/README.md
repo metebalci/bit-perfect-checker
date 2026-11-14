@@ -1,29 +1,26 @@
 # Firmware
 
 Firmware for the hardware checker: a USB Audio Class 2 device that receives
-the BPC1 test signal and reports whether it arrived bit-perfect. The boards
-are the NUCLEO-U5A5ZJ-Q, the STM32F723E-DISCO and the STM32U5G9J-DK2
-([Boards](#boards)); the last two have a screen.
+the BPC1 test signal and reports whether it arrived bit-perfect. The board
+is the NUCLEO-U5A5ZJ-Q ([Board](#board)).
 
 ## Layout
 
 | Path | Contents |
 |---|---|
-| `app/` | everything that is the same on every board: USB descriptors and audio class requests, the stream probe and checker, the log and console, LED patterns, load figures, the status, and the status screen's content and drawing |
+| `app/` | everything that does not depend on the board: USB descriptors and audio class requests, the stream probe and checker, the log and console, LED patterns, load figures and the status |
 | `bpc1/` | the BPC1 signal and the online checker engine in portable C, which host tests also build |
 | `include/` | what `app/` needs from a board ([`board.h`](include/board.h)) and from a display ([`display.h`](include/display.h)) |
 | `families/<family>/` | one MCU family: CPU flags, ST's CMSIS and HAL modules, HAL configuration, linker scripts, and the code all boards of the family share (USB controller and PHY, log UART, tick) |
-| `boards/<board>/` | one board: `board.cmake` (family, MCU, crystal, linker script, sources) and `board.c` (clock tree, LEDs, button, VBUS, which UART is the log), and for a board with a display its panel driver, screen layout and touch driver |
+| `boards/<board>/` | one board: `board.cmake` (family, MCU, crystal, linker script, sources) and `board.c` (clock tree, LEDs, button, VBUS, which UART is the log) |
 | `shields/<shield>/` | an add-on for a board, such as a display shield; none yet |
 | `cmake/` | the toolchain file, the version stamp, the flash target, and `common.cmake`: folders, compile options and warnings, the board and family, the image |
-| `tools/` | `fontgen.py`, which turns [Spleen](https://github.com/fcambus/spleen) bitmap fonts into C arrays at build time, and `package.py`, which builds the release zip ([Release](#release)) |
-| `lib/` | pinned submodules: [u2ps](https://github.com/metebalci/uac2-playback-stack) 0.1.1, the USB device stack ([below](#usb-stack)), ST's CMSIS device files ([STM32U5](https://github.com/STMicroelectronics/cmsis_device_u5), [STM32F7](https://github.com/STMicroelectronics/cmsis_device_f7)) and HAL ([STM32U5](https://github.com/STMicroelectronics/stm32u5xx_hal_driver), [STM32F7](https://github.com/STMicroelectronics/stm32f7xx_hal_driver)), Arm's [CMSIS 5](https://github.com/ARM-software/CMSIS_5) core headers, and Spleen 2.2.0 for the screens' fonts |
+| `tools/` | `package.py`, which builds the release zip ([Release](#release)) |
+| `lib/` | pinned submodules: [u2ps](https://github.com/metebalci/uac2-playback-stack) 0.1.1, the USB device stack ([below](#usb-stack)), ST's [CMSIS device files](https://github.com/STMicroelectronics/cmsis_device_u5) and [HAL](https://github.com/STMicroelectronics/stm32u5xx_hal_driver) for the STM32U5, and Arm's [CMSIS 5](https://github.com/ARM-software/CMSIS_5) core headers |
 
 | Board | Family | Display |
 |---|---|---|
 | `nucleo_u5a5zj_q` | `stm32u5` | none |
-| `stm32f723e_disco` | `stm32f7` | 1.54" 240x240 with touch |
-| `stm32u5g9j_dk2` | `stm32u5` | 5" 800x480 with touch |
 
 ## What it does
 
@@ -37,8 +34,7 @@ the host sends, and checks every frame against the test signal:
   device enumerates, as USB 2.0 requires, but offers no audio: its
   Full-Speed configuration holds only the audio function's AudioControl
   interface, with no streaming interface. It logs `usb mounted speed=full`,
-  a screen shows `NEEDS` `HIGH-SPEED` `USB PORT` in a tall red frame, and
-  the blue LED double-blinks ([LEDs](#leds)).
+  and the blue LED double-blinks ([LEDs](#leds)).
 - **Not from a virtual machine:** play from a host that drives its USB
   controller itself. A virtual machine sends packets late or skips them,
   with the controller passed through as well as with an emulated one, and
@@ -57,7 +53,7 @@ the host sends, and checks every frame against the test signal:
 - **No Feature Unit:** the host cannot hand volume to the device, so any
   volume change happens in the host's software, where the checker sees it as
   a body that is not bit-perfect.
-- **Connection:** each board reads its user USB port's VBUS in the main loop,
+- **Connection:** the board reads its user USB port's VBUS in the main loop,
   since the USB controller does not sense it. When VBUS has been gone for
   50 ms the device reports not connected, so a pulled cable is told apart
   from a host that only suspends the bus, and a new run starts. Without
@@ -65,11 +61,9 @@ the host sends, and checks every frame against the test signal:
   also from boot; VBUS back for 50 ms turns it on (`usb connecting`), and
   the host enumerates the device again. With VBUS present at reset, the
   device turns its pull-up on first, within 100 ms of the reset (USB 2.0
-  7.1.7.3, TSIGATT), and starts the display and the LED test after it. The
-  USB stack keeps running during both, so the host enumerates the device
-  meanwhile. The pins: PC2 (VBUS_SENSE, VBUS divided by 7.61, read with
-  ADC1) on the NUCLEO-U5A5ZJ-Q, PB13 (VBUS of CN19) on the
-  STM32F723E-DISCO, and PA1 (USBC_DETECT) on the STM32U5G9J-DK2.
+  7.1.7.3, TSIGATT), and starts the LED test after it. The USB stack keeps
+  running during the test, so the host enumerates the device meanwhile.
+  The pin is PC2 (VBUS_SENSE, VBUS divided by 7.61, read with ADC1).
 
 For each stream it counts packets and frames, the average rate, packets lost
 (microframes without a packet), overflows (packets that found every buffer
@@ -134,116 +128,16 @@ packet late on purpose, on u2ps's injection hook, and `inject passes`, the
 time u2ps's interrupt handler takes per kind of pass
 ([`app/inject.h`](app/inject.h)).
 
-## Boards
+## Board
 
-Each board has the ST-LINK's USB port, which flashes it and carries the serial
-log, and a user USB port, which goes to the host under test; connect both.
-The user port is a High-Speed device port with the MCU's on-chip PHY. The
-NUCLEO-U5A5ZJ-Q's user port is a USB-C connector.
+The NUCLEO-U5A5ZJ-Q has the ST-LINK's USB port, which flashes it and carries
+the serial log, and a user USB port, which goes to the host under test;
+connect both. The user port is a USB-C connector, a High-Speed device port
+with the MCU's on-chip PHY.
 
-### STM32F723E-DISCO
-
-- **Ports:** the user port is CN19 (micro-AB, USB OTG HS). The checker
-  leaves the port's VBUS switch off, since it is a device on that port. The
-  ST-LINK port is CN1, the board's default supply. The log is on USART6
-  (PC6, PC7), behind the ST-LINK's virtual COM port.
-- **LEDs:** red LD5 (PA7), green LD6 (PB1) and blue LD1 (PA5, through the
-  solder bridge SB14), as in [LEDs](#leds).
-- **Button and touch:** B1 (PA0) starts a new run. So does a tap anywhere on
-  the touch screen, a FocalTech FT6x36 or FT3x67 on I2C3 that the firmware
-  finds at start-up; nothing else uses touch.
-- **Screen:** the 1.54" 240x240 panel (ST7789H2, which holds the frame itself)
-  on the FMC's 16-bit bus, drawn by the CPU; see [Screen](#screen). A fault
-  switches its backlight off.
-- **MCU:** a Cortex-M7 at 216 MHz from the board's 25 MHz oscillator. The data
-  cache is off and the instruction cache on, so the USB DMA needs no cache
-  maintenance or special buffer placement. The image is linked at the flash's
-  ITCM alias ([Flash](#flash)).
-
-### STM32U5G9J-DK2
-
-- **Ports:** the user port is CN2 (USB-C, USB OTG HS). The log is on USART1
-  (PA9, PA10), behind the ST-LINK's virtual COM port.
-- **LEDs:** red LD2 (PD2) and green LD3 (PD4), both lit by a low pin. There is
-  no blue LED: its row in [LEDs](#leds) does not apply, red and green show
-  the run as on the other boards, and the screen shows whether the device is
-  connected, waiting or checking. A fault lights red and green steady.
-  The boot LED test prints no line for blue.
-- **Button and touch:** B2 (PC13) starts a new run (B1 is the board's reset).
-  So does a tap anywhere on the touch screen, a Goodix GT911 on I2C2; the
-  firmware only reads the controller and never writes its configuration.
-- **Screen:** the 5" 800x480 panel (RK050HR18, parallel RGB, no command
-  interface) on the LTDC, drawn by the CPU into a frame buffer in SRAM6, a
-  bank that no other bus master uses, so the LTDC's reads never wait for the
-  USB DMA. The buffer has one byte per pixel and a fixed RGB332 palette, so
-  black, white, red and blue are exact; see [Screen](#screen). The panel
-  shows full green lighter than the F723's panel does, so the palette scales
-  its pure greens: full green is (0, 208, 0). The build option
-  `PANEL_GREEN_MAX` sets the 208 (0 to 255; 255 is no correction), and a
-  build with a correction logs `display green=<n>` at start-up. A fault switches its backlight off.
-- **MCU:** the STM32U5G9, with the same clock tree and USB set-up as the
-  NUCLEO-U5A5ZJ-Q.
-- **ST's demonstration firmware** is replaced when the board is flashed;
-  restoring it needs ST's demonstration package for the board.
-
-## Screen
-
-The F723's 240x240 screen and the left 480x480 of the DK2's screen show the
-same, the DK2's at twice the size. The right 320x480 of the DK2's screen is
-reserved and black. The content is built in
-[`app/screen_model.c`](app/screen_model.c) from the [status](app/status.h),
-and [`app/screen.c`](app/screen.c) draws it through the
-[panel interface](include/panel.h). The screen follows the run, as green and
-red do ([LEDs](#leds)). White text on black, in Spleen's fonts:
-
-- **Band:** one line in a thick frame, with a word for what is going on:
-  `NOT CONNECTED` (no host has set the device up, or the cable is out),
-  `WAITING` (connected, no stream) and `CHECKING` (a stream is open).
-- **Full-Speed:** set up by a host at Full-Speed, where the device offers no
-  audio, the band is tall instead and covers the labels and the file lines:
-  three lines, `NEEDS`, `HIGH-SPEED` and `USB PORT`, in a red frame, with no
-  hourglass. The version stays under it.
-- **Frame colour:** blue until the run has a result, green while every
-  result is `BIT_PERFECT`, red as soon as anything failed (a file's first
-  difference, `NOT_BIT_PERFECT`, `UNKNOWN_SIGNAL` or `OVERRUN`). It turns red
-  at once, also while a stream is open. Only blue, green and red are used.
-- **Hourglass:** right of `WAITING` and `CHECKING`, an outline that blinks
-  with the slow blink of the LEDs, so in `WAITING` it lights with the blue
-  LED. In `CHECKING` it blinks while packets arrive and stays lit when none
-  has arrived for 20 ms. `NOT CONNECTED` and the Full-Speed band have none.
-- **Labels:** under the band, in red and steady, each only if it occurred in
-  the run: `UNKNOWN` on the left (for `UNKNOWN_SIGNAL`) and `OVERRUN` on the
-  right. `NOT_BIT_PERFECT` has no label: the red frame shows it.
-- **File lines:** two lines, the file as its header gives it: its kind
-  (`PCM`, `PCM SWEEP` or `DoP`), then its depth and rate in kHz without the
-  unit (`24/96`, `16/44.1`) or, for DoP, its DSD rate (`DSD64`, `DSD128`,
-  `DSD256`). While a stream is open they show the file the checker locked
-  onto; otherwise the last result's file while it belongs to the current run.
-  A new run clears them.
-- **Version:** at the bottom, the firmware version as `fw=` shows it
-  ([Release](#release)), without the label, in at most 30 columns (a longer
-  one is cut).
-- **Splash:** for about 2 s after start-up, `BIT-PERFECT`, `CHECKER`, the
-  project's web address, the version, and three squares, red, green and blue,
-  that light in the order and timing of the boot LED test and stay lit; then
-  the status screen. The splash does not hold up the USB start.
-- **Fault:** the backlight goes off.
-
-The screen has no counters and no detail rows; the serial log has them.
-
-**Drawing never holds up USB.** The device's buffers hold 7 ms of audio on
-the STM32F723E-DISCO in 4-byte slots ([Load figures](#load-figures)), and
-the main loop must read them. Drawing is cut into small units
-(a strip of the band, one character), and `display_task()` runs on every
-pass of the main loop and starts a unit only if it fits in about 0.2 ms with
-the USB interrupts that come meanwhile. It draws only while less than
-0.5 ms of received audio waits to be read, and redraws only the characters that changed.
-Each unit's time is measured once at start-up. The hourglass's blink is one
-such unit.
-
-The build options `-DDISPLAY_LOG=ON` and `-DDISPLAY_STRESS=ON` log a line
-per redraw and redraw the whole screen continuously, to measure this
-([`app/screen.h`](app/screen.h)).
+Firmware 1.1.x and the tag `last-with-f723-dk2` also support the
+STM32F723E-DISCO and the STM32U5G9J-DK2, with their screens; these boards
+are no longer supported.
 
 ## USB ID
 
@@ -309,8 +203,7 @@ The setting in effect is on the `boot` line, the `status` answer and every
 ## Build
 
 Needs `arm-none-eabi-gcc` with newlib, CMake 3.22 or later (u2ps's
-minimum) and Ninja. A board with a display also needs
-Python 3, which converts the fonts at build time. From the repository root:
+minimum) and Ninja. From the repository root:
 
 ```
 git submodule update --init
@@ -318,8 +211,8 @@ cmake -S firmware -B firmware/build/nucleo_u5a5zj_q -G Ninja -DBOARD=nucleo_u5a5
 cmake --build firmware/build/nucleo_u5a5zj_q
 ```
 
-`<board>` is a folder in `boards/`: `nucleo_u5a5zj_q`, `stm32f723e_disco` or
-`stm32u5g9j_dk2`. `-DSHIELD=<shield>` adds a shield. The build writes
+`<board>` is a folder in `boards/`: `nucleo_u5a5zj_q`, the default.
+`-DSHIELD=<shield>` adds a shield. The build writes
 `bpc-<board>[-<shield>].elf`, `.bin` and `.hex` to the build folder. It must
 finish without compiler or linker warnings: the firmware's own sources build
 with `-Werror`.
@@ -338,34 +231,26 @@ cmake --build firmware/build/nucleo_u5a5zj_q --target flash
 This runs `STM32_Programmer_CLI -c port=SWD sn=<serial number> mode=UR -w <bin> 0x08000000 -v -rst`.
 Without `STLINK_SN` the target refuses to run, so that it never writes to
 another board that happens to be connected.
-Without STM32CubeProgrammer, copy the `.bin` to the ST-LINK's USB drive:
-`NOD_U5A5ZJ` on the NUCLEO-U5A5ZJ-Q, `DIS_F723IE` on the STM32F723E-DISCO.
-The STM32U5G9J-DK2's ST-LINK shows no drive, so flash it with
-STM32CubeProgrammer.
-
-Flash the `.bin`, not the `.elf` or `.hex`, on the STM32F723E-DISCO: the
-linker places its image at the flash's ITCM alias, 0x00200000, so the `.elf`
-and the `.hex` carry addresses there, while the `.bin` is the image for the
-flash's address 0x08000000, which the `flash` target writes it to and the
-USB drive writes at the flash's start.
+Without STM32CubeProgrammer, copy the `.bin` to the ST-LINK's USB drive,
+`NOD_U5A5ZJ`.
 
 ## Release
 
 Each firmware release, from 1.1.0 on, publishes
 `bit-perfect-checker-firmware-<version>.zip`, with the plain version, such
-as `1.2.0`. The zip holds, in one
-folder of its name, `bpc-<board>-<version>.bin` for every board (the flash
-image for 0x08000000), a `README.txt` on flashing, the USB ID, the commit
-and the version the firmware reports, a
+as `1.2.0`. The zip holds, in one folder of its name,
+`bpc-<board>-<version>.bin` for each board (the flash image for
+0x08000000; from 1.2.0 on, the NUCLEO-U5A5ZJ-Q's only), a `README.txt` on
+flashing, the USB ID, the commit and the version the firmware reports, a
 `NOTICES.txt` with the licences and copyright notices of everything in the
 images, and a `SHA256SUMS` of the `.bin` files.
 
 [`tools/package.py`](tools/package.py) writes it. It clones the repository
 at a commit or tag into a scratch folder, with the firmware's submodules at
-their pinned commits, builds every board with the build's defaults, and
-stops on a build warning, on a `-dirty` or `-unknown` version or one that
-is not the commit's, on boards
-built with different USB IDs or serial number prefixes, on a file of the zip
+their pinned commits, builds every board in its list (the NUCLEO-U5A5ZJ-Q)
+with the build's defaults, and stops on a build warning, on a `-dirty` or
+`-unknown` version or one that is not the commit's, on boards built with
+different USB IDs or serial number prefixes, on a file of the zip
 that holds a path of the machine it ran on, and on a file in a build folder
 that has copyright lines. README.txt's paragraph on the USB ID comes from the
 builds' `USB_VID`, `USB_PID` and `USB_SERIAL_PREFIX`. NOTICES.txt takes the
@@ -403,7 +288,7 @@ the same commit with the same toolchain gives the same bytes.
 Firmware releases are tagged `firmware-v<major>.<minor>.<patch>`, the first
 `firmware-v1.0.0`. `firmware/VERSION` holds the version being developed (now
 `1.2.0`), and the device reports its version as `fw=` in its `boot` and
-`version` lines and on a display as `v<version>-<commit>`, with git's short
+`version` lines as `v<version>-<commit>`, with git's short
 commit hash: `v1.2.0-6b94cda`, at the release tag and at any other commit
 alike, with `-dirty` when the tree has uncommitted changes, and
 `v1.2.0-unknown` for source outside git. At a firmware tag whose number is
@@ -427,18 +312,12 @@ their meaning.
 | Event | Meaning |
 |---|---|
 | `boot fw=<version> board=<board> role=bit-perfect-checker usb=<vid>:<pid> allow_silence=<true/false>` | start-up, with the firmware version ([Release](#release)), which firmware this is (`role=bit-perfect-checker`) and the [allowed silence](#allowed-silence) |
-| `led <colour> <pin>` | the LED test at start-up, after `usb connecting` (or after the pull-up went off for want of VBUS): red, green, blue, each for 0.3 s; no line for a colour the board lacks. The host may set the device up meanwhile |
-| `display st7789h2 id=0x<hex> fill_us=<n>` | STM32F723E-DISCO, at start-up: the panel answered and the screen was cleared in `fill_us` microseconds; `display st7789h2 id=0x<hex> missing` if the panel did not answer (no screen is drawn) |
-| `display ltdc <w>x<h> l8 fb=0x<hex> fill_us=<n>` | STM32U5G9J-DK2, at start-up: the panel runs at that size from an 8-bit frame buffer at that address, and the screen was cleared in `fill_us` microseconds; `display ltdc missing` if the panel did not start (no screen is drawn); `display sram6 clock was off` if the frame buffer's RAM bank had no clock and the firmware switched it on |
-| `display green=<n>` | STM32U5G9J-DK2, after its `display ltdc` line: the panel's full green is (0, `<n>`, 0) (`PANEL_GREEN_MAX`, [Boards](#stm32u5g9j-dk2)); not logged when it is 255 |
-| `touch <controller> id=0x<hex> g_mode=0x<hex>` | STM32F723E-DISCO, at start-up: the touch controller found, `ft6x36` or `ft3x67`; `touch none id=0x<hex> g_mode=0x<hex>` if no controller was found. STM32U5G9J-DK2: `touch gt911 id=<text> cfg=0x<hex> sw1=0x<hex> rate=<n> int=<0/1>`, the registers read from the controller, or `touch none` |
-| `display drawn ...`, `display units strip_us=<n> band_glyph_us=<n> text_glyph_us=<n> clear_us=<n>`, `display hourglass ...`, `display ltdc fuif=<n> terrif=<n> touch_reads=<n>` | only in a build with `-DDISPLAY_LOG=ON` ([Screen](#screen)): what drawing cost, and on the DK2 the LTDC's FIFO underruns and transfer errors |
-| `touch off after errors` | STM32U5G9J-DK2: three failed transfers to the touch controller in a row; touch stays off until the next reset. After a failed transfer the firmware waits 1 s before the next, and it reads the controller only while less than 0.5 ms of received audio waits to be read |
+| `led <colour> <pin>` | the LED test at start-up, after `usb connecting` (or after the pull-up went off for want of VBUS): red, green, blue, each for 0.3 s. The host may set the device up meanwhile |
 | `formats <list>` | the formats offered, as alt settings 1 to n; at boot, and after a `formats` command, with `changed=0` or `changed=1` |
 | `usb mounted speed=high` | a host has set the device up |
 | `usb mounted speed=full` | a host has set the device up at Full-Speed (a Full-Speed port, hub or cable on the way): the device offers no audio, so no stream can come |
 | `usb disconnected` | the cable was pulled (VBUS gone for 50 ms): once per pull, after the `result` and `stream stop` lines of a stream the pull cut and before `run start`, also when a host reset the bus first (`usb reset`) or never set the device up; or the host deconfigured the device while it was set up (SET_CONFIGURATION 0): a stream open then ends as at alt 0, with an `alt 0` line after this one and `reason=alt` |
-| `usb suspended`, `usb resumed` | the host suspended or resumed the bus; with VBUS still present the device stays connected. A pulled cable logs `usb suspended` first, since the USB controller sees only the bus going idle, and `usb disconnected` once VBUS has been gone for 50 ms: measured 45 to 49 ms later on the NUCLEO-U5A5ZJ-Q and the STM32U5G9J-DK2, about 0.3 s later on the STM32F723E-DISCO. The stream the pull cut stops with `reason=idle` when its 50 ms of idle pass first, else with `reason=reset`: at the pull the firmware reads the packets not read yet at once. Either way its `result` and `stream stop` lines come before `usb disconnected` |
+| `usb suspended`, `usb resumed` | the host suspended or resumed the bus; with VBUS still present the device stays connected. A pulled cable logs `usb suspended` first, since the USB controller sees only the bus going idle, and `usb disconnected` once VBUS has been gone for 50 ms: measured 45 to 49 ms later. The stream the pull cut stops with `reason=idle` when its 50 ms of idle pass first, else with `reason=reset`: at the pull the firmware reads the packets not read yet at once. Either way its `result` and `stream stop` lines come before `usb disconnected` |
 | `usb reset` | the host reset the bus while the device was set up, also while it was suspended (no `usb resumed` line comes then): an open stream ends, its packets not read yet are still checked, and its `stream stop` line (`reason=reset`) follows this one once they are read (if the host opens the next stream first, those still unread count as overflows); the host enumerates the device again |
 | `usb disconnected`, `usb connecting` | the device leaves the bus to change its formats (the D+ pull-up goes off for 0.3 s), and comes back when that time has passed and VBUS is present. A stream the change ends is read at once: its `result` and `stream stop` lines (`reason=reset`) come before the `formats ... changed=1` answer and `usb disconnected` |
 | `usb connecting` | at start-up with VBUS present, before the LED test; or VBUS is back for 50 ms after a pull, or after a boot without VBUS: the device turns its D+ pull-up on, and the host enumerates it (`usb mounted`) |
@@ -455,7 +334,7 @@ their meaning.
 | `result seq=<n> stream=<n> file=<n> verdict=<verdict> kind=<kind> ...` | **the outcome of one file**: see [Result lines](#result-lines) |
 | `stream stop id=<n> reason=<why> dur=<s> frames=<n> pkts=<n> rate=<Hz> fpp=<min>-<max> lost=<n> missed=<n> holes=<n> maxhole=<n> doubled=<n> late=<n> ovf=<n> outside=<frames> silent=<frames> results=<n> results_lost=<n>` | end of a stream, after its last `result` line: `alt` (alt setting changed, also to 0 by the host's SET_CONFIGURATION, to a configuration or to 0; the line comes once the packets of the old alt setting are read, after the `alt` line), `idle` (no packet, zero-length ones included, for 50 ms once every packet that came is read, as after a cable pull; microframes in which a packet came late or found no free buffer are no part of these 50 ms, nor of a `pause`; a damaged packet, which the USB controller drops unseen, counts as no packet), `rate` (the host set another rate during the stream; the stream stops with the new rate's first packet, or after 50 ms without a packet, once the packets of the old rate are read, after the `rate` line, so overflows (packets that found no buffer) before the change count in it), `reset` (the device stopped being set up: a bus reset, a cable pull judged before the 50 ms of idle have passed, or a `formats` change; after a bus reset the line comes once the stream's packets are read, after the `usb reset` line; at a pull or a `formats` change the firmware reads them at once, and the line comes before `usb disconnected` and the `formats` answer) or `pause` (the host sent again after 50 ms without a packet); `fpp` is frames per packet; `holes` counts the runs of microframes without a packet and `maxhole` is the longest; of the `missed` microframes, `late` are those the device re-armed for too late; `outside` is the number of frames of the stream outside every file's extent ([12.6](../docs/bpc1.md#126-verdicts)), so host padding can be measured; `silent` is the number of those frames that were allowed silence, which gave no result (0 unless `allow_silence` is `true`); `results` is the number of result lines of the stream, and `results_lost` the number of results of the stream the checker dropped because its queue of finished results was full |
 | `stall <ms>` | the [`stall` command](#commands-to-the-device) started its busy-wait of `<ms>` milliseconds |
-| `run start` | a new run begins: the user button was pressed or the touch screen tapped, the `mark` command arrived, the USB cable was pulled (after `usb disconnected`), or the board reset; green and red go off ([LEDs](#leds)). It follows any `result` line still waiting at that moment, whose result belongs to the run before |
+| `run start` | a new run begins: the user button was pressed, the `mark` command arrived, the USB cable was pulled (after `usb disconnected`), or the board reset; green and red go off ([LEDs](#leds)). It follows any `result` line still waiting at that moment, whose result belongs to the run before |
 | `usb unsupported get/set entity=<id> ctrl=<n> req=<n>` | a class request the device does not answer |
 | `usb counters late_completions=<n> late=<n> no_buffer=<n> fb_recoveries=<n> errors=<n> release_errors=<n> uframe_back=<n> ev_lost=<n>` | the USB stack's counters, logged when one has changed, looked at every second and after each stream: packets whose re-arm came in a later microframe, microframes re-armed for too late, microframes without a buffer, feedback endpoint recoveries, port errors, buffer returns the stack ignored, packets not after the one before, and USB events the firmware lost, among them stream boundaries (a pause, a rate or alt setting change) that came while the main loop was eight segments behind, whose packets are then not checked ([Result lines](#result-lines)). `release_errors` and `uframe_back` count since the USB stack last started (at boot or a `formats` change), the others since boot. `ev_lost` above 0 is a fault: all LEDs light |
 | `usb init failed reason=<name> description=<name> port=<name>` | the USB stack did not start, so the device never attaches; all LEDs light. `reason` is u2ps's (`clock`, `power`, `security`, `phy`, `reset`, `mode`, `memory`, `description`, `port`, `dma_memory`, `timer`), `description` the rule of the device's description broken (`ok` if none), `port` the controller port's own reason (`ok`, `clock`, `power`, `tzen`, `phy`, `reset`, `mode`, `fifo`, `cycles`); `timer` and `cycles`: the CPU's cycle counter, which u2ps times its waits with, does not count |
@@ -585,16 +464,15 @@ None of these changes the totals: a stream's result lines add up to its
 with no result line (silence only while allowed, or cut before any of its
 frames was read), whose counts are on its `stream stop` line only.
 
-For example, a 48 kHz 24-bit file in 3-byte slots on the
-STM32F723E-DISCO, which overran after a `stall 200`, from a development
-build of 1.2.0 (time stamps and that build's `crc=0` field left out; the
-`stream stop` line follows the `result` line). The stream's `rate` reads
-low, since the overflowed packets' frames never arrived while their
-microframes count:
+For example, a 768 kHz 16-bit file in 2-byte slots on the
+NUCLEO-U5A5ZJ-Q, which overran after a `stall 2000`, from a development
+build of 1.2.0 (time stamps left out; the `stream stop` line follows the
+`result` line). The stream's `rate` reads low, since the overflowed
+packets' frames never arrived while their microframes count:
 
 ```
-result seq=35 stream=35 file=1 verdict=OVERRUN kind=PCM dop=0 seed=0x42504331 nch=2 file_rate=48000 depth=24 rate=48000 alt=4 slot=3 res=24 bits=24 end=LAST diff=- lost=0 ovf=1526 dur=12.438
-stream stop id=35 reason=alt dur=12.649 frames=598014 pkts=99669 rate=47276.16 fpp=6-6 lost=0 missed=0 holes=0 maxhole=0 doubled=0 late=0 ovf=1526 outside=0 silent=0 results=1 results_lost=0
+result seq=47 stream=45 file=1 verdict=OVERRUN kind=PCM dop=0 seed=0x42504331 nch=2 file_rate=768000 depth=16 rate=768000 alt=1 slot=2 res=16 bits=16 end=LAST diff=- lost=0 ovf=13307 dur=10.965
+stream stop id=45 reason=alt dur=12.649 frames=8437152 pkts=87887 rate=667008.08 fpp=96-96 lost=0 missed=0 holes=0 maxhole=0 doubled=0 late=0 ovf=13307 outside=0 silent=0 results=1 results_lost=0
 ```
 
 The verdicts, from the BPC1 specification
@@ -626,14 +504,12 @@ From the CPU's cycle counter (DWT), in every `stat` line for that second:
 | `loop_max` | microseconds of the longest main-loop iteration, interrupts included |
 | `fifo_max` | the most audio received and not read yet, in microseconds |
 
-The CPU runs at 160 MHz on the NUCLEO-U5A5ZJ-Q and the STM32U5G9J-DK2 and at
-216 MHz on the STM32F723E-DISCO; `isr_max` and `ck_cpf` count CPU cycles.
-The device gives the USB stack as many buffers for a stream as its class
-memory holds, one packet each, so one microframe (125 us) of audio at every
-rate: on the STM32U5 boards (1 MB) 1351 buffers (169 ms) in 4-byte slots and
-2702 (338 ms) in 2-byte slots, on the STM32F723E-DISCO (44 KB in DTCM) 56
-(7 ms) and 108 (13.5 ms). The USB stack keeps one of them armed, so the
-device holds one fewer. `fifo_max` near that means the main loop is close to
+The CPU runs at 160 MHz; `isr_max` and `ck_cpf` count CPU cycles. The
+device gives the USB stack as many buffers for a stream as its class memory
+(1 MB) holds, one packet each, so one microframe (125 us) of audio at every
+rate: 1351 buffers (169 ms) in 4-byte slots and 2702 (338 ms) in 2-byte
+slots. The USB stack keeps one of them armed, so the device holds one
+fewer. `fifo_max` near that means the main loop is close to
 falling behind; beyond it packets overflow.
 
 The average rate is measured against the host's microframe clock, so it
@@ -714,9 +590,6 @@ format conversion.
 
 ## LEDs
 
-The DK2 has no blue LED, so its screen shows what blue shows
-([Boards](#boards)). A fault lights every LED a board has.
-
 | LED | Meaning |
 |---|---|
 | blue, fast blink | not connected: the cable is out, or no host has set the device up |
@@ -731,8 +604,8 @@ The DK2 has no blue LED, so its screen shows what blue shows
 | all on | a fault: `usb init failed` (the device never attaches); a USB fault the firmware runs on after until a reset (`usb fault open`, `usb fault start timeout`, `usb fault queue not empty`, or `ev_lost` above 0 in `usb counters`); or the processor stopped in its fault handler |
 
 Green and red show the current **run**: every result since the last press of
-the user button (B1 on the NUCLEO-U5A5ZJ-Q and the F723, B2 on the DK2, or
-a tap on a touch screen), the console command `mark`, a pulled USB cable (VBUS gone for 50 ms), or a reset. A pull
+the user button (B1), the console command `mark`, a pulled USB cable (VBUS
+gone for 50 ms), or a reset. A pull
 during playback cuts a file: its result stays in the run before, and while
 the cable is out green and red are off.
 They do not depend on how the host splits files into streams, and they keep
@@ -757,7 +630,7 @@ Each case builds on the one before.
 1. Copy `boards/nucleo_u5a5zj_q/` to `boards/<board>/`.
 2. In `board.cmake`, set `MCU_VARIANT` (it picks the CMSIS header and
    startup file), `HSE_VALUE`, `LINKER_SCRIPT` and `U2PS_CHIP`, the chip as
-   u2ps names it (`stm32u5a5`, which the STM32U5G9J-DK2 uses too). Add a linker script to
+   u2ps names it (`stm32u5a5`). Add a linker script to
    `families/stm32u5/linker/` if the memory differs.
 3. In `board.c`, write the clock tree, the LED pins (`board_led_name()`
    returns NULL for a colour the board lacks), the log UART's pins and its
@@ -766,20 +639,17 @@ Each case builds on the one before.
    VBUS.
 4. Build with `-DBOARD=<board>`.
 
-**A board of another family** (the STM32F723E-DISCO's `families/stm32f7/` was
-added this way): add `families/<family>/` like `families/stm32u5/` or
-`families/stm32f7/`, with
-`family.cmake` (CPU flags, the HAL modules, and the class memory for
-u2ps's buffers: `FAMILY_CLASS_MEM_BYTES` and `U2PS_ISO_OUT_COUNT_MAX`),
-`family.c` (the USB pins and interrupt, whose handler calls u2ps's
+**A board of another family:** add `families/<family>/` like
+`families/stm32u5/`, with `family.cmake` (CPU flags, the HAL modules, and
+the class memory for u2ps's buffers: `FAMILY_CLASS_MEM_BYTES` and
+`U2PS_ISO_OUT_COUNT_MAX`), `family.c` (the USB pins and interrupt, whose handler calls u2ps's
 `u2ps_dwc2_dcd_irq()`, the log UART, tick, interrupts), the HAL
 configuration and linker scripts; add that family's CMSIS and HAL to `lib/`
 as pinned submodules. The chip needs a u2ps port (`U2PS_CHIP`). Then add
 the board as above.
 
-**A board with a display** (a Discovery or evaluation kit): implement
-[`display.h`](include/display.h) in the board's folder and list the file in
-`board.cmake`:
+**A board with a display:** implement [`display.h`](include/display.h) in
+the board's folder and list the file in `board.cmake`:
 
 ```
 list(APPEND DISPLAY_SOURCES ${CMAKE_CURRENT_LIST_DIR}/display.c)
@@ -787,9 +657,9 @@ list(APPEND DISPLAY_SOURCES ${CMAKE_CURRENT_LIST_DIR}/display.c)
 
 `display_update()` gets the [status](app/status.h) after every change and
 does not draw. `display_task()` is called on every pass of the main loop and
-draws at most about 0.2 ms at a time, because the device's buffers hold as
-little as 7 ms of audio ([Load figures](#load-figures)). `display_init()` runs after the device has
-attached, so it waits only with `display_wait()`, which keeps the USB stack
+draws at most about 0.2 ms at a time, so that the main loop keeps reading
+the device's buffers ([Load figures](#load-figures)). `display_init()` runs
+after the device has attached, so it waits only with `display_wait()`, which keeps the USB stack
 and the stream's reading running, so that the host can enumerate the device
 and a stream that starts meanwhile is checked. `display_led_test()` (optional) is
 called as the start-up LED test lights each LED, for a splash that shows the
@@ -798,35 +668,9 @@ The fault handler calls `board_fault()` before it stops; a board with a
 display turns its backlight off there. A board without a display builds
 `app/display_none.c` instead.
 
-To use the [status screen](#screen) of the F723 and the DK2, the board's
-folder holds:
-
-1. A panel driver that implements [`panel.h`](include/panel.h):
-   `panel_init()` (bus, reset, controller set-up, screen cleared to black,
-   backlight on; false if no panel answers), `panel_width()` and
-   `panel_height()`, `panel_window()` for the rectangle the next writes fill,
-   `panel_fill()` for pixels of one colour and `panel_bits()` for a bitmap.
-   Colours are `0xRRGGBB`; the driver turns them into the panel's format.
-2. A `screen_layout_t` and a table of `screen_place_t` ([`app/screen.h`](app/screen.h)):
-   where the band, the labels, the file lines and the version go, in which
-   font, and the splash. The DK2's is in `screen_layout.h`, doubled from the
-   F723's.
-3. A `display.c` whose `display_init()` calls `panel_init()` and
-   `screen_init(&layout)`, and whose `display_update()`, `display_task()` and
-   `display_led_test()` call `screen_update()`, `screen_task()` and
-   `screen_splash_led()`.
-4. In `board.cmake`, the sources (`display.c`, the panel driver,
-   `app/screen.c` and `app/screen_model.c`) in `DISPLAY_SOURCES`, and the
-   fonts in `DISPLAY_FONTS`, as `<name>=<file>` pairs naming BDF files in
-   `lib/spleen`:
-   ```
-   set(DISPLAY_FONTS 8x16=spleen-8x16.bdf 12x24=spleen-12x24.bdf 16x32=spleen-16x32.bdf)
-   ```
-   The build converts them and gives the layout `font_<name>` (`font_8x16`)
-   from `fonts.h`. A size Spleen lacks can be made from a smaller one at
-   start-up with `screen_font_double()`, as the DK2 does.
-5. For touch, `board_button()` returns true while a finger is down, besides
-   the button, as the F723's and the DK2's do.
+The status screen of the STM32F723E-DISCO and the STM32U5G9J-DK2, with its
+panel drivers, fonts and touch, is in the source at the tag
+`last-with-f723-dk2`.
 
 **A board with a display shield** (the NUCLEO-U5A5ZJ-Q with an Arduino-header TFT):
 add `shields/<shield>/shield.cmake`, which appends the display driver to
@@ -838,14 +682,8 @@ header next to it.
 ## Licences
 
 The firmware is MIT. Third-party code comes through the pinned submodules,
-under their own licences. The two panel drivers,
-`boards/stm32f723e_disco/panel_st7789h2.c` and
-`boards/stm32u5g9j_dk2/panel_rk050hr18.c`, each hold a table taken from
-ST's code (the ST7789H2 set-up, the RK050HR18 timing and LTDC settings)
-under ST's BSD-3-Clause notice in the file; their SPDX identifier is
-`MIT AND BSD-3-Clause`. The screens' fonts are
-[Spleen](https://github.com/fcambus/spleen) (BSD-2-Clause), converted at
-build time.
+under their own licences. `boards/nucleo_u5a5zj_q/board.c` follows
+TinyUSB's board file for the board and keeps TinyUSB's MIT notice.
 
 ## How it was written
 

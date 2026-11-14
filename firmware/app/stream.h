@@ -78,16 +78,9 @@ void stream_log_result(void);
 // of a result taken before it if that line still waits.
 void stream_run_start(void);
 
-// Audio received and not read yet, in microseconds; 0 outside a stream.
-uint32_t stream_backlog_us(void);
-
 // Segment starts the interrupt dropped, since boot: a pause, rate or alt
 // boundary while the main loop was too many segments behind to keep
 // another's counters. The glue counts them as lost events, a fault.
 uint32_t stream_lost_starts(void);
-
-// The packets the interrupt counted, the low 32 bits: it moves while audio
-// arrives (it starts over with each segment of a stream).
-uint32_t stream_packets(void);
 
 #endif

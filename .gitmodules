@@ -6,21 +6,9 @@
 	path = firmware/lib/stm32u5xx_hal_driver
 	url = https://github.com/STMicroelectronics/stm32u5xx_hal_driver
 	shallow = true
-[submodule "firmware/lib/cmsis_device_f7"]
-	path = firmware/lib/cmsis_device_f7
-	url = https://github.com/STMicroelectronics/cmsis_device_f7
-	shallow = true
-[submodule "firmware/lib/stm32f7xx_hal_driver"]
-	path = firmware/lib/stm32f7xx_hal_driver
-	url = https://github.com/STMicroelectronics/stm32f7xx_hal_driver
-	shallow = true
 [submodule "firmware/lib/CMSIS_5"]
 	path = firmware/lib/CMSIS_5
 	url = https://github.com/ARM-software/CMSIS_5
-	shallow = true
-[submodule "firmware/lib/spleen"]
-	path = firmware/lib/spleen
-	url = https://github.com/fcambus/spleen
 	shallow = true
 [submodule "firmware/lib/u2ps"]
 	path = firmware/lib/u2ps

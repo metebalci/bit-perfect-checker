@@ -44,7 +44,7 @@
 
 // The DWC2 port names why it did not start or refused a stream; a build for
 // the PC test kit has a fake port instead
-#if defined(U2PS_CHIP_STM32F723) || defined(U2PS_CHIP_STM32U5A5)
+#if defined(U2PS_CHIP_STM32U5A5)
 #include "u2ps_dwc2_dcd.h"
 #define PORT_DWC2 1
 #endif
@@ -140,7 +140,7 @@ static volatile uint32_t ev_head;  // the callbacks'
 static volatile uint32_t ev_tail;  // the main loop's
 static volatile uint32_t ev_lost;
 
-static FAMILY_ISR_CODE event_t *ev_put(ev_type_t type, uint32_t value) {
+static event_t *ev_put(ev_type_t type, uint32_t value) {
   uint32_t head = ev_head;
   if ((head + 1u) % EVENTS == ev_tail) {
     ev_lost++;
@@ -151,12 +151,12 @@ static FAMILY_ISR_CODE event_t *ev_put(ev_type_t type, uint32_t value) {
   return &events[head];
 }
 
-static FAMILY_ISR_CODE void ev_commit(void) {
+static void ev_commit(void) {
   atomic_signal_fence(memory_order_release);  // the event before the head
   ev_head = (ev_head + 1u) % EVENTS;
 }
 
-static FAMILY_ISR_CODE void ev_simple(ev_type_t type, uint32_t value) {
+static void ev_simple(ev_type_t type, uint32_t value) {
   if (ev_put(type, value) != NULL) {
     ev_commit();
   }
@@ -166,12 +166,11 @@ static FAMILY_ISR_CODE void ev_simple(ev_type_t type, uint32_t value) {
 // u2ps app callbacks
 //--------------------------------------------------------------------+
 
-// Those that u2ps calls in the USB interrupt, and the event queue's side
-// they use, run from ITCM RAM where the family has it (FAMILY_ISR_CODE,
-// family.h); u2ps_app_on_vbus() is called from the main loop only.
+// u2ps calls these in the USB interrupt, except u2ps_app_on_vbus(), which
+// it calls from the main loop only.
 
 // No vendor requests
-FAMILY_ISR_CODE int u2ps_app_on_request(const u2ps_request_t *req) {
+int u2ps_app_on_request(const u2ps_request_t *req) {
   (void) req;
   return U2PS_REQ_STALL;
 }
@@ -180,7 +179,7 @@ FAMILY_ISR_CODE int u2ps_app_on_request(const u2ps_request_t *req) {
 // the closest one. A listed one is answered from the main loop once the
 // stream has taken it (the stack then sets the nominal feedback), so u2ps
 // takes no rate the stream has not.
-FAMILY_ISR_CODE int u2ps_app_on_sampling_frequency(uint32_t requested, uint32_t chosen, uint32_t id) {
+int u2ps_app_on_sampling_frequency(uint32_t requested, uint32_t chosen, uint32_t id) {
   if (requested != chosen) {
     ev_simple(EV_RATE_BAD, requested);
     return U2PS_REQ_STALL;
@@ -194,7 +193,7 @@ FAMILY_ISR_CODE int u2ps_app_on_sampling_frequency(uint32_t requested, uint32_t 
   return U2PS_REQ_DEFER;
 }
 
-FAMILY_ISR_CODE void u2ps_app_on_configured(bool configured, u2ps_config_end_t why) {
+void u2ps_app_on_configured(bool configured, u2ps_config_end_t why) {
   event_t *e = ev_put(EV_CONFIGURED, configured ? (uint32_t) u2ps_dev_speed() : 0u);
   if (e != NULL) {
     e->why = why;
@@ -205,7 +204,7 @@ FAMILY_ISR_CODE void u2ps_app_on_configured(bool configured, u2ps_config_end_t w
 // Opened by the main loop (u2ps_dev_stream_open()) once the stream module
 // has taken the new format; the feedback stays the nominal value the stack
 // filled in: there is no audio clock to follow
-FAMILY_ISR_CODE u2ps_stream_start_t u2ps_app_on_stream_start(const u2ps_stream_info_t *info, u2ps_stream_cfg_t *cfg) {
+u2ps_stream_start_t u2ps_app_on_stream_start(const u2ps_stream_info_t *info, u2ps_stream_cfg_t *cfg) {
   event_t *e = ev_put(EV_START, info->alternate_setting);
   if (e == NULL) {
     return U2PS_STREAM_REFUSE;
@@ -222,7 +221,7 @@ FAMILY_ISR_CODE u2ps_stream_start_t u2ps_app_on_stream_start(const u2ps_stream_i
   return U2PS_STREAM_DEFER;
 }
 
-FAMILY_ISR_CODE void u2ps_app_on_packet(const uint8_t *data, uint16_t len, u2ps_uframe_t uframe) {
+void u2ps_app_on_packet(const uint8_t *data, uint16_t len, u2ps_uframe_t uframe) {
   isr_packets++;
   stream_packet_isr(data, len, uframe);
 }
@@ -234,26 +233,26 @@ FAMILY_ISR_CODE void u2ps_app_on_packet(const uint8_t *data, uint16_t len, u2ps_
 // stack_init(), uac2_unplug()), always before on_stream_stop. None of those
 // calls comes from inside stream.c, and stream.c reads what these write
 // only with interrupts off.
-FAMILY_ISR_CODE void u2ps_app_on_hole(uint16_t uframes, u2ps_miss_t why) {
+void u2ps_app_on_hole(uint16_t uframes, u2ps_miss_t why) {
   if (why != U2PS_MISS_NO_PACKET) {
     isr_sent += uframes;
   }
   stream_hole_isr(uframes, (unsigned) why);
 }
 
-FAMILY_ISR_CODE void u2ps_app_on_pause(uint16_t uframes) {
+void u2ps_app_on_pause(uint16_t uframes) {
   (void) uframes;
   stream_restart_isr();
 }
 
 // u2ps has the stream's buffers back: the packets the main loop has not
 // read yet are not given back (uac2_release())
-FAMILY_ISR_CODE void u2ps_app_on_stream_stop(void) {
+void u2ps_app_on_stream_stop(void) {
   isr_stream = 0;
   ev_simple(EV_STOP, 0);
 }
 
-FAMILY_ISR_CODE void u2ps_app_on_fault(u2ps_fault_t fault) {
+void u2ps_app_on_fault(u2ps_fault_t fault) {
   event_t *e = ev_put(EV_FAULT, (uint32_t) fault);
   if (e != NULL) {
 #ifdef PORT_DWC2
@@ -265,15 +264,15 @@ FAMILY_ISR_CODE void u2ps_app_on_fault(u2ps_fault_t fault) {
   }
 }
 
-FAMILY_ISR_CODE void u2ps_app_on_reset(void) {
+void u2ps_app_on_reset(void) {
   ev_simple(EV_RESET, 0);
 }
 
-FAMILY_ISR_CODE void u2ps_app_on_suspend(void) {
+void u2ps_app_on_suspend(void) {
   ev_simple(EV_SUSPEND, 0);
 }
 
-FAMILY_ISR_CODE void u2ps_app_on_resume(void) {
+void u2ps_app_on_resume(void) {
   ev_simple(EV_RESUME, 0);
 }
 
@@ -296,7 +295,7 @@ void u2ps_app_on_vbus(bool present) {
 // a stream, each class request to an entity that nothing answered, and
 // SET_CONFIGURATION to a configuration, which stops the stream with no
 // on_configured() call while the device is configured (u2ps_dev.h)
-FAMILY_ISR_CODE void u2ps_app_on_control(const u2ps_setup_t *setup, int result) {
+void u2ps_app_on_control(const u2ps_setup_t *setup, int result) {
   uint8_t type = setup->bmRequestType & REQ_TYPE_MASK;
   if ((setup->bmRequestType & REQ_RECIP_MASK) == REQ_RECIP_DEV) {
     if (type == REQ_TYPE_STD && setup->bRequest == SET_CONFIGURATION && result >= 0 && setup->wValue != 0u) {

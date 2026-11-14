@@ -31,11 +31,6 @@ set(UAC2_FORMATS "16/2,24/4,32/4,24/3" CACHE STRING "Formats offered at boot")
 # command "allow_silence" changes it.
 option(ALLOW_SILENCE "Silence outside every file gives no result" ON)
 
-# For a board with a status screen (app/screen.h), test builds only: a log
-# line per completed redraw, and redrawing everything without a pause.
-option(DISPLAY_LOG "Log each redraw of the status screen" OFF)
-option(DISPLAY_STRESS "Redraw the whole status screen continuously" OFF)
-
 # Test builds only, never a release: the console command "inject", which
 # re-arms the audio OUT endpoint late on purpose (app/inject.h), on u2ps's
 # injection hook (U2PS_TEST_INJECT).
@@ -73,30 +68,6 @@ if(SHIELD)
 endif()
 if(NOT DISPLAY_SOURCES)
   set(DISPLAY_SOURCES ${APP}/display_none.c)
-endif()
-
-# A display's fonts: a board or shield lists them in DISPLAY_FONTS as
-# <name>=<file>, <file> a BDF font in lib/spleen, and gets font_<name> from
-# fonts.h. tools/fontgen.py writes fonts.c and fonts.h into the build folder,
-# so only display builds need Python.
-if(DISPLAY_FONTS)
-  find_package(Python3 REQUIRED COMPONENTS Interpreter)
-  set(FONTS_DIR ${CMAKE_BINARY_DIR}/fonts)
-  set(fontgen_args "")
-  set(fontgen_bdf "")
-  foreach(font IN LISTS DISPLAY_FONTS)
-    string(REPLACE "=" ";" font_parts "${font}")
-    list(GET font_parts 0 font_name)
-    list(GET font_parts 1 font_file)
-    list(APPEND fontgen_args "${font_name}=${LIB}/spleen/${font_file}")
-    list(APPEND fontgen_bdf ${LIB}/spleen/${font_file})
-  endforeach()
-  add_custom_command(
-    OUTPUT ${FONTS_DIR}/fonts.c ${FONTS_DIR}/fonts.h
-    COMMAND Python3::Interpreter -I ${FIRMWARE}/tools/fontgen.py --out ${FONTS_DIR} ${fontgen_args}
-    DEPENDS ${FIRMWARE}/tools/fontgen.py ${fontgen_bdf}
-    COMMENT "Generating the display fonts")
-  list(APPEND DISPLAY_SOURCES ${FONTS_DIR}/fonts.c ${FONTS_DIR}/fonts.h)
 endif()
 
 # u2ps device stack for the board's chip (U2PS_CHIP, board.cmake) with the
@@ -157,15 +128,11 @@ add_executable(${FW}
   ${BOARD_SOURCES}
   ${FAMILY_SOURCES})
 target_include_directories(${FW} PRIVATE ${FIRMWARE}/include ${APP} ${FIRMWARE}/bpc1 ${CMAKE_BINARY_DIR})
-if(DISPLAY_FONTS)
-  target_include_directories(${FW} PRIVATE ${FONTS_DIR})
-endif()
 target_compile_definitions(${FW} PRIVATE BOARD_NAME="${BOARD}" USB_VID=${USB_VID} USB_PID=${USB_PID}
                            USB_SERIAL_PREFIX="${USB_SERIAL_PREFIX}"
                            UAC2_FORMATS_DEFAULT="${UAC2_FORMATS}"
                            CLASS_MEM_BYTES=${FAMILY_CLASS_MEM_BYTES}u CLASS_MEM_BUFFERS_MIN=40u
-                           ALLOW_SILENCE_DEFAULT=$<IF:$<BOOL:${ALLOW_SILENCE}>,true,false>
-                           $<$<BOOL:${DISPLAY_LOG}>:DISPLAY_LOG> $<$<BOOL:${DISPLAY_STRESS}>:DISPLAY_STRESS>)
+                           ALLOW_SILENCE_DEFAULT=$<IF:$<BOOL:${ALLOW_SILENCE}>,true,false>)
 target_compile_options(${FW} PRIVATE $<$<COMPILE_LANGUAGE:C>:${WARNINGS} -Werror>)
 if(BPC_TEST_INJECT)
   message(STATUS "BPC_TEST_INJECT: a test build with the inject command, never a release")

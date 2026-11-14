@@ -7,6 +7,10 @@
 //   absent <led>       the board has no such LED (board_led_name() is NULL)
 //   pass               the run's results are all BIT_PERFECT (green after the test)
 //   fault              a USB fault (status.usb_fault)
+//   status [<field>=<0|1> ...]
+//                      a zeroed status with these fields: usb (0 not
+//                      mounted, 1 mounted, 2 suspended), hs, streaming, and
+//                      the run's pass, fail, unknown and overrun
 //   test               leds_test() at the current time
 //   run <ms> [<step>]  leds_task() every step ms (default 1) for ms
 //
@@ -18,6 +22,7 @@
 
 #include <stdarg.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 #include "board.h"
@@ -68,6 +73,44 @@ static void show(void) {
   }
 }
 
+static int set_field(const char *key, long v) {
+  status_t *s = &status;
+  if (strcmp(key, "usb") == 0) {
+    s->usb = (usb_state_t) v;
+  } else if (strcmp(key, "hs") == 0) {
+    s->high_speed = v != 0;
+  } else if (strcmp(key, "streaming") == 0) {
+    s->streaming = v != 0;
+  } else if (strcmp(key, "pass") == 0) {
+    s->run_pass = v != 0;
+  } else if (strcmp(key, "fail") == 0) {
+    s->run_fail = v != 0;
+  } else if (strcmp(key, "unknown") == 0) {
+    s->run_unknown = v != 0;
+  } else if (strcmp(key, "overrun") == 0) {
+    s->run_overrun = v != 0;
+  } else {
+    return -1;
+  }
+  return 0;
+}
+
+// "status <field>=<value> ...": a zeroed status with these fields
+static int set_status(char *fields) {
+  memset(&status, 0, sizeof(status));
+  for (char *kv = strtok(fields, " \r\n"); kv != NULL; kv = strtok(NULL, " \r\n")) {
+    char *eq = strchr(kv, '=');
+    if (eq == NULL) {
+      return -1;
+    }
+    *eq = '\0';
+    if (set_field(kv, strtol(eq + 1, NULL, 10)) != 0) {
+      return -1;
+    }
+  }
+  return 0;
+}
+
 static int led_by_name(const char *name) {
   for (int i = 0; i < LED_COUNT; i++) {
     if (strcmp(name, names[i]) == 0) {
@@ -93,6 +136,10 @@ int main(void) {
       status.run_pass = true;
     } else if (strcmp(word, "fault") == 0) {
       status.usb_fault = true;
+    } else if (strcmp(word, "status") == 0) {
+      if (set_status(line + strlen("status")) != 0) {
+        return 1;
+      }
     } else if (strcmp(word, "test") == 0) {
       leds_test();
       show();

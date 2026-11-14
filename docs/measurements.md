@@ -64,7 +64,10 @@ Contents:
 - **Board.** NUCLEO-U5A5ZJ-Q, as in the firmware README. The repeats of
   section 2.8 and sections 2.9 to 2.11, 2.13 and 2.14 also used an
   STM32F723E-DISCO, and sections 2.10, 2.11, 2.13 and 2.14 an
-  STM32U5G9J-DK2. The USB controller's mode is in section 2.3.
+  STM32U5G9J-DK2, with firmware that supported them (1.1.x). These two
+  boards are no longer supported; their figures stay here as history,
+  where they show whether an effect depended on the board. The USB
+  controller's mode is in section 2.3.
 - **Test files.** The BPC1 regular set and, in the early runs, the 32-bit
   WAVs the BPC1 file generator writes on request. Streams of the early runs
   last 8.6 s (352.8 kHz and above) or 12.6 s; later files are 12.6 s at
@@ -389,7 +392,7 @@ microframe after a late packet, and on the PCIe controller setup the
 device's own misses went from 66, 17 and 15 to 0. The patch helps here,
 but it is not a safe general change.
 
-### 2.13 Firmware 1.1.0 on all three boards
+### 2.13 Firmware 1.1.0 on three boards
 
 Builds of 1.1.0 with both patches, PCIe controller setup:
 
@@ -578,5 +581,5 @@ USB-IF's USB3CV (USB 3 Gen X Command Verifier) on Windows 11, suite
 (`v1.1.1-5762032`) on the NUCLEO-U5A5ZJ-Q at High-Speed: passed, 0 fails,
 0 aborts. This includes the device qualifier and other-speed configuration
 requests, suspend and resume, and 150 enumerations. The only warnings came
-from the tool, which had no vendor name for 16C0. The Full-Speed run and the
-other two boards were not tested.
+from the tool, which had no vendor name for 16C0. The Full-Speed run was
+not tested.

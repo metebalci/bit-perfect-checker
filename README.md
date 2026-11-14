@@ -40,8 +40,7 @@ USB controller skipped. A lost packet shows as `lost` in the result, so it is
 told apart from an altered sample.
 
 The board shows its verdicts on its LEDs and in a serial log, with one result
-line per file; the STM32F723E-DISCO and the STM32U5G9J-DK2 also show the state
-and the verdict on their screens. See [firmware](firmware/README.md).
+line per file. See [firmware](firmware/README.md).
 
 To use the checker, see <https://bpc.metebalci.com>: what it is, the
 downloads, how to play the files and read the LEDs, the serial log and
@@ -59,7 +58,7 @@ rebuilding a release. The design and its reasons are in
 | `docs/design.md` | [design](docs/design.md): the choices behind the project and why |
 | `docs/bpc1.md` | [BPC1 signal format](docs/bpc1.md), the specification |
 | `docs/measurements.md` | [measurements](docs/measurements.md): what was measured on hardware with Linux and an iPad |
-| `firmware/` | firmware for the hardware checker on the NUCLEO-U5A5ZJ-Q, the STM32F723E-DISCO and the STM32U5G9J-DK2; see [firmware](firmware/README.md) |
+| `firmware/` | firmware for the hardware checker on the NUCLEO-U5A5ZJ-Q; see [firmware](firmware/README.md) |
 | `generator/` | test-file generator (Python) |
 | `generator/third_party/alac/` | Apple's ALAC codec, a git submodule |
 | `tests/` | tests for the Python packages and the firmware's portable C checker |
@@ -67,14 +66,12 @@ rebuilding a release. The design and its reasons are in
 
 ## Use
 
-The hardware checker needs one of three boards, the firmware on it and the
-test files.
+The hardware checker needs the board, the firmware on it and the test
+files.
 
-1. **The board.** A NUCLEO-U5A5ZJ-Q (LEDs only), an STM32F723E-DISCO (a
-   1.54" touch screen) or an STM32U5G9J-DK2 (a 5" touch screen). Each has two
-   USB connections: the ST-LINK USB port, for flashing and the serial log,
-   and the user USB port, which goes to the host under test (USB-C on the
-   NUCLEO and the DK2, micro-AB on the F723). Connect both. The user USB
+1. **The board.** A NUCLEO-U5A5ZJ-Q. It has two USB connections: the
+   ST-LINK USB port, for flashing and the serial log, and the user USB-C
+   port, which goes to the host under test. Connect both. The user USB
    port needs USB 2.0 High-Speed all the way to the host to play: port, hub
    and cable. At Full-Speed the checker enumerates, as USB 2.0 requires, but
    offers no audio, so the host has nothing to play to. Play from a host
@@ -82,17 +79,17 @@ test files.
    the controller passed through, the host's schedule sent some packets late
    or skipped them, and with an emulated controller it lost bursts of
    packets ([measurements](docs/measurements.md)), so the checker reports
-   losses that belong to the setup, not to the player. The boards' details,
-   and what the screens show, are in the
-   [firmware README](firmware/README.md).
+   losses that belong to the setup, not to the player. The board's details
+   are in the [firmware README](firmware/README.md). Firmware 1.1.x and the
+   tag `last-with-f723-dk2` also support the STM32F723E-DISCO and the
+   STM32U5G9J-DK2; these boards are no longer supported.
 2. **The firmware.** Build and flash it yourself with ARM GCC, CMake, Ninja
    and ST's STM32CubeProgrammer, following the Build and Flash sections of the
    [firmware README](firmware/README.md): a few commands, ending in the
-   `flash` target. Copying the binary to the ST-LINK's USB drive works too,
-   except on the DK2, whose ST-LINK shows no drive. Each firmware release also
-   has ready-made binaries on the project's releases page. The device uses
-   Objective Development's shared USB ID for audio class devices, 16C0:27E0
-   ([USB ID](firmware/README.md#usb-id)).
+   `flash` target. Copying the binary to the ST-LINK's USB drive works too.
+   Each firmware release also has ready-made binaries on the project's
+   releases page. The device uses Objective Development's shared USB ID for
+   audio class devices, 16C0:27E0 ([USB ID](firmware/README.md#usb-id)).
 3. **The test files.** Download them from the project's releases, one zip
    per format: `bpc1-r1-wav.zip`, `bpc1-r1-flac.zip`, `bpc1-r1-aiff.zip`
    and `bpc1-r1-alac.zip`, and the code-sweep files in
@@ -560,23 +557,14 @@ The firmware uses:
   (uac2-playback-stack, MIT), by Mete Balci, release 0.1.1, the USB Audio
   Class 2.0 playback stack, as the USB device stack (see the
   [firmware README](firmware/README.md#usb-stack))
-- ST's CMSIS device files ([STM32U5](https://github.com/STMicroelectronics/cmsis_device_u5),
-  [STM32F7](https://github.com/STMicroelectronics/cmsis_device_f7); Apache-2.0)
-  and HAL ([STM32U5](https://github.com/STMicroelectronics/stm32u5xx_hal_driver),
-  [STM32F7](https://github.com/STMicroelectronics/stm32f7xx_hal_driver);
-  BSD-3-Clause)
+- ST's [CMSIS device files for the STM32U5](https://github.com/STMicroelectronics/cmsis_device_u5)
+  (Apache-2.0) and [STM32U5 HAL](https://github.com/STMicroelectronics/stm32u5xx_hal_driver)
+  (BSD-3-Clause)
 - Arm's [CMSIS 5](https://github.com/ARM-software/CMSIS_5) core headers
   (Apache-2.0)
-- [Spleen](https://github.com/fcambus/spleen) (BSD-2-Clause), by Frederic
-  Cambus, the bitmap fonts of the screens
-- ST's display code, in two files of `firmware/boards` under ST's
-  BSD-3-Clause notice: the ST7789H2 set-up of the F723's panel and the
-  RK050HR18 timing of the DK2's
 
 `firmware/boards` and `firmware/families` follow the board files of
-[TinyUSB](https://github.com/hathach/tinyusb) (MIT) for the STM32U5; the
-STM32F723E-DISCO's clock set-up follows ST's STM32CubeF7 examples for the
-board.
+[TinyUSB](https://github.com/hathach/tinyusb) (MIT) for the STM32U5.
 
 The payload hash of BPC1 uses the lowbias32 constants published by Chris
 Wellons, and the channel keys are the first output of SplitMix64 (Sebastiano

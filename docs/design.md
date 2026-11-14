@@ -398,8 +398,8 @@ at 160 MHz, 2.5 MB of RAM, 4 MB of flash, an on-chip High-Speed PHY), with
 [u2ps](https://github.com/metebalci/uac2-playback-stack) (MIT) as the USB
 device stack, on the **NUCLEO-U5A5ZJ-Q** board. u2ps is a USB Audio Class 2
 playback stack for the controller's USB core (Synopsys DWC2) at High-Speed,
-with ports for the STM32U5A5 and the STM32F723 (section 8, u2ps). The
-firmware's USB description and receive path take every rate to 768 kHz.
+with a port for the STM32U5A5 (section 8, u2ps). The firmware's USB
+description and receive path take every rate to 768 kHz.
 
 Alternatives, and why not:
 
@@ -410,9 +410,9 @@ Alternatives, and why not:
   [RP2350](https://datasheets.raspberrypi.com/rp2350/rp2350-datasheet.pdf)). A
   Linux USB audio gadget on a Raspberry Pi computer is not used.
 - **STM32F723 and F733:** a Cortex-M7 at 216 MHz with 256 KB of SRAM and an
-  on-chip High-Speed PHY (the F722 and F732 need an external ULPI PHY). The
-  firmware also runs on the STM32F723E-DISCO board, which has an LCD (Boards
-  and displays).
+  on-chip High-Speed PHY (the F722 and F732 need an external ULPI PHY). Its
+  SRAM gave the device buffers for 7 ms of audio in 4-byte slots (44 KB in
+  DTCM), against 169 ms on the STM32U5A5.
 - **STM32H7R3 and H7S3:** plenty of CPU, but 64 KB of flash, so the
   application runs from external flash.
 - **STM32N6:** BGA only, no flash, complex power: more than a checker needs.
@@ -427,83 +427,27 @@ Alternatives, and why not:
 
 The firmware uses u2ps, not ST's own USB middleware.
 
-### Boards and displays
+### Board
 
-- Every board reports through its LEDs and a log on the ST-LINK's virtual COM
-  port. There are three boards: the NUCLEO-U5A5ZJ-Q (STM32U5A5, LEDs only), the
-  STM32F723E-DISCO (STM32F7, a Cortex-M7 at 216 MHz with an on-chip
-  High-Speed PHY; a 1.54" 240x240 screen with touch) and the STM32U5G9J-DK2
-  (the NUCLEO's family and clock tree; a 5" 800x480 screen with touch and no
-  blue LED).
+- The NUCLEO-U5A5ZJ-Q reports through its LEDs and a log on the ST-LINK's
+  virtual COM port.
 - The firmware separates the board-independent code from the MCU family and the
   board, so another board, a board with a built-in display, or a board with a
   display shield can be added (firmware README, "Adding a board"). The interface
   a display must implement is `firmware/include/display.h`; the NUCLEO has
-  none, and the F723 and the DK2 implement it with one shared status screen
-  (`firmware/app/screen_model.c`, `firmware/app/screen.c`) over a small panel
-  interface (`firmware/include/panel.h`).
-- **The screen is a nicer LED.** It shows the state and the verdict, the file
-  being checked as its header gives it (kind, rate, depth) and the firmware
-  version, in large text, with no counters and no detail rows: the log has
-  them. The F723's screen is the layout; the DK2 shows it at twice the size on
-  its left 480x480 and keeps the right 320x480 black, reserved for more.
-- **The frame's colour is the run's state, as the LEDs show it,** in blue,
-  green and red only: blue before a result, green while every result is
-  `BIT_PERFECT`, red at once after any failure, so an overrun is a failure like
-  the others and the labels `UNKNOWN` and `OVERRUN` under the frame tell the
-  kinds apart. The word in the frame says what is going on (`NOT CONNECTED`,
-  `WAITING`, `CHECKING`), so in-progress states and results are told apart by
-  their words, not by the frame. `NOT_BIT_PERFECT` has no label, since the red
-  frame already shows it. The screen writes names without the log's
-  underscores, and BIT-PERFECT hyphenated as in the project's name.
-- **At Full-Speed the screen says what to change.** The device offers no
-  audio there, so instead of a state it shows `NEEDS` `HIGH-SPEED` `USB PORT`
-  in a tall red frame over the run's texts, and the blue LED double-blinks,
-  a pattern of its own beside the fast and slow blinks. Green and red stay
-  off, since nothing can be checked.
-- **An hourglass shows that the device is waiting or checking.** It blinks
-  with the LEDs' slow blink; during `CHECKING` it blinks only while packets
-  arrive, so a stream that stalls shows as a steady hourglass. Nothing else on
-  the screen blinks.
-- **A board without a blue LED** (the DK2) shows the connection and stream
-  state on its screen. Green means bit-perfect, so green is not reused for
-  waiting; red and green show the run as on the other boards.
-- **A tap anywhere on a touch screen is the user button;** nothing else uses
-  touch.
-- **A splash screen** at start-up shows the name, the project's address, the
-  version and three squares, red, green and blue, that light as the start-up
-  LED test lights its LEDs, in the same order and timing. It does not delay
-  USB.
-- **Drawing never holds up USB.** The device's buffers hold as little as
-  7 ms of audio (the STM32F723E-DISCO in 4-byte slots, section 8, u2ps), so
-  the screen is drawn from the main loop in units of about 0.2 ms at most (a
-  strip of the band, one character), only while less than 0.5 ms of
-  received audio waits to be read, and only the characters that changed
-  (`firmware/app/screen.h`).
-- **The DK2's frame buffer has one byte per pixel and a fixed RGB332
-  palette,** 384,000 bytes instead of 768,000 for RGB565; the screen uses only
-  black, white, red, green and blue. The palette holds black, white, red and
-  blue exactly. The panel shows full green lighter than the F723's panel, so
-  the palette scales its pure greens, and full green is (0, 208, 0)
-  (`PANEL_GREEN_MAX`, `firmware/boards/stm32u5g9j_dk2/clut_rgb332.h`). The
-  buffer is alone in a RAM bank that no other bus master uses, so the display
-  controller's reads never wait for the USB DMA.
-- **The F723 runs with the data cache off** and the instruction cache on, so
-  that its USB DMA needs no cache maintenance or special buffer placement.
-- **A fault** lights every LED the board has and switches a screen's backlight
-  off, so that no screen keeps showing a result.
+  none.
+- **At Full-Speed the LEDs say what to change.** The device offers no audio
+  there, so the blue LED double-blinks, a pattern of its own beside the fast
+  and slow blinks. Green and red stay off, since nothing can be checked.
+- **A fault** lights every LED.
 - The device's USB product name is "Bit-Perfect Checker" and its manufacturer
   "Mete Balci". The names carry no version, so they stay right if a later
   signal format version comes. The test signal and its files keep the name
   BPC1.
-- **Flashing** is done with ST's STM32CubeProgrammer on every board: it
-  programs every STM32 the firmware runs on, and it names the ST-LINK by its
-  serial number, so that with several boards connected a flash never reaches
-  the wrong one. The NUCLEO's and the F723's ST-LINK also show a
-  drag-and-drop drive; the DK2's shows none. The F723's
-  image is linked at the flash's ITCM alias, where code and read-only data go
-  through the flash accelerator, so it is flashed as a `.bin` to the flash's
-  own address (firmware README, "Flash").
+- **Flashing** is done with ST's STM32CubeProgrammer: it names the ST-LINK
+  by its serial number, so that with several boards connected a flash never
+  reaches the wrong one. The NUCLEO's ST-LINK also shows a drag-and-drop
+  drive (firmware README, "Flash").
 
 ## 8. Firmware
 
@@ -543,7 +487,7 @@ The firmware uses u2ps, not ST's own USB middleware.
   features.
 - **Connection state.** The USB stack does not sense VBUS (u2ps runs in
   its VBUS mode `app`, in which the firmware reports VBUS), so on its own it
-  cannot tell a pulled cable from a host that suspended the bus. Each board
+  cannot tell a pulled cable from a host that suspended the bus. The board
   reads its user USB port's VBUS in the main loop instead (`board_vbus()`)
   and reports it to u2ps; VBUS gone for 50 ms ends the
   configuration as a controller with VBUS sensing would, and the device
@@ -554,7 +498,7 @@ The firmware uses u2ps, not ST's own USB middleware.
   since USB 2.0 (7.1.5.1) forbids pulling D+ up without VBUS and a host may
   refuse a device that does; VBUS back for 50 ms turns it on again. A
   detected disconnect also starts a new run. A pulled
-  cable shows as NOT CONNECTED on a screen and as a fast blue blink.
+  cable shows as a fast blue blink.
 - **USB ID.** The device uses Objective Development's shared VID/PID pair for
   audio class devices, 16C0:27E0, under the serial-number rules of its
   [USB-IDs-for-free.txt](https://github.com/obdev/v-usb/blob/master/usbdrv/USB-IDs-for-free.txt):
@@ -581,7 +525,7 @@ takes from u2ps:
   late, or no buffer was free. The hole counter counts these as they come,
   so a late completion leaves no hole, `doubled` is 0, and the `stream stop`
   line tells the device's own misses (`late`) apart from what the host did
-  not send. The controller of these boards drops a packet with a CRC error
+  not send. The board's controller drops a packet with a CRC error
   unseen, so it counts as a microframe without a packet.
 - **Re-arm for the next microframe.** The controller receives an
   isochronous OUT packet only in a microframe whose parity the endpoint is
@@ -601,11 +545,8 @@ takes from u2ps:
   buffers, one packet each; the controller's DMA writes each packet into
   one, and the main loop checks it there and gives the buffer back. The
   depth therefore counts in packets, one microframe of audio each at every
-  rate: on the STM32U5 boards 1 MB of class memory holds 1351 packets
-  (169 ms) in 4-byte slots and 2702 (338 ms) in 2-byte slots, on the
-  STM32F723E-DISCO 44 KB in DTCM (zero wait states for the CPU, reached by
-  the USB DMA, not cached) hold 56 (7 ms) and 108 (13.5 ms). u2ps keeps one
-  of them armed, so the firmware holds one fewer.
+  rate: 1 MB of class memory holds 1351 packets (169 ms) in 4-byte slots
+  and 2702 (338 ms) in 2-byte slots. u2ps keeps one of them armed, so the firmware holds one fewer.
 - **An overflow is a packet with no buffer.** A packet that comes while the
   firmware holds every buffer it may hold is not received. u2ps reports it
   in its own microframe, and the firmware counts it as an overflow (`ovf`),
@@ -641,9 +582,9 @@ parity. It does not re-arm from that interrupt: in 1.1.x, re-arming from it
 was measured, and since it comes at 80 % of the microframe, it lost the
 packets that arrive later in the microframe, so the device missed more
 packets, not fewer. The follow costs one interrupt per microframe in a
-pause with the alt setting kept: about 1.07 % of the STM32F723's core and
-1.33 % of the STM32U5G9's, measured with a player that does not poll the
-feedback endpoint (u2ps README, "Changes in 0.1.1").
+pause with the alt setting kept: about 1.33 % of the core of an STM32U5G9,
+the STM32U5A5's core at the same clock, measured with a player that does
+not poll the feedback endpoint (u2ps README, "Changes in 0.1.1").
 
 ### The checker in the firmware
 
@@ -658,7 +599,7 @@ feedback endpoint (u2ps README, "Changes in 0.1.1").
 
 Blue shows the stream: blinking while waiting, steady while a stream is open,
 a double blink when a host set the device up at Full-Speed, where it offers
-no audio (a board without a blue LED shows this on its screen).
+no audio.
 Green and red show a **run**: every result since the user button was pressed,
 the console command `mark` was sent, the USB cable was pulled or the board
 was reset, whichever came last. A pull during playback cuts a file; its
@@ -699,7 +640,7 @@ the firmware README.
 Firmware releases are tagged `firmware-v<major>.<minor>.<patch>`, the first
 `firmware-v1.0.0`. The device reports `v<version>-<commit>` with git's short
 commit hash in every build, a release's included (`fw=v1.2.0-6b94cda`), so
-that the screen and the log name the exact source; `-dirty` marks
+that the log names the exact source; `-dirty` marks
 uncommitted changes and `-unknown` source outside git. The zip and its
 images keep the plain version: `bit-perfect-checker-firmware-<version>.zip`.
 The build takes the version from `firmware/VERSION` and stops at a firmware

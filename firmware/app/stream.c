@@ -158,14 +158,14 @@ static volatile uint32_t bytes_out;  // the low word of bytes_out_all, for the i
 static uint64_t bytes_out_all;       // main loop only
 
 // a + b, at most 2^32 - 1 (pending_t)
-static FAMILY_ISR_CODE uint32_t add32(uint32_t a, uint32_t b) {
+static uint32_t add32(uint32_t a, uint32_t b) {
   uint32_t n = a + b;
   return n < a ? UINT32_MAX : n;
 }
 
 // Missed microframes, in the run the next packet ends: the run is one
 // hole, however many reports u2ps splits it into
-static FAMILY_ISR_CODE void missed(uint32_t uframes) {
+static void missed(uint32_t uframes) {
   isr->missed += uframes;
   if (isr->run == 0u) {
     isr->holes++;
@@ -191,7 +191,7 @@ static FAMILY_ISR_CODE void missed(uint32_t uframes) {
 // masked, from u2ps_dev_tick() (uac2_task()) and from a detach, a re-init
 // or a VBUS loss (u2ps_glue.c): never from inside this file, which reads
 // what it writes only with interrupts off.
-FAMILY_ISR_CODE void stream_hole_isr(uint32_t uframes, unsigned why) {
+void stream_hole_isr(uint32_t uframes, unsigned why) {
   if (why == U2PS_MISS_NO_PACKET && isr_restart) {
     return;
   }
@@ -210,17 +210,17 @@ FAMILY_ISR_CODE void stream_hole_isr(uint32_t uframes, unsigned why) {
 // the interrupt dropped came before this boundary: overflows of the newest
 // segment, at its end, where the main loop stopped reading. Also in the
 // main loop, with interrupts off.
-static FAMILY_ISR_CODE void boundary(void) {
+static void boundary(void) {
   isr->overflows += isr_orphans;
   isr_orphans = 0;
   isr_restart = true;
 }
 
-FAMILY_ISR_CODE void stream_restart_isr(void) {
+void stream_restart_isr(void) {
   boundary();
 }
 
-FAMILY_ISR_CODE void stream_packet_isr(const uint8_t *data, uint16_t n_bytes, uint32_t uframe) {
+void stream_packet_isr(const uint8_t *data, uint16_t n_bytes, uint32_t uframe) {
   // The queue's segment numbers never fall: the main loop reads no packet
   // of a segment before the stream's (packet_done())
   const packet_t *before = &packets[pk_wi > 0u ? pk_wi - 1u : PACKETS - 1u];
@@ -897,21 +897,6 @@ static void release(void) {
   if (s.held && s.fed > bpc1_checker_covered(&ck)) {
     log_held();
   }
-}
-
-uint32_t stream_backlog_us(void) {
-  uint32_t per_s = frame_bytes() * s.rate;
-  if (!s.active || per_s == 0) {
-    return 0;
-  }
-  board_irq_disable();
-  uint64_t waiting = bytes_in - bytes_out_all;
-  board_irq_enable();
-  return (uint32_t) (waiting * 1000000u / per_s);
-}
-
-uint32_t stream_packets(void) {
-  return (uint32_t) isr->packets;  // the low word, one load: no tear; the screen looks only for a change
 }
 
 void stream_log_result(void) {

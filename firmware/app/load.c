@@ -13,14 +13,14 @@ static volatile uint32_t fifo_max;
 static uint32_t loop_last;
 static uint32_t loop_max;
 
-FAMILY_ISR_CODE void load_isr(uint32_t cycles) {
+void load_isr(uint32_t cycles) {
   isr_cycles += cycles;
   if (cycles > isr_max) {
     isr_max = cycles;
   }
 }
 
-FAMILY_ISR_CODE void load_fifo(uint32_t bytes) {
+void load_fifo(uint32_t bytes) {
   if (bytes > fifo_max) {
     fifo_max = bytes;
   }
@@ -48,8 +48,4 @@ load_t load_take(void) {
   l.loop_max = loop_max;
   loop_max = 0;
   return l;
-}
-
-uint32_t load_isr_cycles(void) {
-  return isr_cycles;
 }

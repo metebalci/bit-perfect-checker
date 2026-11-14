@@ -1,15 +1,17 @@
 # SPDX-License-Identifier: MIT
 # Copyright (c) 2026 Mete Balci
-"""The start-up LED test (firmware/app/leds.c) on the host: leds_test()
-lights red and returns at once, and leds_task() in the main loop runs the
-rest (red, green, then blue, 0.3 s each, each logged and shown on a
-display), so that the main loop, the USB stack's task included, keeps
-running while it lasts; after it, the LEDs show the status, and a USB fault
-lights all three. A board without blue shows
-blue on its display only, and its test ends after green. Built with the host
-tool firmware/app/host/leds_tool.c; needs a host C compiler (gcc or cc);
-skipped without one."""
+"""The LEDs (firmware/app/leds.c) on the host. The start-up LED test:
+leds_test() lights red and returns at once, and leds_task() in the main
+loop runs the rest (red, green, then blue, 0.3 s each, each logged and
+shown on a display), so that the main loop, the USB stack's task included,
+keeps running while it lasts; after it, the LEDs show the status, and a USB
+fault lights all three. A board without blue shows blue on its display
+only, and its test ends after green. The LED table for every USB state,
+stream state and set of the run's flags, and the blue LED's double blink at
+Full-Speed. Built with the host tool firmware/app/host/leds_tool.c; needs a
+host C compiler (gcc or cc); skipped without one."""
 
+import itertools
 import os
 import shutil
 import subprocess
@@ -22,6 +24,17 @@ CC = shutil.which("gcc") or shutil.which("cc")
 SOURCES = ["app/host/leds_tool.c", "app/leds.c"]
 TEST_MS = 300
 COLOURS = ("red", "green", "blue")
+
+# The run's highest verdict: the first held, in the LEDs' order
+ORDER = ("NOT_BIT_PERFECT", "UNKNOWN_SIGNAL", "OVERRUN", "BIT_PERFECT")
+FLAG = {"NOT_BIT_PERFECT": "fail", "UNKNOWN_SIGNAL": "unknown", "OVERRUN": "overrun", "BIT_PERFECT": "pass"}
+# The LEDs for each (firmware/README.md, LEDs): (red, green)
+LEDS = {"NOT_BIT_PERFECT": ("on", "off"), "UNKNOWN_SIGNAL": ("blink 500", "off"),
+        "OVERRUN": ("blink 125", "off"), "BIT_PERFECT": ("off", "on"), None: ("off", "off")}
+BLUE_LED = {"streaming": "on", "mounted": "blink 500", "not mounted": "blink 125", "full speed": "blink 100"}
+# The blue LED at Full-Speed, as (lit, ms) runs from t = 0: a double blink,
+# two flashes of 100 ms 150 ms apart, then 850 ms dark, every 1.2 s
+DOUBLE_BLINK = [(1, 100), (0, 150), (1, 100), (0, 850)]
 
 
 def build(directory, fw):
@@ -37,6 +50,31 @@ def status_leds(t, passed):
     """The LEDs after the test, not connected (leds.h): blue blinks fast,
     green shows a run of BIT_PERFECT results, red is off."""
     return (0, 1 if passed else 0, 1 if (t // 125) % 2 else 0)
+
+
+def verdict(st):
+    return next((v for v in ORDER if st[FLAG[v]]), None)
+
+
+def full_speed(st):
+    """Set up at Full-Speed, where the device offers no audio"""
+    return not st["streaming"] and st["usb"] != 0 and not st["hs"]
+
+
+def pattern(values):
+    """One LED's values, one per ms from t = 0, as "off", "on" or "blink
+    <longest lit run in ms>"."""
+    if not any(values):
+        return "off"
+    if all(values):
+        return "on"
+    longest = max(len(list(run)) for lit, run in itertools.groupby(values) if lit)
+    return f"blink {longest}"
+
+
+def runs(values):
+    """One LED's values as (lit, ms) runs."""
+    return [(lit, len(list(run))) for lit, run in itertools.groupby(values)]
 
 
 def states(events, end):
@@ -90,7 +128,7 @@ class LedTest(unittest.TestCase):
 
     def test_board_without_blue(self):
         # Blue on the display as green ends, no line for it, and the test
-        # ends there (the DK2)
+        # ends there
         events = self.run_tool(["absent blue", "test", "run 2000"])
         self.assertEqual(self.lines(events, "log"), [(0, "led red"), (TEST_MS, "led green")])
         self.assertEqual(self.lines(events, "display"), [(0, "red"), (TEST_MS, "green"), (2 * TEST_MS, "blue")])
@@ -117,6 +155,42 @@ class LedTest(unittest.TestCase):
         # whatever the run's results
         events = self.run_tool(["pass", "fault", "run 1000"])
         self.assertEqual(states(events, 1000), [(1, 1, 1)] * 1000)
+
+    def leds_for(self, st, ms):
+        """The LEDs over ms from t = 0 with the status st, without the test:
+        {colour: [0 or 1 per ms]}."""
+        events = self.run_tool(["status " + " ".join(f"{k}={v}" for k, v in st.items()), f"run {ms}"])
+        got = states(events, ms)
+        return {c: [s[i] for s in got] for i, c in enumerate(COLOURS)}
+
+    def test_led_table(self):
+        """Every USB state at both speeds, streaming or not, with all 16 sets
+        of the run's flags: blue shows the stream and the USB state, red and
+        green the run's highest verdict; at Full-Speed blue double-blinks and
+        green and red stay off."""
+        for usb, hs, streaming, flags in itertools.product((0, 1, 2), (0, 1), (0, 1), range(16)):
+            st = {"usb": usb, "hs": hs, "streaming": streaming, "pass": flags & 1, "fail": flags >> 1 & 1,
+                  "unknown": flags >> 2 & 1, "overrun": flags >> 3 & 1}
+            with self.subTest(**st):
+                leds = {c: pattern(v) for c, v in self.leds_for(st, 2000).items()}
+                if full_speed(st):
+                    state = "full speed"
+                else:
+                    state = "streaming" if st["streaming"] else "mounted" if st["usb"] else "not mounted"
+                self.assertEqual(leds["blue"], BLUE_LED[state])
+                want = LEDS[None] if full_speed(st) else LEDS[verdict(st)]
+                self.assertEqual((leds["red"], leds["green"]), want)
+
+    def test_double_blink(self):
+        """At Full-Speed, mounted or suspended, whatever the run: the blue
+        LED's double blink, run by run over 2.4 s from t = 0; the slow blink
+        (500 ms dark, 500 ms lit) and the fast one (125 ms each) keep theirs."""
+        cases = [({"usb": usb, "hs": 0, "fail": fail}, DOUBLE_BLINK * 2) for usb in (1, 2) for fail in (0, 1)]
+        cases += [({"usb": 1, "hs": 1}, [(0, 500), (1, 500)] * 2 + [(0, 400)]),
+                  ({"usb": 0, "hs": 0}, [(0, 125), (1, 125)] * 9 + [(0, 125), (1, 25)])]
+        for st, want in cases:
+            with self.subTest(**st):
+                self.assertEqual(runs(self.leds_for(st, 2400)["blue"]), want)
 
     def test_no_test_shows_the_status_at_once(self):
         events = self.run_tool(["run 1000"])

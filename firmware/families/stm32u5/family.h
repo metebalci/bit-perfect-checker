@@ -9,10 +9,6 @@
 
 #include "stm32u5xx_hal.h"
 
-// The STM32U5 has no ITCM RAM: the USB interrupt's code stays in flash
-// (FAMILY_ISR_CODE, see families/stm32f7/family.h).
-#define FAMILY_ISR_CODE
-
 // The USB data the app keeps (FAMILY_USB_DATA: the stream's queue) and the
 // stream's class memory (FAMILY_CLASS_MEM) go in .noinit_usb, which the
 // linker script places in SRAM1 to SRAM5, u2ps's DMA memory

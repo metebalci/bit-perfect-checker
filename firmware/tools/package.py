@@ -26,10 +26,10 @@ README.txt, NOTICES.txt and SHA256SUMS (the .bin files). NOTICES.txt holds,
 for this project and every work that code or data in the images comes from,
 the copyright lines found in the files the build read and the work's licence
 text as its pinned submodule ships it; code of another work in this
-project's own files (STMicroelectronics' panel code, TinyUSB's clock set-up)
-gets a section with the notice the file keeps. The files the build read are its
-sources and the headers they include (from Ninja's dependency log), with a
-generated file replaced by its inputs. The toolchain's C library (newlib)
+project's own files (TinyUSB's clock set-up, or STMicroelectronics code
+under BSD-3-Clause) gets a section with the notice the file keeps. The
+files the build read are its sources and the headers they include (from
+Ninja's dependency log), with a generated file replaced by its inputs. The toolchain's C library (newlib)
 gets a section of its own: the routines the linker took from it (from each
 board's map file, with the source file each object names) and the licence
 list its package ships, by default Debian's copyright file of
@@ -80,8 +80,6 @@ SHARED_USB_ID = (0x16C0, 0x27E0)            # Objective Development's shared pai
 # Board folder in firmware/boards/: (board name, the ST-LINK's USB drive or None)
 BOARDS = {
     "nucleo_u5a5zj_q": ("NUCLEO-U5A5ZJ-Q", "NOD_U5A5ZJ"),
-    "stm32f723e_disco": ("STM32F723E-DISCO", "DIS_F723IE"),
-    "stm32u5g9j_dk2": ("STM32U5G9J-DK2", None),
 }
 
 # The works whose files a build may use, by folder: (title, licence, licence
@@ -92,13 +90,8 @@ WORKS = {
     "firmware/lib/CMSIS_5": ("Arm CMSIS 5 (CMSIS-Core)", "Apache-2.0", "LICENSE.txt"),
     "firmware/lib/cmsis_device_u5": ("STMicroelectronics CMSIS device files for the STM32U5",
                                      "Apache-2.0", "LICENSE.md"),
-    "firmware/lib/cmsis_device_f7": ("STMicroelectronics CMSIS device files for the STM32F7",
-                                     "Apache-2.0", "LICENSE.md"),
     "firmware/lib/stm32u5xx_hal_driver": ("STMicroelectronics STM32U5 HAL", "BSD-3-Clause",
                                           "LICENSE.md"),
-    "firmware/lib/stm32f7xx_hal_driver": ("STMicroelectronics STM32F7 HAL", "BSD-3-Clause",
-                                          "LICENSE.md"),
-    "firmware/lib/spleen": ("Spleen (the screens' fonts)", "BSD-2-Clause", "LICENSE"),
 }
 NEWLIB_PACKAGE = "libnewlib-arm-none-eabi"
 NEWLIB_REPO = "https://sourceware.org/git/newlib-cygwin.git"
@@ -132,18 +125,14 @@ class PackageError(Exception):
 # --- pure parts ----------------------------------------------------------------
 
 def copyright_lines(text):
-    """The copyright lines of a source, BDF or licence text, without comment
-    leaders, HTML or BDF quoting, in order of appearance."""
+    """The copyright lines of a source or licence text, without comment
+    leaders or HTML, in order of appearance."""
     out = []
     for line in text.splitlines():
         if not COPYRIGHT_RE.search(line):
             continue
         line = re.sub(r"<[^>]*>", "", line).replace("&copy;", "")
         line = line.strip()
-        if line.startswith("COPYRIGHT "):                  # a BDF property
-            line = line[len("COPYRIGHT "):].strip().strip('"')
-        elif line.startswith("COMMENT "):                  # a BDF comment
-            line = line[len("COMMENT "):].strip()
         line = re.sub(r"^(//+|/\*+|\*+|#+|;+|@+|--)\s*", "", line)
         line = re.sub(r"\s*\*+/$", "", line).strip()
         if line not in out:
@@ -877,7 +866,7 @@ def collect(src, used, subs, commit):
         "texts": [("LICENSE", read_text(os.path.join(src, "LICENSE")))]}]
     if st:
         sections.append({
-            "title": "STMicroelectronics panel code in this project's board files",
+            "title": "STMicroelectronics code in this project's own files",
             "source": ", ".join(sorted(st)), "boards": boards_of(st),
             "licence": "BSD-3-Clause", "copyrights": st_lines, "texts": texts})
     if tu:

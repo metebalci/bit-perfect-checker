@@ -29,7 +29,16 @@ VERSION = "1.2.0"
 COMMIT = "0123456789abcdef0123456789abcdef01234567"
 FW = "v1.2.0-0123456"
 DATE = (2026, 11, 5, 12, 34, 56)
-IMAGES = {b: bytes([i]) * (1000 + i) + b"image " + b.encode() for i, b in enumerate(P.BOARDS)}
+# The release has one board (P.BOARDS); the parts that take any number of
+# boards are tested with these two more, as P.BOARDS patched with them
+MORE_BOARDS = {"board_b": ("BOARD-B", "DRIVE_B"), "board_c": ("BOARD-C", None)}
+
+
+def images(boards):
+    return {b: bytes([i]) * (1000 + i) + b"image " + b.encode() for i, b in enumerate(boards)}
+
+
+IMAGES = images(P.BOARDS)
 NOTICES = b"notices\r\n"
 USB = (0x16C0, 0x27E0, "bpc.metebalci.com:")
 U2PS = ("0.1.0", "https://github.com/metebalci/uac2-playback-stack", "b" * 40)
@@ -45,8 +54,8 @@ THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
 EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE."""
 
 
-def build_archive(images=IMAGES, version=VERSION, date=DATE, notices=NOTICES, usb=USB, paths=()):
-    return P.archive(version, FW, COMMIT, date, images, notices, usb, U2PS, paths=paths)
+def build_archive(images=IMAGES, version=VERSION, date=DATE, notices=NOTICES, usb=USB, paths=(), boards=P.BOARDS):
+    return P.archive(version, FW, COMMIT, date, images, notices, usb, U2PS, boards=boards, paths=paths)
 
 
 class Archive(unittest.TestCase):
@@ -56,9 +65,8 @@ class Archive(unittest.TestCase):
         names = zipfile.ZipFile(io.BytesIO(data)).namelist()
         self.assertEqual(names, [TOP + "/", f"{TOP}/NOTICES.txt", f"{TOP}/README.txt",
                                  f"{TOP}/SHA256SUMS",
-                                 f"{TOP}/bpc-nucleo_u5a5zj_q-{VERSION}.bin",
-                                 f"{TOP}/bpc-stm32f723e_disco-{VERSION}.bin",
-                                 f"{TOP}/bpc-stm32u5g9j_dk2-{VERSION}.bin"])
+                                 f"{TOP}/bpc-nucleo_u5a5zj_q-{VERSION}.bin"])
+        self.assertEqual(list(P.BOARDS), ["nucleo_u5a5zj_q"])
 
     def test_contents(self):
         z = zipfile.ZipFile(io.BytesIO(build_archive()[1]))
@@ -85,23 +93,29 @@ class Archive(unittest.TestCase):
     def test_deterministic(self):
         """The same inputs give the same bytes, in any order of the images."""
         a = build_archive()[1]
-        b = build_archive(dict(reversed(list(IMAGES.items()))))[1]
-        self.assertEqual(a, b)
+        self.assertEqual(a, build_archive()[1])
         self.assertNotEqual(a, build_archive(date=(2026, 11, 6, 0, 0, 0))[1])
         changed = dict(IMAGES, nucleo_u5a5zj_q=IMAGES["nucleo_u5a5zj_q"] + b"\0")
         self.assertNotEqual(a, build_archive(changed)[1])
+        boards = dict(P.BOARDS, **MORE_BOARDS)
+        more = images(boards)
+        self.assertEqual(build_archive(more, boards=boards)[1],
+                         build_archive(dict(reversed(list(more.items()))), boards=boards)[1])
 
     def test_every_board(self):
-        images = dict(IMAGES)
-        del images["stm32u5g9j_dk2"]
         with self.assertRaises(P.PackageError):
-            build_archive(images)
+            build_archive({})
+        boards = dict(P.BOARDS, **MORE_BOARDS)
+        more = images(boards)
+        del more["board_c"]
+        with self.assertRaises(P.PackageError):
+            build_archive(more, boards=boards)
 
     def test_no_paths(self):
         """A local path in an image, in NOTICES.txt or in README.txt stops it."""
         paths = ["/work/x", "/src/repo"]
         build_archive(paths=paths)
-        cases = {"image": dict(images=dict(IMAGES, stm32f723e_disco=b"\0/src/repo/firmware/app/main.c\0")),
+        cases = {"image": dict(images=dict(IMAGES, nucleo_u5a5zj_q=b"\0/src/repo/firmware/app/main.c\0")),
                  "NOTICES.txt": dict(notices=b"notices of /work/x/bit-perfect-checker/firmware\r\n"),
                  "README.txt": dict(usb=(0x1209, 0xB9C1, "/src/repo:"))}
         for name, kwargs in cases.items():
@@ -118,19 +132,29 @@ class Readme(unittest.TestCase):
             self.assertIn(f"bpc-{b}-1.2.0-0123456.bin", text)
         self.assertIn(f"Built from commit {COMMIT} of\r\n", text)
         self.assertIn("The firmware reports its version as v1.2.0-0123456.", text)
-        for word in ("NUCLEO-U5A5ZJ-Q", "STM32F723E-DISCO", "STM32U5G9J-DK2", "0x08000000",
+        for word in ("NUCLEO-U5A5ZJ-Q", "0x08000000",
                      "sn=<serial number>", "-w bpc-<board>-1.2.0-0123456.bin 0x08000000",
-                     "STM32_Programmer_CLI -l st-link", "NOD_U5A5ZJ", "DIS_F723IE",
+                     "STM32_Programmer_CLI -l st-link", "NOD_U5A5ZJ",
                      "16C0:27E0", "bpc.metebalci.com:", COMMIT,
                      "https://github.com/metebalci/bit-perfect-checker",
                      "https://bpc.metebalci.com", "NOTICES.txt", "SHA256SUMS"):
             self.assertIn(word, text)
-        self.assertIn("STM32U5G9J-DK2's ST-LINK shows no drive", text)
+        self.assertIn("USB drive: NOD_U5A5ZJ on the NUCLEO-U5A5ZJ-Q.", text)
+        self.assertNotIn("shows no drive", text)
         self.assertIn("16C0:27E0, Objective Development's shared VID/PID pair", text)
         self.assertIn("u2ps 0.1.0, the USB Audio Class 2.0 playback stack, at its\r\n"
                       "release tag v0.1.0 (commit " + "b" * 40 + ") of\r\n"
                       "https://github.com/metebalci/uac2-playback-stack.", text)
         self.assertNotIn("TinyUSB", text)
+
+    def test_more_boards(self):
+        """Every board's file and drive; a board whose ST-LINK shows no drive
+        is named."""
+        text = P.readme("1.2.0-0123456", FW, COMMIT, USB, U2PS, dict(P.BOARDS, **MORE_BOARDS)).decode("ascii")
+        for b in ("nucleo_u5a5zj_q", "board_b", "board_c"):
+            self.assertIn(f"bpc-{b}-1.2.0-0123456.bin", text)
+        self.assertIn("USB drive: NOD_U5A5ZJ on the NUCLEO-U5A5ZJ-Q, DRIVE_B on the BOARD-B.", text)
+        self.assertIn("BOARD-C's ST-LINK shows no drive", text)
 
     def test_usb_id(self):
         """The USB ID and the serial number prefix the builds were made with."""
@@ -170,19 +194,19 @@ class UsbOptions(unittest.TestCase):
         self.assertEqual(P.check_usb(same), USB)
         for other in ((0x1209, 0x27E0, USB[2]), (0x16C0, 0x27E1, USB[2]), (0x16C0, 0x27E0, "x:")):
             with self.subTest(other), self.assertRaises(P.PackageError):
-                P.check_usb(dict(same, stm32f723e_disco=other))
+                P.check_usb(dict(same, board_b=other))
 
     def test_build_folders(self):
         """From each build folder's CMakeCache.txt; one board built with
         another prefix stops the script."""
         with tempfile.TemporaryDirectory() as d:
-            dirs = {b: os.path.join(d, b) for b in P.BOARDS}
+            dirs = {b: os.path.join(d, b) for b in list(P.BOARDS) + ["board_b"]}
             for board, folder in dirs.items():
                 os.makedirs(folder)
                 with open(os.path.join(folder, "CMakeCache.txt"), "w") as f:
                     f.write(CACHE.replace("0x16C0", "0x1209"))
             self.assertEqual(P.build_usb(dirs), (0x1209, 0x27E0, "bpc.metebalci.com:"))
-            with open(os.path.join(dirs["stm32u5g9j_dk2"], "CMakeCache.txt"), "w") as f:
+            with open(os.path.join(dirs["board_b"], "CMakeCache.txt"), "w") as f:
                 f.write(CACHE.replace("0x16C0", "0x1209").replace("bpc.metebalci.com:", "x:"))
             with self.assertRaises(P.PackageError):
                 P.build_usb(dirs)
@@ -250,7 +274,7 @@ class Checks(unittest.TestCase):
             with self.subTest(bad), self.assertRaises(P.PackageError):
                 P.check_version({b: bad for b in P.BOARDS}, COMMIT)
         with self.assertRaises(P.PackageError):
-            P.check_version(dict(ok, stm32u5g9j_dk2="v1.2.0-0123456789"), COMMIT)
+            P.check_version(dict(ok, board_b="v1.2.0-0123456789"), COMMIT)
 
     def test_release_version(self):
         """The names' version: <VERSION> at the release tag, else
@@ -266,7 +290,7 @@ class Checks(unittest.TestCase):
     def test_no_paths(self):
         P.check_no_paths(IMAGES, ["/work/x", "/src/repo"])
         with self.assertRaises(P.PackageError):
-            P.check_no_paths(dict(IMAGES, stm32f723e_disco=b"\0/src/repo/firmware/app/main.c\0"),
+            P.check_no_paths(dict(IMAGES, nucleo_u5a5zj_q=b"\0/src/repo/firmware/app/main.c\0"),
                              ["/work/x", "/src/repo"])
 
     def test_warnings(self):
@@ -332,15 +356,12 @@ class Copyright(unittest.TestCase):
   ******************************************************************************
   * Copyright (c) 2021 STMicroelectronics. */
  * Copyright (c) 2009-2021 Arm Limited. All rights reserved.
-COMMENT  * Copyright (c) 2018-2026, Frederic Cambus
-COPYRIGHT "Copyright (c) 2018-2026, Frederic Cambus"
 # Copyright (c) 2026 Mete Balci
 """
         self.assertEqual(P.copyright_lines(text), [
             "Copyright (c) 2019 Ha Thach (tinyusb.org)", "Copyright (c) 2026 Mete Balci",
             "Copyright (c) 2019 STMicroelectronics.", "Copyright (c) 2021 STMicroelectronics.",
-            "Copyright (c) 2009-2021 Arm Limited. All rights reserved.",
-            "Copyright (c) 2018-2026, Frederic Cambus"])
+            "Copyright (c) 2009-2021 Arm Limited. All rights reserved."])
 
     def test_embedded_notice(self):
         body = "\n".join((" * " + l).rstrip() for l in BSD3_BODY.splitlines())
@@ -384,15 +405,19 @@ THE SOFTWARE."""
 
 
 class Notices(unittest.TestCase):
-    """collect() and notices() on a small tree laid out like the repository."""
+    """collect() and notices() on a small tree laid out like the repository,
+    with a second board's build (board_b)."""
 
     def setUp(self):
+        patch = mock.patch.dict(P.BOARDS, MORE_BOARDS)
+        patch.start()
+        self.addCleanup(patch.stop)
         self.tmp = tempfile.TemporaryDirectory()
         self.src = os.path.realpath(self.tmp.name)
         self.files = {
             "LICENSE": "MIT License\n\nCopyright (c) 2026 Mete Balci\n\nPermission ...\n",
             "firmware/app/main.c": "// SPDX-License-Identifier: MIT\n// Copyright (c) 2026 Mete Balci\n",
-            "firmware/boards/stm32f723e_disco/panel_st7789h2.c":
+            "firmware/boards/board_b/st_code.c":
                 "// SPDX-License-Identifier: MIT AND BSD-3-Clause\n// Copyright (c) 2026 Mete Balci\n"
                 "/*\n * Copyright (c) 2016 STMicroelectronics.\n"
                 + "\n".join((" * " + l).rstrip() for l in BSD3_BODY.splitlines()) + "\n */\n",
@@ -406,9 +431,6 @@ class Notices(unittest.TestCase):
                 " * Copyright (c) 2025, Someone Else\n"
                 "/** <h2><center>&copy; Copyright (c) 2019 STMicroelectronics.\n"
                 "  * licensed by ST under BSD 3-Clause license\n",
-            "firmware/lib/spleen/LICENSE": "Copyright (c) 2018-2026, Frederic Cambus\nAll rights reserved.\n",
-            "firmware/lib/spleen/spleen-16x32.bdf":
-                "STARTFONT 2.1\nCOPYRIGHT \"Copyright (c) 2018-2026, Frederic Cambus\"\n",
             "firmware/lib/stm32u5xx_hal_driver/LICENSE.md": "Copyright 2021 STMicroelectronics.\n",
             "firmware/lib/stm32u5xx_hal_driver/Src/hal.c": " * Copyright (c) 2021 STMicroelectronics.\n",
         }
@@ -432,27 +454,25 @@ class Notices(unittest.TestCase):
             "nucleo_u5a5zj_q": [self.path(r) for r in common + ["firmware/lib/stm32u5xx_hal_driver/Src/hal.c",
                                                                  "firmware/boards/nucleo_u5a5zj_q/board.c"]]
                                + ["/usr/include/newlib/string.h"],
-            "stm32f723e_disco": [self.path(r) for r in common + [
-                "firmware/boards/stm32f723e_disco/panel_st7789h2.c",
-                "firmware/lib/spleen/spleen-16x32.bdf"]],
+            "board_b": [self.path(r) for r in common + ["firmware/boards/board_b/st_code.c"]],
         }
 
     def test_sections(self):
         sections = P.collect(self.src, self.used(), self.subs, COMMIT)
         self.assertEqual([s["title"] for s in sections], [
             "Bit-Perfect Checker firmware",
-            "STMicroelectronics panel code in this project's board files",
+            "STMicroelectronics code in this project's own files",
             "TinyUSB code in this project's board files",
-            "u2ps (the USB device stack)", "STMicroelectronics STM32U5 HAL", "Spleen (the screens' fonts)"])
-        own, st, tu, u2ps, hal, spleen = sections
+            "u2ps (the USB device stack)", "STMicroelectronics STM32U5 HAL"])
+        own, st, tu, u2ps, hal = sections
         self.assertEqual(own["copyrights"], ["Copyright (c) 2026 Mete Balci"])
         self.assertEqual((tu["boards"], tu["licence"], tu["source"]),
                          (["nucleo_u5a5zj_q"], "MIT", "firmware/boards/nucleo_u5a5zj_q/board.c"))
         self.assertEqual(tu["copyrights"], ["Copyright (c) 2023, Ha Thach (tinyusb.org)"])
         self.assertEqual(tu["texts"], [("notice in firmware/boards/nucleo_u5a5zj_q/board.c", TINYUSB_NOTICE + "\n")])
-        self.assertEqual(own["boards"], ["nucleo_u5a5zj_q", "stm32f723e_disco"])
+        self.assertEqual(own["boards"], ["nucleo_u5a5zj_q", "board_b"])
         self.assertEqual(own["texts"], [("LICENSE", self.files["LICENSE"])])
-        self.assertEqual(st["boards"], ["stm32f723e_disco"])
+        self.assertEqual(st["boards"], ["board_b"])
         self.assertEqual(st["copyrights"], ["Copyright (c) 2016 STMicroelectronics."])
         self.assertEqual(st["texts"][0][1],
                          "Copyright (c) 2016 STMicroelectronics.\n" + BSD3_BODY + "\n")
@@ -464,15 +484,13 @@ class Notices(unittest.TestCase):
         self.assertEqual(u2ps["source"], f"https://example.org/firmware/lib/u2ps, commit {'a' * 40}")
         self.assertEqual(u2ps["texts"][0][1], self.files["firmware/lib/u2ps/LICENSE"])
         self.assertEqual(hal["boards"], ["nucleo_u5a5zj_q"])
-        self.assertEqual(spleen["copyrights"], ["Copyright (c) 2018-2026, Frederic Cambus"])
 
     def test_licence_texts_verbatim(self):
         """Each licence file appears whole in NOTICES.txt, CRLF line ends."""
         data = P.notices(VERSION, P.collect(self.src, self.used(), self.subs, COMMIT))
         text = data.decode("ascii")
         self.assertNotIn("\n", text.replace("\r\n", ""))
-        for rel in ("LICENSE", "firmware/lib/u2ps/LICENSE", "firmware/lib/spleen/LICENSE",
-                    "firmware/lib/stm32u5xx_hal_driver/LICENSE.md"):
+        for rel in ("LICENSE", "firmware/lib/u2ps/LICENSE", "firmware/lib/stm32u5xx_hal_driver/LICENSE.md"):
             self.assertIn(self.files[rel].replace("\n", "\r\n"), text)
         self.assertNotIn("CMSIS", text)               # no file of it was used
 
@@ -498,12 +516,12 @@ class Notices(unittest.TestCase):
         os.makedirs(self.path("firmware/build/nucleo_u5a5zj_q"))
         with open(self.path("firmware/build/nucleo_u5a5zj_q/version.h"), "w") as f:
             f.write('#define FW_VERSION "v1.2.0-0123456"\n')
-        with open(self.path("firmware/build/nucleo_u5a5zj_q/fonts.c"), "w") as f:
-            f.write("// COPYRIGHT \"Copyright (c) 2018-2026, Frederic Cambus\"\n")
+        with open(self.path("firmware/build/nucleo_u5a5zj_q/table.c"), "w") as f:
+            f.write("// Copyright (c) 2025, Someone Else\n")
         used = self.used()
         used["nucleo_u5a5zj_q"].append(self.path("firmware/build/nucleo_u5a5zj_q/version.h"))
         P.collect(self.src, used, self.subs, COMMIT)
-        used["nucleo_u5a5zj_q"].append(self.path("firmware/build/nucleo_u5a5zj_q/fonts.c"))
+        used["nucleo_u5a5zj_q"].append(self.path("firmware/build/nucleo_u5a5zj_q/table.c"))
         with self.assertRaises(P.PackageError):
             P.collect(self.src, used, self.subs, COMMIT)
 
@@ -536,7 +554,7 @@ def ar(members):
 
 
 NEWLIB_A = "/opt/tc/lib/thumb/v8-m.main+fp/hard/libg_nano.a"
-NEWLIB_F7 = "/opt/tc/lib/thumb/v7e-m+fp/hard/libg_nano.a"
+NEWLIB_V7EM = "/opt/tc/lib/thumb/v7e-m+fp/hard/libg_nano.a"
 LIBGCC_A = "/opt/tc/gcc/thumb/v8-m.main+fp/hard/libgcc.a"
 MAP = f"""Archive member included to satisfy reference by file (symbol)
 
@@ -559,7 +577,7 @@ ARCHIVES = {
     NEWLIB_A: ar({"libc_a-memcpy.o": b"\x7fELF..../build/newlib/libc/machine/arm/memcpy-armv7m.S\0..",
                   "libc_a-strlen-stub.o": b"\x7fELF..newlib/libc/machine/arm/strlen-stub.c\0",
                   "libc_a-strchr.o": b"\x7fELF..newlib/libc/string/strchr.c\0"}),
-    NEWLIB_F7: ar({"libc_a-memcpy.o": b"\x7fELF..newlib/libc/machine/arm/memcpy-armv7m.S\0",
+    NEWLIB_V7EM: ar({"libc_a-memcpy.o": b"\x7fELF..newlib/libc/machine/arm/memcpy-armv7m.S\0",
                    "libc_a-strlen.o": b"\x7fELF.. no name"}),
 }
 
@@ -596,17 +614,18 @@ class Toolchain(unittest.TestCase):
         with self.assertRaises(P.PackageError):
             P.ar_members(b"\x7fELF")
 
+    @mock.patch.dict(P.BOARDS, MORE_BOARDS)
     def test_routines(self):
         linked = {"nucleo_u5a5zj_q": P.linked_members(MAP),
-                  "stm32f723e_disco": [(NEWLIB_F7, "libc_a-memcpy.o"), (NEWLIB_F7, "libc_a-strlen.o")],
-                  "stm32u5g9j_dk2": P.linked_members(MAP)}
+                  "board_b": [(NEWLIB_V7EM, "libc_a-memcpy.o"), (NEWLIB_V7EM, "libc_a-strlen.o")],
+                  "board_c": P.linked_members(MAP)}
         routines = P.toolchain_routines(linked, ARCHIVES.__getitem__)
         self.assertEqual(routines, {
             "memcpy": {"newlib/libc/machine/arm/memcpy-armv7m.S":
-                       ["nucleo_u5a5zj_q", "stm32f723e_disco", "stm32u5g9j_dk2"]},
+                       ["nucleo_u5a5zj_q", "board_b", "board_c"]},
             "strlen-stub": {"newlib/libc/machine/arm/strlen-stub.c":
-                            ["nucleo_u5a5zj_q", "stm32u5g9j_dk2"]},
-            "strlen": {"libc_a-strlen.o (no source named)": ["stm32f723e_disco"]}})
+                            ["nucleo_u5a5zj_q", "board_c"]},
+            "strlen": {"libc_a-strlen.o (no source named)": ["board_b"]}})
 
     def test_unknown_toolchain_library(self):
         linked = {"nucleo_u5a5zj_q": [("/opt/tc/lib/libnosys.a", "sbrk.o")]}
@@ -616,12 +635,12 @@ class Toolchain(unittest.TestCase):
     def test_section(self):
         licences = "The newlib subdirectory is a collection of software from several sources.\n" \
                    "(1) University of California, Berkeley\n"
-        routines = {"memcpy": {"newlib/libc/machine/arm/memcpy-armv7m.S": ["stm32u5g9j_dk2"]}}
+        routines = {"memcpy": {"newlib/libc/machine/arm/memcpy-armv7m.S": ["nucleo_u5a5zj_q"]}}
         section = P.newlib_section(routines, "4.6.0-1", licences)
-        self.assertEqual(section["boards"], ["stm32u5g9j_dk2"])
+        self.assertEqual(section["boards"], ["nucleo_u5a5zj_q"])
         text = P.notices(VERSION, [section]).decode("ascii").replace("\r\n", "\n")
         self.assertIn("libnewlib-arm-none-eabi 4.6.0-1", text)
-        self.assertIn("  memcpy: newlib/libc/machine/arm/memcpy-armv7m.S (stm32u5g9j_dk2)", text)
+        self.assertIn("  memcpy: newlib/libc/machine/arm/memcpy-armv7m.S (nucleo_u5a5zj_q)", text)
         self.assertIn(licences, text)
 
 
@@ -760,7 +779,7 @@ class NewlibNotices(unittest.TestCase):
         package version, the files against the sha256 list when one is given,
         a missing source stops the script."""
         routines = {"memcpy": {"newlib/libc/machine/arm/memcpy-armv7m.S": ["nucleo_u5a5zj_q"]},
-                    "strlen": {"libc_a-strlen.o (no source named)": ["stm32f723e_disco"]}}
+                    "strlen": {"libc_a-strlen.o (no source named)": ["board_b"]}}
         files = {"COPYING.NEWLIB": COPYING, "newlib/libc/machine/arm/memcpy-armv7m.S": ARM_SRC}
         with tempfile.TemporaryDirectory() as d:
             for rel, text in files.items():
@@ -789,8 +808,8 @@ class NewlibNotices(unittest.TestCase):
         routines = {
             "memcpy": {"newlib/libc/machine/arm/memcpy-armv7m.S": ["nucleo_u5a5zj_q"]},
             "memset": {"newlib/libc/string/memset.c": ["nucleo_u5a5zj_q"]},
-            "strchr": {"newlib/libc/string/strchr.c": ["stm32f723e_disco"]},
-            "strlen": {"newlib/libc/machine/arm/strlen-armv7.S": ["stm32f723e_disco"]}}
+            "strchr": {"newlib/libc/string/strchr.c": ["board_b"]},
+            "strlen": {"newlib/libc/machine/arm/strlen-armv7.S": ["board_b"]}}
         files = {"newlib/libc/machine/arm/memcpy-armv7m.S": ARM_SRC,
                  "newlib/libc/string/memset.c": PLAIN_SRC, "newlib/libc/string/strchr.c": PLAIN_SRC,
                  "newlib/libc/machine/arm/strlen-armv7.S": LINARO_SRC}
@@ -827,8 +846,8 @@ rule cc
   depfile = $out.d
   deps = gcc
 build version.h: version
-build fonts.c: gen ../../lib/spleen/spleen-8x16.bdf
-build fonts.o: cc fonts.c
+build table.c: gen ../../lib/u2ps/table.txt
+build table.o: cc table.c
 build main.o: cc ../../app/main.c || version.h
 """
 
@@ -837,7 +856,8 @@ build main.o: cc ../../app/main.c || version.h
 class ToyBuild(unittest.TestCase):
     """used_files() and collect() on a small Ninja build in a tree laid out
     like the clone: a source that includes a header by a path relative to
-    the build folder, a source the build makes from a font, and a header the
+    the build folder, a source the build makes from a data file of a work in
+    firmware/lib, and a header the
     build writes from nothing (as version.h)."""
 
     def setUp(self):
@@ -849,13 +869,12 @@ class ToyBuild(unittest.TestCase):
             "firmware/app/main.c": '// Copyright (c) 2026 Mete Balci\n#include "toy.h"\n#include "version.h"\n'
                                    "int main(void) { return TOY; }\n",
             "firmware/include/toy.h": "// Copyright (c) 2026 Mete Balci\n#define TOY 0\n",
-            "firmware/lib/spleen/LICENSE": "Copyright (c) 2018-2026, Frederic Cambus\n",
-            "firmware/lib/spleen/spleen-8x16.bdf":
-                'STARTFONT 2.1\nCOPYRIGHT "Copyright (c) 2018-2026, Frederic Cambus"\nENDFONT\n',
+            "firmware/lib/u2ps/LICENSE": "MIT License\n\nCopyright (c) 2025, Someone Else\n",
+            "firmware/lib/u2ps/table.txt": "Copyright (c) 2025, Someone Else\n1 2 3\n",
             "firmware/build/nucleo_u5a5zj_q/build.ninja": TOY_NINJA.format(cc=CC),
             "firmware/build/nucleo_u5a5zj_q/compile_commands.json": json.dumps([
                 {"directory": self.build, "file": "../../app/main.c", "command": "cc main.c"},
-                {"directory": self.build, "file": "fonts.c", "command": "cc fonts.c"}]),
+                {"directory": self.build, "file": "table.c", "command": "cc table.c"}]),
         }
         for rel, text in files.items():
             path = os.path.join(self.src, *rel.split("/"))
@@ -873,21 +892,22 @@ class ToyBuild(unittest.TestCase):
 
     def test_used_files(self):
         """The sources and headers by their real paths (the header's
-        dependency is relative to the build folder), the font in place of the
-        source made from it, the written header itself."""
+        dependency is relative to the build folder), the data file in place
+        of the source made from it, the written header itself."""
         self.assertEqual(P.used_files(self.build, NINJA), sorted([
             self.path("firmware/app/main.c"), self.path("firmware/include/toy.h"),
-            self.path("firmware/lib/spleen/spleen-8x16.bdf"),
+            self.path("firmware/lib/u2ps/table.txt"),
             self.path("firmware/build/nucleo_u5a5zj_q/version.h")]))
 
     def test_notices(self):
-        """The font's copyright line under Spleen, none under this project."""
+        """The data file's copyright line under its work, none under this
+        project."""
         subs = {f: (f"https://example.org/{f}", "a" * 40) for f in P.WORKS}
         used = {"nucleo_u5a5zj_q": P.used_files(self.build, NINJA)}
         sections = P.collect(self.src, used, subs, COMMIT)
         self.assertEqual([(s["title"], s["copyrights"]) for s in sections], [
             ("Bit-Perfect Checker firmware", ["Copyright (c) 2026 Mete Balci"]),
-            ("Spleen (the screens' fonts)", ["Copyright (c) 2018-2026, Frederic Cambus"])])
+            ("u2ps (the USB device stack)", ["Copyright (c) 2025, Someone Else"])])
 
 
 if __name__ == "__main__":
