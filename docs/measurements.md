@@ -284,8 +284,9 @@ maximum), and the share of packets at 100 us or later:
 - Handling the controller's incomplete isochronous OUT interrupt as well
   made it worse: that interrupt comes at 80 % of the microframe (99 to
   101 us after the SOF), took the packets that arrived later, and the device
-  missed 42 to 119 packets per 4 natural streams on both boards. It is not
-  used.
+  missed 42 to 119 packets per 4 natural streams on both boards. It was not
+  used in 1.1.x; u2ps 0.1.1 uses it only as evidence of a host gap, not to
+  re-arm.
 
 **Injected late re-arms.** 1.1.0 test builds (`BPC_TEST_INJECT`), 192 kHz
 32-bit, every 1000th re-arm held until the next microframe began and then

@@ -739,9 +739,15 @@ def clone(repo, rev, dest):
 
 
 def build_env():
+    """The build's environment: no compiler flags or CMake settings of the
+    caller, and git's short hash in the version string at 7 digits (more
+    only if 7 are ambiguous), whatever core.abbrev the caller's git config or
+    `git -c` sets, as the images hold it."""
     env = {k: v for k, v in os.environ.items()
            if k not in BUILD_ENV_DROP and not k.startswith("CMAKE_")}
     env["LC_ALL"] = "C"
+    env.pop("GIT_CONFIG_PARAMETERS", None)  # `git -c`, read after GIT_CONFIG_COUNT's
+    env.update(GIT_CONFIG_COUNT="1", GIT_CONFIG_KEY_0="core.abbrev", GIT_CONFIG_VALUE_0="7")
     return env
 
 

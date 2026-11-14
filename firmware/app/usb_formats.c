@@ -45,7 +45,8 @@ bool usb_formats_parse(const char *text, uac2_alt_t *alts, uint8_t *count) {
     } else if (*p != '\0') {
       return false;
     }
-    if (n == UAC2_ALT_MAX || !format_known((uint8_t) bytes, (uint8_t) bits)) {
+    // Up to 999 each: beyond a byte, a number must not wrap to a known one
+    if (n == UAC2_ALT_MAX || bits > UINT8_MAX || bytes > UINT8_MAX || !format_known((uint8_t) bytes, (uint8_t) bits)) {
       return false;
     }
     for (uint8_t i = 0; i < n; i++) {

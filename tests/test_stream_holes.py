@@ -1060,6 +1060,37 @@ class StreamHoles(unittest.TestCase):
         _, _, out = self.run_tool(["openfault"], usb_fault=1)
         self.assertIn(" usb fault open reason=", out)
 
+    def test_open_refused_alt_0(self):
+        # A start the port refused the class memory of: the interface keeps
+        # alt 0 (u2ps_dev.h, U2PS_OPEN_FAULT), and so does the device's
+        # status; one alt 0 line after the start's fault
+        _, _, out = self.run_tool(["alt 0", "refuse", "altnowait 2", "idle 80"], usb_fault=1)
+        self.assertIn(" usb fault open reason=", out)
+        self.assertRegex(out, r"\n\d+ status usb=1 alt=0\n")
+        lines = [l.split(" ", 1)[1] for l in out.splitlines()]
+        at = lines.index("usb fault start result=fault")
+        self.assertEqual(lines[at - 1].split(" ")[:2], ["alt", "2"], out[-2000:])
+        self.assertEqual([l for l in lines[at:] if l.startswith("alt ")], ["alt 0"], out[-2000:])
+
+    def test_reset_while_suspended(self):
+        # A bus reset of a suspended device that was set up, with no
+        # stream: u2ps ends the suspend with no on_resume (u2ps_dev.h), and
+        # the reset is logged as any other; the host enumerates it again
+        _, _, out = self.run_tool(["alt 0", "suspend", "reset"])
+        lines = [l.split(" ", 1)[1] for l in out.splitlines()]
+        at = lines.index("usb suspended")
+        self.assertEqual(lines[at + 1:at + 2], ["usb reset"], out[-2000:])
+        self.assertNotIn("usb resumed", lines)
+        self.assertRegex(out, r"\n\d+ status usb=1 alt=0\n")
+
+    def test_reset_while_suspended_not_reenumerated(self):
+        # The same with no enumeration after the reset: not set up, no
+        # longer suspended
+        _, _, out = self.run_tool(["alt 0", "suspend", "busreset"])
+        lines = [l.split(" ", 1)[1] for l in out.splitlines()]
+        self.assertIn("usb reset", lines[lines.index("usb suspended"):], out[-2000:])
+        self.assertRegex(out, r"\n\d+ status usb=0 alt=0\n")
+
     def test_pause(self):
         # More than STREAM_IDLE_MS (400 microframes) without a packet: two
         # streams, nothing lost

@@ -20,7 +20,7 @@
 // ends the old stream and makes the next packet begin a new segment, before
 // it opens the stream, so no packet of the new stream reaches the
 // interrupt's side before its segment. It answers the request and, only if
-// the answer went out, sets the new rate in the same stretch with
+// u2ps took the answer, sets the new rate in the same stretch with
 // interrupts off, so the next packet the interrupt takes begins the new
 // rate's segment. That packet may still be one sent at the old rate: one
 // received while the answer masked the interrupt, or, from a host that
@@ -527,6 +527,11 @@ static void start_task(uint32_t now) {
   if (r != U2PS_OPEN_DONE) {
     isr_stream = 0;
     log_line("usb fault start result=%s", name(open_results, ARRAY_SIZE(open_results), r));
+    if (r != U2PS_OPEN_NOT_PENDING) {
+      // Refused: the interface keeps alt 0 (u2ps_dev.h). Not pending: what
+      // cancelled the start has set the alt setting
+      stream_set_alt(0);
+    }
   }
 }
 
@@ -650,14 +655,17 @@ static void handle(const event_t *e) {
       break;
     case EV_RESET:
       // The stream and the configuration have ended; logged when there was
-      // one or an alt setting, not at the first reset of an enumeration
-      mounted = false;
+      // one or an alt setting, not at the first reset of an enumeration. A
+      // reset also ends a suspend, with no on_resume (u2ps_dev.h)
       counters_due = true;
-      if (status.streaming || status.alt != 0 || status.usb == USB_MOUNTED) {
+      if (status.streaming || status.alt != 0 || mounted) {
         reset_stream();
+        log_line("usb reset");
+      }
+      mounted = false;
+      if (status.usb != USB_NOT_MOUNTED) {
         status.usb = USB_NOT_MOUNTED;
         status_changed();
-        log_line("usb reset");
       }
       break;
     case EV_SUSPEND:

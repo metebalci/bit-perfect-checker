@@ -88,6 +88,15 @@ class UsbDescriptors(unittest.TestCase):
                     with self.subTest(formats=formats, speed=speed, name=name):
                         self.assertEqual(got.get((speed, name)), want[(speed, name)])
 
+    def test_formats_refused(self):
+        """Format lists the formats command refuses: numbers beyond a byte
+        must not wrap to a known format (272/258 is 16/2 modulo 256) nor
+        slip past the duplicate check."""
+        for formats in ("272/258", "16/2,272/258", "280/260", "16/2,16/2", "100/2", "16/", "/2", ""):
+            with self.subTest(formats=formats):
+                r = subprocess.run([self.exe, formats], capture_output=True, text=True)
+                self.assertEqual(r.returncode, 1, r.stdout[-3000:] + r.stderr[-3000:])
+
     def test_bcd_device(self):
         """bcdDevice 0x0104, as 1.1.1."""
         d = self.descriptors(ALL)[("high", "device")]

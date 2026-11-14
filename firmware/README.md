@@ -439,10 +439,10 @@ their meaning.
 | `usb mounted speed=full` | a host has set the device up at Full-Speed (a Full-Speed port, hub or cable on the way): the device offers no audio, so no stream can come |
 | `usb disconnected` | the cable was pulled (VBUS gone for 50 ms): once per pull, after the `result` and `stream stop` lines of a stream the pull cut and before `run start`, also when a host reset the bus first (`usb reset`) or never set the device up; or the host deconfigured the device while it was set up (SET_CONFIGURATION 0): a stream open then ends as at alt 0, with an `alt 0` line after this one and `reason=alt` |
 | `usb suspended`, `usb resumed` | the host suspended or resumed the bus; with VBUS still present the device stays connected. A pulled cable logs `usb suspended` first, since the USB controller sees only the bus going idle, and `usb disconnected` once VBUS has been gone for 50 ms: measured 45 to 49 ms later on the NUCLEO-U5A5ZJ-Q and the STM32U5G9J-DK2, about 0.3 s later on the STM32F723E-DISCO. The stream the pull cut stops with `reason=idle` when its 50 ms of idle pass first, else with `reason=reset`: at the pull the firmware reads the packets not read yet at once. Either way its `result` and `stream stop` lines come before `usb disconnected` |
-| `usb reset` | the host reset the bus while the device was set up: an open stream ends, its packets not read yet are still checked, and its `stream stop` line (`reason=reset`) follows this one once they are read (if the host opens the next stream first, those still unread count as overflows); the host enumerates the device again |
+| `usb reset` | the host reset the bus while the device was set up, also while it was suspended (no `usb resumed` line comes then): an open stream ends, its packets not read yet are still checked, and its `stream stop` line (`reason=reset`) follows this one once they are read (if the host opens the next stream first, those still unread count as overflows); the host enumerates the device again |
 | `usb disconnected`, `usb connecting` | the device leaves the bus to change its formats (the D+ pull-up goes off for 0.3 s), and comes back when that time has passed and VBUS is present. A stream the change ends is read at once: its `result` and `stream stop` lines (`reason=reset`) come before the `formats ... changed=1` answer and `usb disconnected` |
 | `usb connecting` | at start-up with VBUS present, before the LED test; or VBUS is back for 50 ms after a pull, or after a boot without VBUS: the device turns its D+ pull-up on, and the host enumerates it (`usb mounted`) |
-| `rate <Hz>` | the host set the sample rate; at boot, the rate the device reports before a host sets one (48000). During a stream the device answers the request and sets the stream boundary together, and logs this line only if the answer went out; a request cancelled before the answer (a bus reset, a detach or a new request) leaves the rate and the stream as they were, with no `rate` line |
+| `rate <Hz>` | the host set the sample rate; at boot, the rate the device reports before a host sets one (48000). During a stream the device answers the request and sets the stream boundary together, and logs this line only if the USB stack took the answer; a request cancelled before the answer (a bus reset, a detach or a new request) leaves the rate and the stream as they were, with no `rate` line |
 | `rate unsupported=<Hz>` | the host asked for a rate that is not offered (stalled) |
 | `alt <n> slot=<bytes> res=<bits>` | the host selected a streaming alt setting; `alt 0` closes it. The line comes when the host's request does (`alt 0` for an open stream once the USB stack has closed the stream), before the `result` and `stream stop reason=alt` lines of the stream it ended, which follow once that stream's packets are read; a `stream start` can follow it too, of a stream that began before the change (after a pause or a rate change, packets not yet read) and shows the old alt setting |
 | `stream start id=<n> rate=<Hz> alt=<n> slot=<bytes> res=<bits> allow_silence=<true/false>` | the first packet of stream `<n>`, counted from 1 since boot, with the allowed silence in effect |
@@ -459,8 +459,8 @@ their meaning.
 | `usb unsupported get/set entity=<id> ctrl=<n> req=<n>` | a class request the device does not answer |
 | `usb counters late_completions=<n> late=<n> no_buffer=<n> fb_recoveries=<n> errors=<n> release_errors=<n> uframe_back=<n> ev_lost=<n>` | the USB stack's counters, logged when one has changed, looked at every second and after each stream: packets whose re-arm came in a later microframe, microframes re-armed for too late, microframes without a buffer, feedback endpoint recoveries, port errors, buffer returns the stack ignored, packets not after the one before, and USB events the firmware lost, among them stream boundaries (a pause, a rate or alt setting change) that came while the main loop was eight segments behind, whose packets are then not checked ([Result lines](#result-lines)). `release_errors` and `uframe_back` count since the USB stack last started (at boot or a `formats` change), the others since boot. `ev_lost` above 0 is a fault: all LEDs light |
 | `usb init failed reason=<name> description=<name> port=<name>` | the USB stack did not start, so the device never attaches; all LEDs light. `reason` is u2ps's (`clock`, `power`, `security`, `phy`, `reset`, `mode`, `memory`, `description`, `port`, `dma_memory`, `timer`), `description` the rule of the device's description broken (`ok` if none), `port` the controller port's own reason (`ok`, `clock`, `power`, `tzen`, `phy`, `reset`, `mode`, `fifo`, `cycles`); `timer` and `cycles`: the CPU's cycle counter, which u2ps times its waits with, does not count |
-| `usb fault open reason=<name>` | the controller refused the buffers the firmware gave a stream (`count`, `mem_null`, `stride_short`, `stride_align`, `mem_align`, `not_dma`, `stream`): the alt setting stays 0, the host sees a stall, and all LEDs light |
-| `usb fault start result=<name>` | a stream start the firmware answered from its main loop did not open: `not_pending` (the host or a reset cancelled it before), `refused`, `fault` (with `usb fault open` after it) |
+| `usb fault open reason=<name>` | the controller refused the buffers the firmware gave a stream (`count`, `mem_null`, `stride_short`, `stride_align`, `mem_align`, `not_dma`, `stream`): the alt setting stays 0, with an `alt 0` line between `usb fault start result=fault` and this one, the host sees a stall, and all LEDs light |
+| `usb fault start result=<name>` | a stream start the firmware answered from its main loop did not open: `not_pending` (the host or a reset cancelled it before), `refused`, `fault` (with `usb fault open` after it); after `refused` and `fault` an `alt 0` line follows, as the alt setting stays 0 |
 | `usb fault start timeout` | the host's SET_INTERFACE for a stream start waited 30 ms for the firmware; its status stage then completes, and the stream may still open. All LEDs light: the packets the host sent before the open are lost, and the USB stack does not report them |
 | `usb fault close` | a stream's close took longer than 10 ms |
 | `usb fault queue not empty dropped=<n>` | a new stream opened while packets of the old one were still queued; they were dropped unread (`dropped`: how many), the stream opens all the same, and all LEDs light |
@@ -524,22 +524,25 @@ and 0 in the file's fields. The fields:
 
 The limits of `lost`, `ovf` and the frames checked:
 
-- The device keeps up to 1024 loss events not yet charged to a result.
-  Only when that queue is full, which takes more than 1024 holes in files
-  not yet finished, do later events merge into the newest one, so that
-  their counts can land on the result line of an earlier file.
+- The device keeps up to 1024 holes and overflow runs not yet charged to
+  a result. Only when that queue is full, which takes more than 1024 of
+  them in files not yet finished, do later ones merge into the newest one,
+  so that their counts can land on the result line of an earlier file.
 - The USB stack reports the microframes without a packet before the packet
   that ends them ([Load figures](#load-figures)). Microframes after the
   last packet the controller saw, at the end of a stream, are never
   counted. At a rate change, microframes without a packet between the old
   rate's last packet and the new rate's first count in neither stream, as
   at any stream's end; those the device re-armed for too late (`late`),
-  and packets that found no buffer, count in the old stream. A hole before
-  a packet the controller saw but did not deliver (an overflow) is reported
-  at the stream's stop or at the stack's long gap, and counts in that
-  stream. Overflows reported before a stream's first packet count in the
-  stream before it, at its end. A hole the stack reports in parts counts
-  once in `holes`, with its whole length.
+  and packets that found no buffer, count in the old stream while its
+  `stream stop` line has not come. Once it has (the old stream stopped
+  after 50 ms idle), they count in no stream, only in `usb counters`. A
+  hole before a packet the controller saw but did not deliver (an
+  overflow) is reported at the stream's stop or at the stack's long gap,
+  and counts in that stream. Overflows reported before a stream's first
+  packet count in the stream before it, at its end, likewise only while
+  its `stream stop` line has not come. A hole the stack reports in parts
+  counts once in `holes`, with its whole length.
 - When the host selects another alt setting, alt 0 included, or resets the
   bus, the packets the firmware has not read yet are still checked, over
   the next main-loop passes, and the stream's `result` and `stream stop`
@@ -643,6 +646,11 @@ a packet, as the USB stack reports them before the packet that ends them:
 the host sent none, the device re-armed too late (`late`), or the USB
 controller dropped a packet with a CRC error unseen, which counts as a
 microframe without a packet; a zero-length packet counts as one too.
+u2ps 0.1.1 loses one packet more in two cases (its README, "Known
+limits"): after a single microframe without a packet, the host's next
+packet is lost too, so the hole is one microframe longer than the host's
+gap; and after a packet the controller drops for a CRC error, the next
+packet is lost too. Both count in `missed`, not in `late`.
 The stack gives each packet its own microframe, so `doubled`, packets
 counted in the same microframe as the one before, is 0, and `lost` equals
 `missed`. The field stays in the log line. Microframes in which a packet
@@ -720,7 +728,7 @@ The DK2 has no blue LED, so its screen shows what blue shows
 | red, fast blink | the run has an `OVERRUN` result |
 | green, steady | the run's results are all `BIT_PERFECT` |
 | green and red off | nothing judged yet |
-| all on | fault, stopped |
+| all on | a fault: `usb init failed` (the device never attaches); a USB fault the firmware runs on after until a reset (`usb fault open`, `usb fault start timeout`, `usb fault queue not empty`, or `ev_lost` above 0 in `usb counters`); or the processor stopped in its fault handler |
 
 Green and red show the current **run**: every result since the last press of
 the user button (B1 on the NUCLEO-U5A5ZJ-Q and the F723, B2 on the DK2, or

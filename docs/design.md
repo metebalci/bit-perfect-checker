@@ -619,20 +619,31 @@ takes from u2ps:
   host's request until the firmware answers it from the main loop
   (`firmware/app/u2ps_glue.c`). For a rate change, the firmware answers the
   request and sets the stream boundary together, with interrupts off, and
-  only if the answer went out, so no packet of the old rate comes after the
-  boundary and none of the new rate before it, and a cancelled request
-  leaves the rate and the stream as they were; the old rate's packets are
-  checked over the next passes. For a stream start, the firmware sets the
-  new format, which ends the old stream, and opens the new one once the old
-  stream's packets are read, at most 20 ms after the request, since u2ps
-  holds it for at most 30 ms; the packets still unread then count as
-  overflows.
+  only if u2ps took the answer (`u2ps_dev_reply()` returns true; the
+  controller may still drop it if a new SETUP arrives), so no packet of the
+  new rate comes before the boundary, and a cancelled request leaves the
+  rate and the stream as they were. The first packet after the boundary may
+  still be one the host sent at the old rate: one received while the answer
+  masked the interrupt, or one sent after the status stage by a host that
+  streams through the request. It is checked in the new rate's stream. The
+  old rate's packets are checked over the next passes. For a stream start,
+  the firmware sets the new format, which ends the old stream, and opens
+  the new one once the old stream's packets are read, at most 20 ms after
+  the request, since u2ps holds it for at most 30 ms; the packets still
+  unread then count as overflows.
 
-The controller's "incomplete isochronous OUT" interrupt stays masked, and
-the misses come from the microframe numbers. Re-arming from that interrupt
-was measured: it comes at 80 % of the microframe, so it lost the packets
-that arrive later in the microframe, and the device missed more packets,
-not fewer.
+The misses come from the microframe numbers. u2ps 0.1.1 unmasks the
+controller's "incomplete isochronous OUT" interrupt (INCOMPISOOUT) while a
+stream is open, as evidence of a host gap: after two of them it makes the
+data endpoint's parity follow the bus until the next packet, so that the
+host's first packet after the gap is received in a microframe of either
+parity. It does not re-arm from that interrupt: in 1.1.x, re-arming from it
+was measured, and since it comes at 80 % of the microframe, it lost the
+packets that arrive later in the microframe, so the device missed more
+packets, not fewer. The follow costs one interrupt per microframe in a
+pause with the alt setting kept: about 1.07 % of the STM32F723's core and
+1.33 % of the STM32U5G9's, measured with a player that does not poll the
+feedback endpoint (u2ps README, "Changes in 0.1.1").
 
 ### The checker in the firmware
 

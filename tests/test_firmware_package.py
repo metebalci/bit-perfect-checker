@@ -17,6 +17,7 @@ import subprocess
 import tempfile
 import unittest
 import zipfile
+from unittest import mock
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 _spec = importlib.util.spec_from_file_location(
@@ -284,6 +285,39 @@ class Checks(unittest.TestCase):
             P.work_of("firmware/lib/newlib/memcpy.c")
         with self.assertRaises(P.PackageError):
             P.work_of("firmware/lib/u2ps2/x.c")
+
+
+@unittest.skipUnless(shutil.which("cmake") and shutil.which("git"), "no cmake or no git")
+class BuildEnv(unittest.TestCase):
+    def test_short_hash_length(self):
+        """The release's version string, and so the images' bytes, do not
+        follow git's core.abbrev: firmware/cmake/version.cmake under
+        build_env() gives a 7-digit hash in a repository that sets 12, and
+        with `git -c core.abbrev=12` in the caller's environment."""
+        git_env = {"GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_NOSYSTEM": "1",
+                   "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@example.org",
+                   "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@example.org"}
+        with tempfile.TemporaryDirectory() as d:
+            repo = os.path.join(os.path.realpath(d), "repo")
+            os.makedirs(os.path.join(repo, "firmware", "cmake"))
+            shutil.copy(os.path.join(ROOT, "firmware", "cmake", "version.cmake"),
+                        os.path.join(repo, "firmware", "cmake"))
+            with open(os.path.join(repo, "firmware", "VERSION"), "w") as f:
+                f.write("1.2.0\n")
+            env = dict(os.environ, **git_env)
+            for args in (["init", "--quiet"], ["config", "core.abbrev", "12"], ["add", "-A"],
+                         ["commit", "--quiet", "-m", "first"]):
+                subprocess.run(["git", *args], cwd=repo, env=env, check=True, capture_output=True)
+            head = subprocess.run(["git", "rev-parse", "HEAD"], cwd=repo, env=env, check=True,
+                                  capture_output=True, text=True).stdout.strip()
+            out = os.path.join(d, "version.h")
+            for extra in ({}, {"GIT_CONFIG_PARAMETERS": "'core.abbrev'='12'"}):
+                with self.subTest(extra=extra), mock.patch.dict(os.environ, dict(git_env, **extra)):
+                    subprocess.run(["cmake", f"-DSRC={repo}", f"-DOUT={out}", "-P",
+                                    os.path.join(repo, "firmware", "cmake", "version.cmake")],
+                                   env=P.build_env(), check=True, capture_output=True)
+                    with open(out) as f:
+                        self.assertEqual(f.read(), f'#define FW_VERSION "v1.2.0-{head[:7]}"\n')
 
 
 class Copyright(unittest.TestCase):

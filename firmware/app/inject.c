@@ -40,9 +40,7 @@ static uint32_t ns(uint32_t cycles) {
 // "inject passes [clear]": u2ps's handler time by kind of pass, one line per
 // kind: passes, the longest, the mean and the sum, in DWT cycles
 static void passes(bool clear) {
-  static const char *const kinds[U2PS_DWC2_PASS_KINDS] = {
-    "reset", "ep0_stop", "fb_flush", "setup", "out", "iiso", "eopf", "other",
-  };
+  static const char *const kinds[U2PS_DWC2_PASS_KINDS] = U2PS_DWC2_PASS_NAMES;
   u2ps_dwc2_passes_t p;
   u2ps_dwc2_passes_get(&p, clear);
   for (int k = 0; k < U2PS_DWC2_PASS_KINDS; k++) {

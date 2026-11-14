@@ -58,6 +58,10 @@
 //   rate <hz>        SET CUR of the sampling frequency
 //   reset            a bus reset, then the enumeration and the alt setting
 //                    and rate as before
+//   suspend          the bus goes idle: u2ps reports a suspend
+//   busreset         a bus reset only, with no enumeration after it
+//   refuse           the port refuses the class memory of the next stream
+//                    open (U2PS_FAULT_OPEN)
 //   closeslow <n>    the next alt 0 or setconfig of a stream leaves u2ps's close pending
 //                    for <n> passes of the main loop (DWC2 ends it over
 //                    several), then the port ends it: the stream's tail
@@ -92,7 +96,8 @@
 // the alt setting. At the end of the input no packet comes for 60 ms, so
 // the stream stops; then the lines "held <n>" (packets u2ps counts as held
 // by the app), "fifo_max <n>" (the most bytes received and not read yet,
-// load_fifo()) and the kit's verdict.
+// load_fifo()), "usb_fault <0/1>", "status usb=<usb_state_t> alt=<n>" (the
+// device's status) and the kit's verdict.
 
 #include <stdarg.h>
 #include <stdio.h>
@@ -506,6 +511,14 @@ int main(int argc, char **argv) {
     } else if (sscanf(line, "rate %llu", &a) == 1) {
       rate = (uint32_t) a;
       set_rate(rate);
+    } else if (strncmp(line, "suspend", 7) == 0) {
+      u2ps_testkit_dev_suspend();
+      loop();
+    } else if (strncmp(line, "busreset", 8) == 0) {
+      u2ps_testkit_dev_bus_reset(U2PS_SPEED_HIGH);
+      loop();
+    } else if (strncmp(line, "refuse", 6) == 0) {
+      u2ps_fake_open_result = false;
     } else if (strncmp(line, "reset", 5) == 0) {
       u2ps_testkit_dev_bus_reset(U2PS_SPEED_HIGH);
       loop();
@@ -518,5 +531,6 @@ int main(int argc, char **argv) {
   printf("%llu held %u\n", (unsigned long long) now, u2ps_testkit_dev_held());
   printf("%llu fifo_max %u\n", (unsigned long long) now, (unsigned) fifo_max);
   printf("%llu usb_fault %d\n", (unsigned long long) now, status.usb_fault ? 1 : 0);
+  printf("%llu status usb=%d alt=%u\n", (unsigned long long) now, (int) status.usb, status.alt);
   return u2ps_testkit_result();
 }
