@@ -557,7 +557,7 @@ submodule in `generator/third_party/alac`.
 The firmware uses:
 
 - [u2ps](https://github.com/metebalci/uac2-playback-stack)
-  (uac2-playback-stack, MIT), by Mete Balci, release 0.1.0, the USB Audio
+  (uac2-playback-stack, MIT), by Mete Balci, release 0.1.1, the USB Audio
   Class 2.0 playback stack, as the USB device stack (see the
   [firmware README](firmware/README.md#usb-stack))
 - ST's CMSIS device files ([STM32U5](https://github.com/STMicroelectronics/cmsis_device_u5),

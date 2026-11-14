@@ -568,7 +568,7 @@ The firmware uses u2ps, not ST's own USB middleware.
 
 ### u2ps
 
-The USB device stack is u2ps (uac2-playback-stack), release 0.1.0, a pinned
+The USB device stack is u2ps (uac2-playback-stack), release 0.1.1, a pinned
 submodule used unmodified (`firmware/lib/u2ps`). It is a USB Audio Class 2
 playback stack and nothing more: one audio function, with no class table and
 no generic endpoint API. The figures in [measurements.md](measurements.md)

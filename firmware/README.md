@@ -17,7 +17,7 @@ are the NUCLEO-U5A5ZJ-Q, the STM32F723E-DISCO and the STM32U5G9J-DK2
 | `shields/<shield>/` | an add-on for a board, such as a display shield; none yet |
 | `cmake/` | the toolchain file, the version stamp, the flash target, and `common.cmake`: folders, compile options and warnings, the board and family, the image |
 | `tools/` | `fontgen.py`, which turns [Spleen](https://github.com/fcambus/spleen) bitmap fonts into C arrays at build time, and `package.py`, which builds the release zip ([Release](#release)) |
-| `lib/` | pinned submodules: [u2ps](https://github.com/metebalci/uac2-playback-stack) 0.1.0, the USB device stack ([below](#usb-stack)), ST's CMSIS device files ([STM32U5](https://github.com/STMicroelectronics/cmsis_device_u5), [STM32F7](https://github.com/STMicroelectronics/cmsis_device_f7)) and HAL ([STM32U5](https://github.com/STMicroelectronics/stm32u5xx_hal_driver), [STM32F7](https://github.com/STMicroelectronics/stm32f7xx_hal_driver)), Arm's [CMSIS 5](https://github.com/ARM-software/CMSIS_5) core headers, and Spleen 2.2.0 for the screens' fonts |
+| `lib/` | pinned submodules: [u2ps](https://github.com/metebalci/uac2-playback-stack) 0.1.1, the USB device stack ([below](#usb-stack)), ST's CMSIS device files ([STM32U5](https://github.com/STMicroelectronics/cmsis_device_u5), [STM32F7](https://github.com/STMicroelectronics/cmsis_device_f7)) and HAL ([STM32U5](https://github.com/STMicroelectronics/stm32u5xx_hal_driver), [STM32F7](https://github.com/STMicroelectronics/stm32f7xx_hal_driver)), Arm's [CMSIS 5](https://github.com/ARM-software/CMSIS_5) core headers, and Spleen 2.2.0 for the screens' fonts |
 
 | Board | Family | Display |
 |---|---|---|
@@ -109,7 +109,7 @@ selects alt 3; all 32 bits still arrive. A Linux stream carries 17 to
 ### USB stack
 
 The USB device stack is [u2ps](https://github.com/metebalci/uac2-playback-stack)
-(uac2-playback-stack), release 0.1.0, the submodule `lib/u2ps`, used
+(uac2-playback-stack), release 0.1.1, the submodule `lib/u2ps`, used
 unmodified; `-DU2PS_DIR=<folder>` names another u2ps tree. The build sets
 u2ps's options: `U2PS_CHIP` from the board's `board.cmake`,
 `U2PS_DWC2_HSE_HZ` from its `HSE_VALUE`, `U2PS_ISO_OUT_COUNT_MAX` (the most
